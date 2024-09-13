@@ -33,6 +33,42 @@ func FuncArg[T any](from map[string]any, key string) (*T, error) {
 	return nil, nil // not found
 }
 
+// UploadFilesAndWait uploads files and wait for them to be ready
+func UploadFilesAndWait(ctx context.Context, client *genai.Client, files []io.Reader) (uploaded []genai.FileData, err error) {
+	uploaded = []genai.FileData{}
+	fileNames := []string{}
+
+	for i, file := range files {
+		if mime, recycledInput, err := readMimeAndRecycle(file); err == nil {
+			mimeType := stripCharsetFromMimeType(mime)
+
+			if supportedFileMimeType(mimeType) {
+				if file, err := client.UploadFile(ctx, "", recycledInput, &genai.UploadFileOptions{
+					MIMEType: mimeType,
+				}); err == nil {
+					uploaded = append(uploaded, genai.FileData{
+						MIMEType: file.MIMEType,
+						URI:      file.URI,
+					})
+
+					fileNames = append(fileNames, file.Name)
+				} else {
+					return nil, fmt.Errorf("failed to upload file[%d] for prompt: %s", i, err)
+				}
+			} else {
+				return nil, fmt.Errorf("MIME type of file[%d] not supported: %s", i, mimeType)
+			}
+		} else {
+			return nil, fmt.Errorf("failed to detect MIME type of file[%d]: %s", i, err)
+		}
+	}
+
+	// NOTE: wait for all the uploaded files to be ready
+	waitForFiles(ctx, client, fileNames)
+
+	return uploaded, nil
+}
+
 // get generative client and model
 func (c *Client) getClientAndModel(ctx context.Context, opts *GenerationOptions) (client *genai.Client, model *genai.GenerativeModel, err error) {
 	// client
@@ -83,34 +119,13 @@ func (c *Client) buildPromptParts(ctx context.Context, client *genai.Client, pro
 	}
 
 	// files
-	fileNames := []string{}
-	for i, file := range promptFiles {
-		if mime, recycledInput, err := readMimeAndRecycle(file); err == nil {
-			mimeType := stripCharsetFromMimeType(mime)
-
-			if supportedFileMimeType(mimeType) {
-				if file, err := client.UploadFile(ctx, "", recycledInput, &genai.UploadFileOptions{
-					MIMEType: mimeType,
-				}); err == nil {
-					parts = append(parts, genai.FileData{
-						MIMEType: file.MIMEType,
-						URI:      file.URI,
-					})
-
-					fileNames = append(fileNames, file.Name)
-				} else {
-					return nil, fmt.Errorf("failed to upload file[%d] for prompt: %s", i, err)
-				}
-			} else {
-				return nil, fmt.Errorf("MIME type of file[%d] not supported: %s", i, mimeType)
-			}
-		} else {
-			return nil, fmt.Errorf("failed to detect MIME type of file[%d]: %s", i, err)
+	if uploaded, err := UploadFilesAndWait(ctx, client, promptFiles); err == nil {
+		for _, part := range uploaded {
+			parts = append(parts, part)
 		}
+	} else {
+		return nil, fmt.Errorf("failed to upload files for prompt: %s", err)
 	}
-
-	// wait for files to be ready
-	waitForFiles(ctx, client, fileNames)
 
 	return parts, nil
 }
@@ -224,7 +239,7 @@ func supportedFileMimeType(mimeType string) bool {
 	}(mimeType)
 }
 
-// wait for all files to be active
+// wait for all given uploaded files to be active.
 func waitForFiles(ctx context.Context, client *genai.Client, fileNames []string) {
 	var wg sync.WaitGroup
 	for _, fileName := range fileNames {
@@ -256,7 +271,7 @@ func prettify(v any) string {
 	return fmt.Sprintf("%+v", v)
 }
 
-// convert error to string
+// convert error (possibly goolge api error) to string
 func errorString(err error) (error string) {
 	var gerr *googleapi.Error
 	if errors.As(err, &gerr) {

@@ -114,7 +114,7 @@ func TestGenerationNonStreamed(t *testing.T) {
 	); err != nil {
 		t.Errorf("failed to generate from text prompt: %s", err)
 	} else {
-		log.Printf("generated: %s", prettify(generated))
+		log.Printf(">>> generated: %s", prettify(generated))
 	}
 
 	// prompt with files
@@ -126,7 +126,7 @@ func TestGenerationNonStreamed(t *testing.T) {
 		); err != nil {
 			t.Errorf("failed to generate from text prompt and file: %s", err)
 		} else {
-			log.Printf("generated: %s", prettify(generated))
+			log.Printf(">>> generated: %s", prettify(generated))
 		}
 	} else {
 		t.Errorf("failed to open file for test: %s", err)
@@ -140,7 +140,7 @@ func TestGenerationNonStreamed(t *testing.T) {
 	); err != nil {
 		t.Errorf("failed to generate from text prompt and bytes: %s", err)
 	} else {
-		log.Printf("generated: %s", prettify(generated))
+		log.Printf(">>> generated: %s", prettify(generated))
 	}
 }
 
@@ -221,5 +221,75 @@ func TestGenerationWithFunctionCall(t *testing.T) {
 		},
 	); err != nil {
 		t.Errorf("failed to generate with function calls: %s", err)
+	}
+}
+
+// TestGenerationWithHistory tests generations with history.
+func TestGenerationWithHistory(t *testing.T) {
+	apiKey := mustHaveEnvVar(t, "API_KEY")
+
+	client := NewClient(modelForTest, apiKey)
+
+	// text-only prompt with history (streamed)
+	if err := client.GenerateStreamed(
+		context.TODO(),
+		"Isn't that 42?",
+		nil,
+		func(data StreamCallbackData) {
+			if data.TextDelta != nil {
+				fmt.Print(*data.TextDelta) // print text stream
+			} else if data.NumTokens != nil {
+				log.Printf(">>> input tokens: %d, output tokens: %d", data.NumTokens.Input, data.NumTokens.Output)
+			} else if data.FinishReason != nil {
+				t.Errorf("generation was finished with reason: %s", data.FinishReason.String())
+			} else if data.Error != nil {
+				t.Errorf("error while processing text generation: %s", data.Error)
+			}
+		},
+		&GenerationOptions{
+			History: []*genai.Content{
+				{
+					Role: "user",
+					Parts: []genai.Part{
+						genai.Text("What is the answer to life, the universe, and everything?"),
+					},
+				},
+				{
+					Role: "model",
+					Parts: []genai.Part{
+						genai.Text("43."),
+					},
+				},
+			},
+		},
+	); err != nil {
+		t.Errorf("failed to generate from text prompt and history: %s", err)
+	}
+
+	// text-only prompt with history
+	if generated, err := client.Generate(
+		context.TODO(),
+		"Isn't that 42?",
+		nil,
+		&GenerationOptions{
+			History: []*genai.Content{
+				{
+					Role: "user",
+					Parts: []genai.Part{
+						genai.Text("What is the answer to life, the universe, and everything?"),
+					},
+				},
+				{
+					Role: "model",
+					Parts: []genai.Part{
+						genai.Text("43."),
+					},
+				},
+			},
+		},
+	); err != nil {
+		t.Errorf("failed to generate from text prompt and history: %s", err)
+	} else {
+		log.Printf(">>> generated: %s", prettify(generated))
 	}
 }

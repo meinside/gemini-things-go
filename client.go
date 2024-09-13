@@ -59,6 +59,7 @@ type StreamCallbackData struct {
 type NumTokens struct {
 	Input  int32
 	Output int32
+	Cached int32
 }
 
 // function definitions
@@ -99,6 +100,9 @@ type GenerationOptions struct {
 	// tool config
 	Tools      []*genai.Tool
 	ToolConfig *genai.ToolConfig
+
+	// history (for session)
+	History []*genai.Content
 }
 
 // GenerateStreamed generates with given values synchronously.
@@ -136,6 +140,7 @@ func (c *Client) GenerateStreamed(
 	// number of tokens
 	var numTokensInput int32 = 0
 	var numTokensOutput int32 = 0
+	var numTokensCached int32 = 0
 
 	// check callback function
 	if fnStreamCallback == nil {
@@ -145,7 +150,11 @@ func (c *Client) GenerateStreamed(
 	}
 
 	// generate and stream response
-	iter := model.GenerateContentStream(ctx, prompts...)
+	session := model.StartChat()
+	if opts != nil && len(opts.History) > 0 {
+		session.History = opts.History
+	}
+	iter := session.SendMessageStream(ctx, prompts...)
 	for {
 		if it, err := iter.Next(); err == nil {
 			var candidate *genai.Candidate
@@ -154,8 +163,15 @@ func (c *Client) GenerateStreamed(
 
 			if len(it.Candidates) > 0 {
 				// update number of tokens
-				numTokensInput = it.UsageMetadata.PromptTokenCount
-				numTokensOutput = it.UsageMetadata.TotalTokenCount - it.UsageMetadata.PromptTokenCount
+				if numTokensInput < it.UsageMetadata.PromptTokenCount {
+					numTokensInput = it.UsageMetadata.PromptTokenCount
+				}
+				if numTokensOutput < it.UsageMetadata.TotalTokenCount-it.UsageMetadata.PromptTokenCount {
+					numTokensOutput = it.UsageMetadata.TotalTokenCount - it.UsageMetadata.PromptTokenCount
+				}
+				if numTokensCached < it.UsageMetadata.CachedContentTokenCount {
+					numTokensCached = it.UsageMetadata.CachedContentTokenCount
+				}
 
 				candidate = it.Candidates[0]
 				content = candidate.Content
@@ -203,6 +219,7 @@ func (c *Client) GenerateStreamed(
 		NumTokens: &NumTokens{
 			Input:  numTokensInput,
 			Output: numTokensOutput,
+			Cached: numTokensCached,
 		},
 	})
 
@@ -241,5 +258,9 @@ func (c *Client) Generate(
 	}
 
 	// generate and return the response
-	return model.GenerateContent(ctx, prompts...)
+	session := model.StartChat()
+	if opts != nil && len(opts.History) > 0 {
+		session.History = opts.History
+	}
+	return session.SendMessage(ctx, prompts...)
 }
