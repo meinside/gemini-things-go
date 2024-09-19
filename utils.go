@@ -90,9 +90,6 @@ func (c *Client) getClientAndModel(ctx context.Context, opts *GenerationOptions)
 		}
 	}
 
-	// safety filters (block only high)
-	model.SafetySettings = safetySettings(genai.HarmBlockThreshold(genai.HarmBlockOnlyHigh))
-
 	// tool configs
 	if opts != nil {
 		if len(opts.Tools) > 0 {
@@ -106,6 +103,13 @@ func (c *Client) getClientAndModel(ctx context.Context, opts *GenerationOptions)
 	// generation config
 	if opts != nil && opts.Config != nil {
 		model.GenerationConfig = *opts.Config
+	}
+
+	// safety settings for all categories (default: block only high)
+	if opts != nil && opts.HarmBlockThreshold != nil {
+		model.SafetySettings = safetySettings(*opts.HarmBlockThreshold)
+	} else {
+		model.SafetySettings = safetySettings(genai.HarmBlockOnlyHigh)
 	}
 
 	return

@@ -101,6 +101,9 @@ type GenerationOptions struct {
 	Tools      []*genai.Tool
 	ToolConfig *genai.ToolConfig
 
+	// safety settings: harm block threshold
+	HarmBlockThreshold *genai.HarmBlockThreshold
+
 	// history (for session)
 	History []*genai.Content
 }
