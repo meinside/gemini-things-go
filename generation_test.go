@@ -30,10 +30,10 @@ func mustHaveEnvVar(t *testing.T, key string) string {
 func TestGenerationStreamed(t *testing.T) {
 	apiKey := mustHaveEnvVar(t, "API_KEY")
 
-	client := NewClient(modelForTest, apiKey)
+	gtc := NewClient(modelForTest, apiKey)
 
 	// text-only prompt
-	if err := client.GenerateStreamed(
+	if err := gtc.GenerateStreamed(
 		context.TODO(),
 		"What is the answer to life, the universe, and everything?",
 		nil,
@@ -55,7 +55,7 @@ func TestGenerationStreamed(t *testing.T) {
 
 	// prompt with files
 	if file, err := os.Open("./client.go"); err == nil {
-		if err := client.GenerateStreamed(
+		if err := gtc.GenerateStreamed(
 			context.TODO(),
 			"What's the golang package name of this file? Can you give me a short sample code of using this file?",
 			[]io.Reader{file},
@@ -79,7 +79,7 @@ func TestGenerationStreamed(t *testing.T) {
 	}
 
 	// prompt with bytes array
-	if err := client.GenerateStreamed(
+	if err := gtc.GenerateStreamed(
 		context.TODO(),
 		"Translate the text in the given file into English.",
 		[]io.Reader{strings.NewReader("동해물과 백두산이 마르고 닳도록 하느님이 보우하사 우리나라 만세")},
@@ -104,10 +104,10 @@ func TestGenerationStreamed(t *testing.T) {
 func TestGenerationNonStreamed(t *testing.T) {
 	apiKey := mustHaveEnvVar(t, "API_KEY")
 
-	client := NewClient(modelForTest, apiKey)
+	gtc := NewClient(modelForTest, apiKey)
 
 	// text-only prompt
-	if generated, err := client.Generate(
+	if generated, err := gtc.Generate(
 		context.TODO(),
 		"What is the answer to life, the universe, and everything?",
 		nil,
@@ -119,7 +119,7 @@ func TestGenerationNonStreamed(t *testing.T) {
 
 	// prompt with files
 	if file, err := os.Open("./client.go"); err == nil {
-		if generated, err := client.Generate(
+		if generated, err := gtc.Generate(
 			context.TODO(),
 			"What's the golang package name of this file? Can you give me a short sample code of using this file?",
 			[]io.Reader{file},
@@ -133,7 +133,7 @@ func TestGenerationNonStreamed(t *testing.T) {
 	}
 
 	// prompt with bytes array
-	if generated, err := client.Generate(
+	if generated, err := gtc.Generate(
 		context.TODO(),
 		"Translate the text in the given file into English.",
 		[]io.Reader{strings.NewReader("동해물과 백두산이 마르고 닳도록 하느님이 보우하사 우리나라 만세")},
@@ -157,10 +157,10 @@ func TestGenerationWithFunctionCall(t *testing.T) {
 
 	apiKey := mustHaveEnvVar(t, "API_KEY")
 
-	client := NewClient(modelForTest, apiKey)
+	gtc := NewClient(modelForTest, apiKey)
 
 	// prompt with function calls
-	if err := client.GenerateStreamed(
+	if err := gtc.GenerateStreamed(
 		context.TODO(),
 		`Please generate an image which shows a man standing in front of a vast dessert. The man is watching an old pyramid completely destroyed by a giant sandstorm. The mood is sad and gloomy.`,
 		nil,
