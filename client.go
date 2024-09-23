@@ -43,6 +43,10 @@ type StreamCallbackData struct {
 	// when there is a function call,
 	FunctionCall *genai.FunctionCall
 
+	// when there is a code execution result,
+	ExecutableCode      *genai.ExecutableCode
+	CodeExecutionResult *genai.CodeExecutionResult
+
 	// when the number of tokens are calculated,
 	NumTokens *NumTokens
 
@@ -200,6 +204,14 @@ func (c *Client) GenerateStreamed(
 				} else if fc, ok := part.(genai.FunctionCall); ok { // (function call)
 					fnStreamCallback(StreamCallbackData{
 						FunctionCall: &fc,
+					})
+				} else if code, ok := part.(genai.ExecutableCode); ok { // (code execution: executable code)
+					fnStreamCallback(StreamCallbackData{
+						ExecutableCode: &code,
+					})
+				} else if result, ok := part.(genai.CodeExecutionResult); ok { // (code execution: result)
+					fnStreamCallback(StreamCallbackData{
+						CodeExecutionResult: &result,
 					})
 				} else {
 					fnStreamCallback(StreamCallbackData{

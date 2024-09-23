@@ -2,6 +2,7 @@ package gt
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -221,6 +222,114 @@ func TestGenerationWithFunctionCall(t *testing.T) {
 		},
 	); err != nil {
 		t.Errorf("failed to generate with function calls: %s", err)
+	}
+}
+
+// TestGenerationWithStructuredOutput tests generations with structured outputs.
+func TestGenerationWithStructuredOutput(t *testing.T) {
+	const (
+		paramNamePositivePrompt = "positive_prompt"
+		paramDescPositivePrompt = `A text prompt for generating images with image generation models(eg. Stable Diffusion, or DALL-E). This prompt describes what to be included in the resulting images. It should be in English and optimized following the image generation models' prompt guides.`
+		paramNameNegativePrompt = "negative_prompt"
+		paramDescNegativePrompt = `A text prompt for image generation models(eg. Stable Diffusion, or DALL-E) to define what not to be included in the resulting images. It should be in English and optimized following the image generation models' prompt guides.`
+	)
+
+	apiKey := mustHaveEnvVar(t, "API_KEY")
+
+	gtc := NewClient(modelForTest, apiKey)
+
+	// prompt with function calls
+	if generated, err := gtc.Generate(
+		context.TODO(),
+		`Extract and optimize positive and/or negative prompts from the following text for generating beautiful images: Please generate an image which shows a man standing in front of a vast dessert. The man is watching an old pyramid completely destroyed by a giant sandstorm. The mood is sad and gloomy.`,
+		nil,
+		&GenerationOptions{
+			Config: &genai.GenerationConfig{
+				ResponseMIMEType: "application/json",
+				ResponseSchema: &genai.Schema{
+					Type:     genai.TypeObject,
+					Nullable: false,
+					Properties: map[string]*genai.Schema{
+						paramNamePositivePrompt: {
+							Type:        genai.TypeString,
+							Description: paramDescPositivePrompt,
+							Nullable:    false,
+						},
+						paramNameNegativePrompt: {
+							Type:        genai.TypeString,
+							Description: paramDescNegativePrompt,
+							Nullable:    true,
+						},
+					},
+					Required: []string{paramNamePositivePrompt, paramNameNegativePrompt},
+				},
+			},
+		},
+	); err == nil {
+		for _, part := range generated.Candidates[0].Content.Parts {
+			if text, ok := part.(genai.Text); ok {
+				var args map[string]any
+				if err := json.Unmarshal([]byte(text), &args); err == nil {
+					positivePrompt, _ := FuncArg[string](args, paramNamePositivePrompt)
+					negativePrompt, _ := FuncArg[string](args, paramNameNegativePrompt)
+
+					if positivePrompt != nil {
+						log.Printf(">>> positive prompt: %s", *positivePrompt)
+
+						if negativePrompt != nil {
+							log.Printf(">>> negative prompt: %s", *negativePrompt)
+						}
+					} else {
+						t.Errorf("failed to parse structured output (%s)", prettify(args))
+					}
+				} else {
+					t.Errorf("failed to parse structured output text '%s': %s", text, err)
+				}
+			} else {
+				t.Errorf("wrong type of generated part: (%T) %s", part, prettify(part))
+			}
+		}
+	} else {
+		t.Errorf("failed to generate with structured output: %s", err)
+	}
+}
+
+// TestGenerationWithCodeExecution tests generations with code executions.
+func TestGenerationWithCodeExecution(t *testing.T) {
+	apiKey := mustHaveEnvVar(t, "API_KEY")
+
+	gtc := NewClient(modelForTest, apiKey)
+
+	// prompt with function calls
+	if generated, err := gtc.Generate(
+		context.TODO(),
+		`Generate unique 6 numbers between 1 and 45. Make sure there is no duplicated number, and list the numbers in ascending order.`,
+		nil,
+		&GenerationOptions{
+			Tools: []*genai.Tool{
+				{
+					CodeExecution: &genai.CodeExecution{},
+				},
+			},
+		},
+	); err == nil {
+		for _, part := range generated.Candidates[0].Content.Parts {
+			if text, ok := part.(genai.Text); ok {
+				log.Printf(">>> generated text: %s", text)
+			} else if code, ok := part.(*genai.ExecutableCode); ok {
+				log.Printf(">>> executable code (%s):\n%s", code.Language.String(), code.Code)
+			} else if result, ok := part.(*genai.CodeExecutionResult); ok {
+				if result.Outcome != genai.CodeExecutionResultOutcomeOK {
+					t.Errorf("code execution failed: %s", prettify(result))
+				} else {
+					log.Printf(">>> code output: %s", result.Output)
+				}
+			} else {
+				t.Errorf("wrong type of generated part: (%T) %s", part, prettify(part))
+			}
+		}
+	} else {
+		t.Errorf("failed to generate with code execution: %s", err)
 	}
 }
 
