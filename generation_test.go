@@ -30,8 +30,10 @@ func mustHaveEnvVar(t *testing.T, key string) string {
 // TestGenerationStreamed tests various types of generations (streamed).
 func TestGenerationStreamed(t *testing.T) {
 	apiKey := mustHaveEnvVar(t, "API_KEY")
+	isVerbose := os.Getenv("VERBOSE") == "true"
 
 	gtc := NewClient(modelForTest, apiKey)
+	gtc.Verbose = isVerbose
 
 	// text-only prompt
 	if err := gtc.GenerateStreamed(
