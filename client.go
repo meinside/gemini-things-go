@@ -47,7 +47,7 @@ type StreamCallbackData struct {
 	ExecutableCode      *genai.ExecutableCode
 	CodeExecutionResult *genai.CodeExecutionResult
 
-	// when the number of tokens are calculated,
+	// when the number of tokens are calculated, (after the stream is finished)
 	NumTokens *NumTokens
 
 	// when there is a finish reason,
@@ -130,6 +130,10 @@ func (c *Client) GenerateStreamed(
 		opts = options[0]
 	}
 
+	if c.Verbose {
+		log.Printf("> generating streamed content with prompt '%s' and %d files (options: %s)", promptText, len(promptFiles), prettify(opts))
+	}
+
 	// generate client and model
 	client, model, err := c.getClientAndModel(ctx, opts)
 	if err != nil {
@@ -164,6 +168,10 @@ func (c *Client) GenerateStreamed(
 	iter := session.SendMessageStream(ctx, prompts...)
 	for {
 		if it, err := iter.Next(); err == nil {
+			if c.Verbose {
+				log.Printf("> iterating stream response: %s", prettify(it))
+			}
+
 			var candidate *genai.Candidate
 			var content *genai.Content
 			var parts []genai.Part
@@ -213,7 +221,7 @@ func (c *Client) GenerateStreamed(
 					fnStreamCallback(StreamCallbackData{
 						CodeExecutionResult: &result,
 					})
-				} else {
+				} else { // NOTE: TODO: add more conditions here
 					fnStreamCallback(StreamCallbackData{
 						Error: fmt.Errorf("unsupported type of part for streaming: %s", prettify(part)),
 					})
@@ -256,6 +264,10 @@ func (c *Client) Generate(
 	var opts *GenerationOptions = nil
 	if len(options) > 0 {
 		opts = options[0]
+	}
+
+	if c.Verbose {
+		log.Printf("> generating content with prompt '%s' and %d files (options: %s)", promptText, len(promptFiles), prettify(opts))
 	}
 
 	// generate client and model
