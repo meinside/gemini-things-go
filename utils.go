@@ -177,7 +177,7 @@ func supportedFileMimeType(mimeType string) bool {
 		switch {
 		// images
 		//
-		// https://ai.google.dev/gemini-api/docs/vision?lang=go
+		// https://ai.google.dev/gemini-api/docs/vision?lang=go#technical-details-image
 		case slices.Contains([]string{
 			"image/png",
 			"image/jpeg",
@@ -188,7 +188,7 @@ func supportedFileMimeType(mimeType string) bool {
 			return true
 		// audios
 		//
-		// https://ai.google.dev/gemini-api/docs/audio?lang=go
+		// https://ai.google.dev/gemini-api/docs/audio?lang=go#supported-formats
 		case slices.Contains([]string{
 			"audio/wav",
 			"audio/mp3",
@@ -200,7 +200,7 @@ func supportedFileMimeType(mimeType string) bool {
 			return true
 		// videos
 		//
-		// https://ai.google.dev/gemini-api/docs/vision?lang=go
+		// https://ai.google.dev/gemini-api/docs/vision?lang=go#technical-details-video
 		case slices.Contains([]string{
 			"video/mp4",
 			"video/mpeg",
@@ -215,12 +215,18 @@ func supportedFileMimeType(mimeType string) bool {
 			return true
 		// document formats
 		//
-		// https://ai.google.dev/gemini-api/docs/document-processing?lang=go
+		// https://ai.google.dev/gemini-api/docs/document-processing?lang=go#technical-details
 		case slices.Contains([]string{
 			"application/pdf",
+			"application/x-javascript", "text/javascript",
+			"application/x-python", "text/x-python",
 			"text/plain",
-			"text/csv",
 			"text/html",
+			"text/css",
+			"text/md",
+			"text/csv",
+			"text/xml",
+			"text/rtf",
 		}, mimeType):
 			return true
 		default:
