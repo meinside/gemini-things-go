@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"slices"
-	"strings"
 	"sync"
 	"time"
 
@@ -39,12 +38,10 @@ func UploadFilesAndWait(ctx context.Context, client *genai.Client, files []io.Re
 	fileNames := []string{}
 
 	for i, file := range files {
-		if mime, recycledInput, err := readMimeAndRecycle(file); err == nil {
-			mimeType := stripCharsetFromMimeType(mime)
-
-			if supportedFileMimeType(mimeType) {
+		if mimeType, recycledInput, err := readMimeAndRecycle(file); err == nil {
+			if matchedMimeType, supported := checkMimeType(mimeType); supported {
 				if file, err := client.UploadFile(ctx, "", recycledInput, &genai.UploadFileOptions{
-					MIMEType: mimeType,
+					MIMEType: matchedMimeType,
 				}); err == nil {
 					uploaded = append(uploaded, genai.FileData{
 						MIMEType: file.MIMEType,
@@ -56,7 +53,7 @@ func UploadFilesAndWait(ctx context.Context, client *genai.Client, files []io.Re
 					return nil, fmt.Errorf("failed to upload file[%d] for prompt: %s", i, err)
 				}
 			} else {
-				return nil, fmt.Errorf("MIME type of file[%d] not supported: %s", i, mimeType)
+				return nil, fmt.Errorf("MIME type of file[%d] not supported: %s", i, mimeType.String())
 			}
 		} else {
 			return nil, fmt.Errorf("failed to detect MIME type of file[%d]: %s", i, err)
@@ -163,45 +160,37 @@ func safetySettings(threshold genai.HarmBlockThreshold) (settings []*genai.Safet
 	return settings
 }
 
-// strip trailing charset text from given mime type
-func stripCharsetFromMimeType(mimeType string) string {
-	splitted := strings.Split(mimeType, ";")
-	return splitted[0]
-}
-
-// check if given file's mime type is supported
+// check if given file's mime type is matched and supported
 //
 // https://ai.google.dev/gemini-api/docs/prompting_with_media?lang=go#supported_file_formats
-func supportedFileMimeType(mimeType string) bool {
-	return func(mimeType string) bool {
+func checkMimeType(mimeType *mimetype.MIME) (matched string, supported bool) {
+	return func(mimeType *mimetype.MIME) (matchedMimeType string, supportedMimeType bool) {
+		matchedMimeType = mimeType.String() // fallback
+
 		switch {
-		// images
-		//
-		// https://ai.google.dev/gemini-api/docs/vision?lang=go#technical-details-image
-		case slices.Contains([]string{
+		case slices.ContainsFunc([]string{
+			// images
+			//
+			// https://ai.google.dev/gemini-api/docs/vision?lang=go#technical-details-image
 			"image/png",
 			"image/jpeg",
 			"image/webp",
 			"image/heic",
 			"image/heif",
-		}, mimeType):
-			return true
-		// audios
-		//
-		// https://ai.google.dev/gemini-api/docs/audio?lang=go#supported-formats
-		case slices.Contains([]string{
+
+			// audios
+			//
+			// https://ai.google.dev/gemini-api/docs/audio?lang=go#supported-formats
 			"audio/wav",
 			"audio/mp3",
 			"audio/aiff",
 			"audio/aac",
 			"audio/ogg",
 			"audio/flac",
-		}, mimeType):
-			return true
-		// videos
-		//
-		// https://ai.google.dev/gemini-api/docs/vision?lang=go#technical-details-video
-		case slices.Contains([]string{
+
+			// videos
+			//
+			// https://ai.google.dev/gemini-api/docs/vision?lang=go#technical-details-video
 			"video/mp4",
 			"video/mpeg",
 			"video/mov",
@@ -211,12 +200,10 @@ func supportedFileMimeType(mimeType string) bool {
 			"video/webm",
 			"video/wmv",
 			"video/3gpp",
-		}, mimeType):
-			return true
-		// document formats
-		//
-		// https://ai.google.dev/gemini-api/docs/document-processing?lang=go#technical-details
-		case slices.Contains([]string{
+
+			// document formats
+			//
+			// https://ai.google.dev/gemini-api/docs/document-processing?lang=go#technical-details
 			"application/pdf",
 			"application/x-javascript", "text/javascript",
 			"application/x-python", "text/x-python",
@@ -227,10 +214,16 @@ func supportedFileMimeType(mimeType string) bool {
 			"text/csv",
 			"text/xml",
 			"text/rtf",
-		}, mimeType):
-			return true
-		default:
-			return false
+		}, func(element string) bool {
+			if mimeType.Is(element) { // supported,
+				matchedMimeType = element
+				return true
+			}
+			return false // matched but not supported,
+		}): // matched,
+			return matchedMimeType, true
+		default: // not matched, or not supported
+			return matchedMimeType, false
 		}
 	}(mimeType)
 }
@@ -280,7 +273,7 @@ func errorString(err error) (error string) {
 // read mime type of given input
 //
 // https://pkg.go.dev/github.com/gabriel-vasile/mimetype#example-package-DetectReader
-func readMimeAndRecycle(input io.Reader) (mimeType string, recycled io.Reader, err error) {
+func readMimeAndRecycle(input io.Reader) (mimeType *mimetype.MIME, recycled io.Reader, err error) {
 	// header will store the bytes mimetype uses for detection.
 	header := bytes.NewBuffer(nil)
 
@@ -294,5 +287,5 @@ func readMimeAndRecycle(input io.Reader) (mimeType string, recycled io.Reader, e
 	// recycled now contains the complete, original data.
 	recycled = io.MultiReader(header, input)
 
-	return mtype.String(), recycled, err
+	return mtype, recycled, err
 }
