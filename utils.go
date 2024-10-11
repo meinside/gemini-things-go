@@ -32,8 +32,8 @@ func FuncArg[T any](from map[string]any, key string) (*T, error) {
 	return nil, nil // not found
 }
 
-// UploadFilesAndWait uploads files and wait for them to be ready
-func UploadFilesAndWait(ctx context.Context, client *genai.Client, files []io.Reader) (uploaded []genai.FileData, err error) {
+// upload files for prompt and wait for them to be ready
+func uploadPromptFilesAndWait(ctx context.Context, client *genai.Client, files []io.Reader) (uploaded []genai.FileData, err error) {
 	uploaded = []genai.FileData{}
 	fileNames := []string{}
 
@@ -120,7 +120,7 @@ func (c *Client) buildPromptParts(ctx context.Context, client *genai.Client, pro
 	}
 
 	// files
-	if uploaded, err := UploadFilesAndWait(ctx, client, promptFiles); err == nil {
+	if uploaded, err := uploadPromptFilesAndWait(ctx, client, promptFiles); err == nil {
 		for _, part := range uploaded {
 			parts = append(parts, part)
 		}
