@@ -190,7 +190,7 @@ func TestGenerationWithFunctionCall(t *testing.T) {
 			} else if data.Error != nil {
 				t.Errorf("failed to generate with function calls: %s", data.Error)
 			} else {
-				t.Fatalf("should not reach here")
+				t.Fatalf("should not reach here, data: %s", prettify(data))
 			}
 		},
 		&GenerationOptions{
