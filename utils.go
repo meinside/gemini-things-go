@@ -33,7 +33,7 @@ func FuncArg[T any](from map[string]any, key string) (*T, error) {
 }
 
 // upload files for prompt and wait for them to be ready
-func uploadPromptFilesAndWait(ctx context.Context, client *genai.Client, files []io.Reader) (uploaded []genai.FileData, err error) {
+func uploadFilesAndWait(ctx context.Context, client *genai.Client, files []io.Reader) (uploaded []genai.FileData, err error) {
 	uploaded = []genai.FileData{}
 	fileNames := []string{}
 
@@ -64,6 +64,19 @@ func uploadPromptFilesAndWait(ctx context.Context, client *genai.Client, files [
 	waitForFiles(ctx, client, fileNames)
 
 	return uploaded, nil
+}
+
+// UploadFilesAndWait uploads files and wait for them to be ready.
+func (c *Client) UploadFilesAndWait(ctx context.Context, files []io.Reader) (uploaded []genai.FileData, err error) {
+	// generate genai client
+	var client *genai.Client
+	client, err = genai.NewClient(ctx, option.WithAPIKey(c.apiKey))
+	if err != nil {
+		return nil, fmt.Errorf("failed to get client for upload: %s", err)
+	}
+	defer client.Close()
+
+	return uploadFilesAndWait(ctx, client, files)
 }
 
 // get generative client and model
@@ -120,7 +133,7 @@ func (c *Client) buildPromptParts(ctx context.Context, client *genai.Client, pro
 	}
 
 	// files
-	if uploaded, err := uploadPromptFilesAndWait(ctx, client, promptFiles); err == nil {
+	if uploaded, err := uploadFilesAndWait(ctx, client, promptFiles); err == nil {
 		for _, part := range uploaded {
 			parts = append(parts, part)
 		}
