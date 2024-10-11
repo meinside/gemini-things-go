@@ -113,7 +113,7 @@ type GenerationOptions struct {
 }
 
 // generate stream iterator with given values
-func (c *Client) generateStreamIterated(
+func (c *Client) generateStream(
 	ctx context.Context,
 	promptText string,
 	promptFiles []io.Reader,
@@ -153,17 +153,15 @@ func (c *Client) generateStreamIterated(
 }
 
 // GenerateStreamIterated generates stream iterator with given values.
+//
+// Does not timeout itself.
 func (c *Client) GenerateStreamIterated(
 	ctx context.Context,
 	promptText string,
 	promptFiles []io.Reader,
 	options ...*GenerationOptions,
 ) (iterator *genai.GenerateContentResponseIterator, err error) {
-	// set timeout
-	ctx, cancel := context.WithTimeout(ctx, time.Duration(c.timeoutSeconds)*time.Second)
-	defer cancel()
-
-	return c.generateStreamIterated(ctx, promptText, promptFiles, options...)
+	return c.generateStream(ctx, promptText, promptFiles, options...)
 }
 
 // GenerateStreamed generates with given values synchronously.
@@ -178,7 +176,7 @@ func (c *Client) GenerateStreamed(
 	ctx, cancel := context.WithTimeout(ctx, time.Duration(c.timeoutSeconds)*time.Second)
 	defer cancel()
 
-	if iter, err := c.generateStreamIterated(ctx, promptText, promptFiles, options...); err == nil {
+	if iter, err := c.generateStream(ctx, promptText, promptFiles, options...); err == nil {
 		// number of tokens
 		var numTokensInput int32 = 0
 		var numTokensOutput int32 = 0
