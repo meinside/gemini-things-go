@@ -112,18 +112,13 @@ type GenerationOptions struct {
 	History []*genai.Content
 }
 
-// GenerateStreamed generates with given values synchronously.
-func (c *Client) GenerateStreamed(
+// generate stream iterator with given values
+func (c *Client) generateStreamIterated(
 	ctx context.Context,
 	promptText string,
 	promptFiles []io.Reader,
-	fnStreamCallback FnStreamCallback,
 	options ...*GenerationOptions,
-) error {
-	// set timeout
-	ctx, cancel := context.WithTimeout(ctx, time.Duration(c.timeoutSeconds)*time.Second)
-	defer cancel()
-
+) (iterator *genai.GenerateContentResponseIterator, err error) {
 	// generation options
 	var opts *GenerationOptions = nil
 	if len(options) > 0 {
@@ -137,7 +132,7 @@ func (c *Client) GenerateStreamed(
 	// generate client and model
 	client, model, err := c.getClientAndModel(ctx, opts)
 	if err != nil {
-		return fmt.Errorf("failed to get client and model: %s", err)
+		return nil, fmt.Errorf("failed to get client and model: %s", err)
 	}
 	defer client.Close()
 
@@ -145,19 +140,7 @@ func (c *Client) GenerateStreamed(
 	var prompts []genai.Part
 	prompts, err = c.buildPromptParts(ctx, client, promptText, promptFiles)
 	if err != nil {
-		return fmt.Errorf("failed to build prompts: %s", err)
-	}
-
-	// number of tokens
-	var numTokensInput int32 = 0
-	var numTokensOutput int32 = 0
-	var numTokensCached int32 = 0
-
-	// check callback function
-	if fnStreamCallback == nil {
-		fnStreamCallback = func(callbackData StreamCallbackData) {
-			log.Printf("> stream callback data: %s", prettify(callbackData))
-		}
+		return nil, fmt.Errorf("failed to build prompts: %s", err)
 	}
 
 	// generate and stream response
@@ -165,86 +148,128 @@ func (c *Client) GenerateStreamed(
 	if opts != nil && len(opts.History) > 0 {
 		session.History = opts.History
 	}
-	iter := session.SendMessageStream(ctx, prompts...)
-	for {
-		if it, err := iter.Next(); err == nil {
-			if c.Verbose {
-				log.Printf("> iterating stream response: %s", prettify(it))
+
+	return session.SendMessageStream(ctx, prompts...), nil
+}
+
+// GenerateStreamIterated generates stream iterator with given values.
+func (c *Client) GenerateStreamIterated(
+	ctx context.Context,
+	promptText string,
+	promptFiles []io.Reader,
+	options ...*GenerationOptions,
+) (iterator *genai.GenerateContentResponseIterator, err error) {
+	// set timeout
+	ctx, cancel := context.WithTimeout(ctx, time.Duration(c.timeoutSeconds)*time.Second)
+	defer cancel()
+
+	return c.generateStreamIterated(ctx, promptText, promptFiles, options...)
+}
+
+// GenerateStreamed generates with given values synchronously.
+func (c *Client) GenerateStreamed(
+	ctx context.Context,
+	promptText string,
+	promptFiles []io.Reader,
+	fnStreamCallback FnStreamCallback,
+	options ...*GenerationOptions,
+) error {
+	// set timeout
+	ctx, cancel := context.WithTimeout(ctx, time.Duration(c.timeoutSeconds)*time.Second)
+	defer cancel()
+
+	if iter, err := c.generateStreamIterated(ctx, promptText, promptFiles, options...); err == nil {
+		// number of tokens
+		var numTokensInput int32 = 0
+		var numTokensOutput int32 = 0
+		var numTokensCached int32 = 0
+
+		for {
+			if it, err := iter.Next(); err == nil {
+				if c.Verbose {
+					log.Printf("> iterating stream response: %s", prettify(it))
+				}
+
+				var candidate *genai.Candidate
+				var content *genai.Content
+				var parts []genai.Part
+
+				if len(it.Candidates) > 0 {
+					// update number of tokens
+					if numTokensInput < it.UsageMetadata.PromptTokenCount {
+						numTokensInput = it.UsageMetadata.PromptTokenCount
+					}
+					if numTokensOutput < it.UsageMetadata.TotalTokenCount-it.UsageMetadata.PromptTokenCount {
+						numTokensOutput = it.UsageMetadata.TotalTokenCount - it.UsageMetadata.PromptTokenCount
+					}
+					if numTokensCached < it.UsageMetadata.CachedContentTokenCount {
+						numTokensCached = it.UsageMetadata.CachedContentTokenCount
+					}
+
+					candidate = it.Candidates[0]
+					content = candidate.Content
+
+					if content != nil && len(content.Parts) > 0 {
+						parts = content.Parts
+					} else if candidate.FinishReason > 0 {
+						fnStreamCallback(StreamCallbackData{
+							FinishReason: &candidate.FinishReason,
+						})
+					} else {
+						fnStreamCallback(StreamCallbackData{
+							Error: fmt.Errorf("no content in candidate: %s", prettify(candidate)),
+						})
+					}
+				}
+
+				for _, part := range parts {
+					if text, ok := part.(genai.Text); ok { // (text)
+						fnStreamCallback(StreamCallbackData{
+							TextDelta: genai.Ptr(string(text)),
+						})
+					} else if fc, ok := part.(genai.FunctionCall); ok { // (function call)
+						fnStreamCallback(StreamCallbackData{
+							FunctionCall: &fc,
+						})
+					} else if code, ok := part.(genai.ExecutableCode); ok { // (code execution: executable code)
+						fnStreamCallback(StreamCallbackData{
+							ExecutableCode: &code,
+						})
+					} else if result, ok := part.(genai.CodeExecutionResult); ok { // (code execution: result)
+						fnStreamCallback(StreamCallbackData{
+							CodeExecutionResult: &result,
+						})
+					} else { // NOTE: TODO: add more conditions here
+						fnStreamCallback(StreamCallbackData{
+							Error: fmt.Errorf("unsupported type of part for streaming: %s", prettify(part)),
+						})
+					}
+				}
+			} else {
+				if err != iterator.Done {
+					fnStreamCallback(StreamCallbackData{
+						Error: fmt.Errorf("failed to iterate stream: %s", errorString(err)),
+					})
+				}
+				break
 			}
-
-			var candidate *genai.Candidate
-			var content *genai.Content
-			var parts []genai.Part
-
-			if len(it.Candidates) > 0 {
-				// update number of tokens
-				if numTokensInput < it.UsageMetadata.PromptTokenCount {
-					numTokensInput = it.UsageMetadata.PromptTokenCount
-				}
-				if numTokensOutput < it.UsageMetadata.TotalTokenCount-it.UsageMetadata.PromptTokenCount {
-					numTokensOutput = it.UsageMetadata.TotalTokenCount - it.UsageMetadata.PromptTokenCount
-				}
-				if numTokensCached < it.UsageMetadata.CachedContentTokenCount {
-					numTokensCached = it.UsageMetadata.CachedContentTokenCount
-				}
-
-				candidate = it.Candidates[0]
-				content = candidate.Content
-
-				if content != nil && len(content.Parts) > 0 {
-					parts = content.Parts
-				} else if candidate.FinishReason > 0 {
-					fnStreamCallback(StreamCallbackData{
-						FinishReason: &candidate.FinishReason,
-					})
-				} else {
-					fnStreamCallback(StreamCallbackData{
-						Error: fmt.Errorf("no content in candidate: %s", prettify(candidate)),
-					})
-				}
-			}
-
-			for _, part := range parts {
-				if text, ok := part.(genai.Text); ok { // (text)
-					fnStreamCallback(StreamCallbackData{
-						TextDelta: genai.Ptr(string(text)),
-					})
-				} else if fc, ok := part.(genai.FunctionCall); ok { // (function call)
-					fnStreamCallback(StreamCallbackData{
-						FunctionCall: &fc,
-					})
-				} else if code, ok := part.(genai.ExecutableCode); ok { // (code execution: executable code)
-					fnStreamCallback(StreamCallbackData{
-						ExecutableCode: &code,
-					})
-				} else if result, ok := part.(genai.CodeExecutionResult); ok { // (code execution: result)
-					fnStreamCallback(StreamCallbackData{
-						CodeExecutionResult: &result,
-					})
-				} else { // NOTE: TODO: add more conditions here
-					fnStreamCallback(StreamCallbackData{
-						Error: fmt.Errorf("unsupported type of part for streaming: %s", prettify(part)),
-					})
-				}
-			}
-		} else {
-			if err != iterator.Done {
-				fnStreamCallback(StreamCallbackData{
-					Error: fmt.Errorf("failed to iterate stream: %s", errorString(err)),
-				})
-			}
-			break
 		}
-	}
 
-	// pass the number of tokens
-	fnStreamCallback(StreamCallbackData{
-		NumTokens: &NumTokens{
-			Input:  numTokensInput,
-			Output: numTokensOutput,
-			Cached: numTokensCached,
-		},
-	})
+		// pass the number of tokens
+		fnStreamCallback(StreamCallbackData{
+			NumTokens: &NumTokens{
+				Input:  numTokensInput,
+				Output: numTokensOutput,
+				Cached: numTokensCached,
+			},
+		})
+	} else {
+		fnStreamCallback(StreamCallbackData{
+			Error: fmt.Errorf("failed to generate stream: %s", errorString(err)),
+		})
+
+		return fmt.Errorf("failed to generate stream: %s", err)
+	}
 
 	return nil
 }
