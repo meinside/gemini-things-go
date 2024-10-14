@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"slices"
 	"sync"
 	"time"
@@ -239,6 +240,14 @@ func checkMimeType(mimeType *mimetype.MIME) (matched string, supported bool) {
 			return matchedMimeType, false
 		}
 	}(mimeType)
+}
+
+// SupportedMimeType detects and returns the matched mime type of given data and whether it's supported or not.
+func SupportedMimeType(data []byte) (matchedMimeType string, supported bool) {
+	if mimeType, err := mimetype.DetectReader(bytes.NewReader(data)); err == nil {
+		return checkMimeType(mimeType)
+	}
+	return http.DetectContentType(data), false
 }
 
 // wait for all given uploaded files to be active.
