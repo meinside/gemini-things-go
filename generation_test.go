@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/google/generative-ai-go/genai"
+	"google.golang.org/api/iterator"
 )
 
 const (
@@ -25,6 +26,83 @@ func mustHaveEnvVar(t *testing.T, key string) string {
 		return value
 	}
 	return ""
+}
+
+// TestGenerationIterated tests various types of generations (iterator).
+func TestGenerationIterated(t *testing.T) {
+	apiKey := mustHaveEnvVar(t, "API_KEY")
+
+	gtc := NewClient(modelForTest, apiKey)
+
+	// text-only prompt
+	if iterated, err := gtc.GenerateStreamIterated(
+		context.TODO(),
+		"What is the answer to life, the universe, and everything?",
+		nil,
+	); err != nil {
+		t.Errorf("failed to generate from text prompt: %s", err)
+	} else {
+		log.Printf(">>> generated iterator: %s", prettify(iterated))
+
+		for {
+			if it, err := iterated.Next(); err == nil {
+				log.Printf(">>> iterating response: %s", prettify(it))
+			} else {
+				if err != iterator.Done {
+					t.Errorf("failed to iterate stream: %s", err)
+				}
+				break
+			}
+		}
+	}
+
+	// prompt with files
+	if file, err := os.Open("./client.go"); err == nil {
+		if iterated, err := gtc.GenerateStreamIterated(
+			context.TODO(),
+			"What's the golang package name of this file? Can you give me a short sample code of using this file?",
+			[]io.Reader{file},
+		); err != nil {
+			t.Errorf("failed to generate from text prompt and file: %s", err)
+		} else {
+			log.Printf(">>> generated iterator: %s", prettify(iterated))
+
+			for {
+				if it, err := iterated.Next(); err == nil {
+					log.Printf(">>> iterating response: %s", prettify(it))
+				} else {
+					if err != iterator.Done {
+						t.Errorf("failed to iterate stream: %s", err)
+					}
+					break
+				}
+			}
+		}
+	} else {
+		t.Errorf("failed to open file for test: %s", err)
+	}
+
+	// prompt with bytes array
+	if iterated, err := gtc.GenerateStreamIterated(
+		context.TODO(),
+		"Translate the text in the given file into English.",
+		[]io.Reader{strings.NewReader("동해물과 백두산이 마르고 닳도록 하느님이 보우하사 우리나라 만세")},
+	); err != nil {
+		t.Errorf("failed to generate from text prompt and bytes: %s", err)
+	} else {
+		log.Printf(">>> generated iterator: %s", prettify(iterated))
+
+		for {
+			if it, err := iterated.Next(); err == nil {
+				log.Printf(">>> iterating response: %s", prettify(it))
+			} else {
+				if err != iterator.Done {
+					t.Errorf("failed to iterate stream: %s", err)
+				}
+				break
+			}
+		}
+	}
 }
 
 // TestGenerationStreamed tests various types of generations (streamed).
@@ -190,7 +268,9 @@ func TestGenerationWithFunctionCall(t *testing.T) {
 			} else if data.Error != nil {
 				t.Errorf("failed to generate with function calls: %s", data.Error)
 			} else {
-				t.Fatalf("should not reach here, data: %s", prettify(data))
+				if data.TextDelta == nil || len(*data.TextDelta) > 0 { // FIXME: sometimes only `data.TextDelta` is returned as ""
+					t.Fatalf("should not reach here, data: %s", prettify(data))
+				}
 			}
 		},
 		&GenerationOptions{

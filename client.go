@@ -154,7 +154,7 @@ func (c *Client) generateStream(
 
 // GenerateStreamIterated generates stream iterator with given values.
 //
-// Does not timeout itself.
+// It does not timeout itself, so set timeout with `ctx` when needed.
 func (c *Client) GenerateStreamIterated(
 	ctx context.Context,
 	promptText string,
@@ -164,7 +164,9 @@ func (c *Client) GenerateStreamIterated(
 	return c.generateStream(ctx, promptText, promptFiles, options...)
 }
 
-// GenerateStreamed generates with given values synchronously.
+// GenerateStreamed generates with given values synchronously and calls back `fnStreamCallback`.
+//
+// It times out in `timeoutSeconds` seconds.
 func (c *Client) GenerateStreamed(
 	ctx context.Context,
 	promptText string,
@@ -273,6 +275,8 @@ func (c *Client) GenerateStreamed(
 }
 
 // Generate generates with given values synchronously.
+//
+// It times out in `timeoutSeconds` seconds.
 func (c *Client) Generate(
 	ctx context.Context,
 	promptText string,
