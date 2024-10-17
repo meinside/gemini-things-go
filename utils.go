@@ -15,7 +15,6 @@ import (
 	"github.com/gabriel-vasile/mimetype"
 	"github.com/google/generative-ai-go/genai"
 	"google.golang.org/api/googleapi"
-	"google.golang.org/api/option"
 )
 
 const (
@@ -33,15 +32,15 @@ func FuncArg[T any](from map[string]any, key string) (*T, error) {
 	return nil, nil // not found
 }
 
-// upload files for prompt and wait for them to be ready
-func uploadFilesAndWait(ctx context.Context, client *genai.Client, files []io.Reader) (uploaded []genai.FileData, err error) {
+// UploadFilesAndWait uploads files and wait for them to be ready.
+func (c *Client) UploadFilesAndWait(ctx context.Context, files []io.Reader) (uploaded []genai.FileData, err error) {
 	uploaded = []genai.FileData{}
 	fileNames := []string{}
 
 	for i, file := range files {
 		if mimeType, recycledInput, err := readMimeAndRecycle(file); err == nil {
 			if matchedMimeType, supported := checkMimeType(mimeType); supported {
-				if file, err := client.UploadFile(ctx, "", recycledInput, &genai.UploadFileOptions{
+				if file, err := c.client.UploadFile(ctx, "", recycledInput, &genai.UploadFileOptions{
 					MIMEType: matchedMimeType,
 				}); err == nil {
 					uploaded = append(uploaded, genai.FileData{
@@ -62,52 +61,37 @@ func uploadFilesAndWait(ctx context.Context, client *genai.Client, files []io.Re
 	}
 
 	// NOTE: wait for all the uploaded files to be ready
-	waitForFiles(ctx, client, fileNames)
+	waitForFiles(ctx, c.client, fileNames)
 
 	return uploaded, nil
 }
 
-// UploadFilesAndWait uploads files and wait for them to be ready.
-func (c *Client) UploadFilesAndWait(ctx context.Context, files []io.Reader) (uploaded []genai.FileData, err error) {
-	// generate genai client
-	var client *genai.Client
-	client, err = genai.NewClient(ctx, option.WithAPIKey(c.apiKey))
-	if err != nil {
-		return nil, fmt.Errorf("failed to get client for upload: %s", err)
-	}
-	defer client.Close()
-
-	return uploadFilesAndWait(ctx, client, files)
-}
-
-// get generative client and model
-func (c *Client) getClientAndModel(ctx context.Context, opts *GenerationOptions) (client *genai.Client, model *genai.GenerativeModel, err error) {
-	// client
-	client, err = genai.NewClient(ctx, option.WithAPIKey(c.apiKey))
-	if err != nil {
-		return nil, nil, err
-	}
-
+// get generative model
+func (c *Client) getModel(ctx context.Context, opts *GenerationOptions) (model *genai.GenerativeModel, err error) {
 	// model
-	model = client.GenerativeModel(c.model)
+	if opts == nil || opts.CachedContextName == nil {
+		model = c.client.GenerativeModel(c.model)
 
-	// system instruction
-	if c.systemInstructionFunc != nil {
-		model.SystemInstruction = &genai.Content{
-			Role: "model",
-			Parts: []genai.Part{
-				genai.Text(c.systemInstructionFunc()),
-			},
+		// system instruction
+		if c.systemInstructionFunc != nil {
+			model.SystemInstruction = genai.NewUserContent(genai.Text(c.systemInstructionFunc()))
 		}
-	}
 
-	// tool configs
-	if opts != nil {
-		if len(opts.Tools) > 0 {
-			model.Tools = opts.Tools
+		// tool configs
+		if opts != nil {
+			if len(opts.Tools) > 0 {
+				model.Tools = opts.Tools
+			}
+			if opts.ToolConfig != nil {
+				model.ToolConfig = opts.ToolConfig
+			}
 		}
-		if opts.ToolConfig != nil {
-			model.ToolConfig = opts.ToolConfig
+	} else {
+		// NOTE: CachedContent can not be used with GenerateContent request setting system_instruction, tools or tool_config.
+		if argcc, err := c.client.GetCachedContent(ctx, *opts.CachedContextName); err == nil {
+			model = c.client.GenerativeModelFromCachedContent(argcc)
+		} else {
+			return nil, fmt.Errorf("failed to get cached content while generating model: %s", err)
 		}
 	}
 
@@ -127,19 +111,23 @@ func (c *Client) getClientAndModel(ctx context.Context, opts *GenerationOptions)
 }
 
 // build prompt parts for prompting
-func (c *Client) buildPromptParts(ctx context.Context, client *genai.Client, promptText string, promptFiles []io.Reader) (parts []genai.Part, err error) {
+func (c *Client) buildPromptParts(ctx context.Context, promptText *string, promptFiles []io.Reader) (parts []genai.Part, err error) {
+	parts = []genai.Part{}
+
 	// text prompt
-	parts = []genai.Part{
-		genai.Text(promptText),
+	if promptText != nil {
+		parts = append(parts, genai.Text(*promptText))
 	}
 
 	// files
-	if uploaded, err := uploadFilesAndWait(ctx, client, promptFiles); err == nil {
-		for _, part := range uploaded {
-			parts = append(parts, part)
+	if len(promptFiles) > 0 {
+		if uploaded, err := c.UploadFilesAndWait(ctx, promptFiles); err == nil {
+			for _, part := range uploaded {
+				parts = append(parts, part)
+			}
+		} else {
+			return nil, fmt.Errorf("failed to upload files for prompt: %s", err)
 		}
-	} else {
-		return nil, fmt.Errorf("failed to upload files for prompt: %s", err)
 	}
 
 	return parts, nil

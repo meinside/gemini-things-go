@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/generative-ai-go/genai"
 	"google.golang.org/api/iterator"
+	"google.golang.org/api/option"
 )
 
 const (
@@ -27,6 +28,7 @@ Respond to the user according to the following principles:
 type Client struct {
 	model  string
 	apiKey string
+	client *genai.Client
 
 	systemInstructionFunc FnSystemInstruction
 
@@ -71,10 +73,19 @@ type FnSystemInstruction func() string
 type FnStreamCallback func(callbackData StreamCallbackData)
 
 // NewClient returns a new client with given values.
-func NewClient(model, apiKey string) *Client {
+func NewClient(model, apiKey string) (*Client, error) {
+	// genai client
+	var client *genai.Client
+	var err error
+	client, err = genai.NewClient(context.TODO(), option.WithAPIKey(apiKey))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create client for caching context: %s", err)
+	}
+
 	return &Client{
 		model:  model,
 		apiKey: apiKey,
+		client: client,
 
 		systemInstructionFunc: func() string {
 			return defaultSystemInstruction
@@ -83,7 +94,12 @@ func NewClient(model, apiKey string) *Client {
 		timeoutSeconds: defaultTimeoutSeconds,
 
 		Verbose: false,
-	}
+	}, nil
+}
+
+// Close closes the client.
+func (c *Client) Close() error {
+	return c.client.Close()
 }
 
 // SetSystemInstructionFunc sets the system instruction function.
@@ -108,8 +124,55 @@ type GenerationOptions struct {
 	// safety settings: harm block threshold
 	HarmBlockThreshold *genai.HarmBlockThreshold
 
+	// cached context
+	CachedContextName *string
+
 	// history (for session)
 	History []*genai.Content
+}
+
+// CacheContext caches the context with given values and return the name of the cached context.
+func (c *Client) CacheContext(ctx context.Context, systemInstruction, promptText *string, promptFiles []io.Reader, tools []*genai.Tool, toolConfig *genai.ToolConfig) (cachedContextName string, err error) {
+	if c.Verbose {
+		log.Printf("> caching context with system prompt: %s, prompt: %s, %d files, tools: %s, and tool config: %s", prettify(systemInstruction), prettify(promptText), len(promptFiles), prettify(tools), prettify(toolConfig))
+	}
+
+	// generate parts for context
+	var prompts []genai.Part
+	prompts, err = c.buildPromptParts(ctx, promptText, promptFiles)
+	if err != nil {
+		return "", fmt.Errorf("failed to build prompts for caching context: %s", err)
+	}
+
+	argcc := &genai.CachedContent{
+		Model: c.model,
+	}
+
+	// system instruction
+	if systemInstruction != nil {
+		argcc.SystemInstruction = genai.NewUserContent(genai.Text(*systemInstruction))
+	}
+
+	// prompts
+	if len(prompts) > 0 {
+		argcc.Contents = []*genai.Content{genai.NewUserContent(prompts...)}
+	}
+
+	// tools and tool config
+	if tools != nil {
+		argcc.Tools = tools
+	}
+	if toolConfig != nil {
+		argcc.ToolConfig = toolConfig
+	}
+
+	// create cached context
+	var cc *genai.CachedContent
+	if cc, err = c.client.CreateCachedContent(ctx, argcc); err != nil {
+		return "", fmt.Errorf("failed to cache context: %s", err)
+	}
+
+	return cc.Name, nil
 }
 
 // generate stream iterator with given values
@@ -129,18 +192,17 @@ func (c *Client) generateStream(
 		log.Printf("> generating streamed content with prompt '%s' and %d files (options: %s)", promptText, len(promptFiles), prettify(opts))
 	}
 
-	// generate client and model
-	client, model, err := c.getClientAndModel(ctx, opts)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get client and model: %s", err)
-	}
-	defer client.Close()
-
 	// generate parts for prompting
 	var prompts []genai.Part
-	prompts, err = c.buildPromptParts(ctx, client, promptText, promptFiles)
+	prompts, err = c.buildPromptParts(ctx, &promptText, promptFiles)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build prompts: %s", err)
+	}
+
+	// generate model
+	model, err := c.getModel(ctx, opts)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get model for streamed generation: %s", err)
 	}
 
 	// generate and stream response
@@ -297,24 +359,112 @@ func (c *Client) Generate(
 		log.Printf("> generating content with prompt '%s' and %d files (options: %s)", promptText, len(promptFiles), prettify(opts))
 	}
 
-	// generate client and model
-	client, model, err := c.getClientAndModel(ctx, opts)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get client and model: %s", err)
-	}
-	defer client.Close()
-
 	// generate parts for prompting
 	var prompts []genai.Part
-	prompts, err = c.buildPromptParts(ctx, client, promptText, promptFiles)
+	prompts, err = c.buildPromptParts(ctx, &promptText, promptFiles)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build prompts: %s", err)
 	}
 
-	// generate and return the response
+	// generate model
+	model, err := c.getModel(ctx, opts)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get model for generation: %s", err)
+	}
+
+	// return the generated response
 	session := model.StartChat()
 	if opts != nil && len(opts.History) > 0 {
 		session.History = opts.History
 	}
+
 	return session.SendMessage(ctx, prompts...)
+}
+
+// SetCachedContextExpireTime sets the expiration time of a cached context.
+//
+// (default: 1 hour later)
+func (c *Client) SetCachedContextExpireTime(ctx context.Context, cachedContextName string, expireTime time.Time) (err error) {
+	var cc *genai.CachedContent
+	if cc, err = c.client.GetCachedContent(ctx, cachedContextName); err == nil {
+		_, err = c.client.UpdateCachedContent(ctx, cc, &genai.CachedContentToUpdate{
+			Expiration: &genai.ExpireTimeOrTTL{
+				ExpireTime: expireTime,
+			},
+		})
+	}
+	return err
+}
+
+// SetCachedContextTTL sets the TTL of a cached context.
+//
+// (default: 1 hour)
+func (c *Client) SetCachedContextTTL(ctx context.Context, cachedContextName string, ttl time.Duration) (err error) {
+	var cc *genai.CachedContent
+	if cc, err = c.client.GetCachedContent(ctx, cachedContextName); err == nil {
+		_, err = c.client.UpdateCachedContent(ctx, cc, &genai.CachedContentToUpdate{
+			Expiration: &genai.ExpireTimeOrTTL{
+				TTL: ttl,
+			},
+		})
+	}
+	return err
+}
+
+// DeleteAllCachedContexts deletes all cached contexts.
+func (c *Client) DeleteAllCachedContexts(ctx context.Context) (err error) {
+	if c.Verbose {
+		log.Printf("> deleting all cached contexts...")
+	}
+
+	iter := c.client.ListCachedContents(ctx)
+	for {
+		cachedContext, err := iter.Next()
+		if err == iterator.Done {
+			break
+		}
+		if err != nil {
+			return fmt.Errorf("failed to iterate cached contexts while deleting: %s", err)
+		}
+
+		if c.Verbose {
+			fmt.Printf(".")
+		}
+
+		err = c.client.DeleteCachedContent(ctx, cachedContext.Name)
+		if err != nil {
+			return fmt.Errorf("failed to delete cached context: %s", err)
+		}
+	}
+
+	return nil
+}
+
+// DeleteAllFiles deletes all uploaded files.
+func (c *Client) DeleteAllFiles(ctx context.Context) (err error) {
+	if c.Verbose {
+		log.Printf("> deleting all uploaded files...")
+	}
+
+	iter := c.client.ListFiles(ctx)
+	for {
+		file, err := iter.Next()
+		if err == iterator.Done {
+			break
+		}
+		if err != nil {
+			return fmt.Errorf("failed to iterate files while deleting: %s", err)
+		}
+
+		if c.Verbose {
+			fmt.Printf(".")
+		}
+
+		err = c.client.DeleteFile(ctx, file.Name)
+		if err != nil {
+			return fmt.Errorf("failed to delete file: %s", err)
+		}
+	}
+
+	return nil
 }
