@@ -79,7 +79,7 @@ func NewClient(model, apiKey string) (*Client, error) {
 	var err error
 	client, err = genai.NewClient(context.TODO(), option.WithAPIKey(apiKey))
 	if err != nil {
-		return nil, fmt.Errorf("failed to create client for caching context: %s", err)
+		return nil, fmt.Errorf("failed to create genai client: %s", err)
 	}
 
 	return &Client{
