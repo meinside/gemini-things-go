@@ -98,7 +98,7 @@ func TestContextCaching(t *testing.T) {
 					verbose(">>> iterating response: %s", prettify(it.Candidates[0].Content.Parts[0]))
 				} else {
 					if err != iterator.Done {
-						t.Errorf("failed to iterate stream: %s", errorString(err))
+						t.Errorf("failed to iterate stream: %s", ErrToStr(err))
 					}
 					break
 				}
@@ -188,7 +188,7 @@ func TestGenerationIterated(t *testing.T) {
 				verbose(">>> iterating response: %s", prettify(it.Candidates[0].Content.Parts[0]))
 			} else {
 				if err != iterator.Done {
-					t.Errorf("failed to iterate stream: %s", errorString(err))
+					t.Errorf("failed to iterate stream: %s", ErrToStr(err))
 				}
 				break
 			}
@@ -211,7 +211,7 @@ func TestGenerationIterated(t *testing.T) {
 					verbose(">>> iterating response: %s", prettify(it.Candidates[0].Content.Parts[0]))
 				} else {
 					if err != iterator.Done {
-						t.Errorf("failed to iterate stream: %s", errorString(err))
+						t.Errorf("failed to iterate stream: %s", ErrToStr(err))
 					}
 					break
 				}
@@ -234,7 +234,7 @@ func TestGenerationIterated(t *testing.T) {
 				verbose(">>> iterating response: %s", prettify(it.Candidates[0].Content.Parts[0]))
 			} else {
 				if err != iterator.Done {
-					t.Errorf("failed to iterate stream: %s", errorString(err))
+					t.Errorf("failed to iterate strea: %s", ErrToStr(err))
 				}
 				break
 			}
