@@ -50,13 +50,13 @@ func (c *Client) UploadFilesAndWait(ctx context.Context, files []io.Reader) (upl
 
 					fileNames = append(fileNames, file.Name)
 				} else {
-					return nil, fmt.Errorf("failed to upload file[%d] for prompt: %s", i, err)
+					return nil, fmt.Errorf("failed to upload file[%d] for prompt: %w", i, err)
 				}
 			} else {
 				return nil, fmt.Errorf("MIME type of file[%d] not supported: %s", i, mimeType.String())
 			}
 		} else {
-			return nil, fmt.Errorf("failed to detect MIME type of file[%d]: %s", i, err)
+			return nil, fmt.Errorf("failed to detect MIME type of file[%d]: %w", i, err)
 		}
 	}
 
@@ -91,7 +91,7 @@ func (c *Client) getModel(ctx context.Context, opts *GenerationOptions) (model *
 		if argcc, err := c.client.GetCachedContent(ctx, *opts.CachedContextName); err == nil {
 			model = c.client.GenerativeModelFromCachedContent(argcc)
 		} else {
-			return nil, fmt.Errorf("failed to get cached content while generating model: %s", err)
+			return nil, fmt.Errorf("failed to get cached content while generating model: %w", err)
 		}
 	}
 
@@ -126,7 +126,7 @@ func (c *Client) buildPromptParts(ctx context.Context, promptText *string, promp
 				parts = append(parts, part)
 			}
 		} else {
-			return nil, fmt.Errorf("failed to upload files for prompt: %s", err)
+			return nil, fmt.Errorf("failed to upload files for prompt: %w", err)
 		}
 	}
 
@@ -270,8 +270,8 @@ func prettify(v any) string {
 	return fmt.Sprintf("%+v", v)
 }
 
-// convert error (possibly goolge api error) to string
-func errorString(err error) (error string) {
+// ErrToStr converts error (possibly goolge api error) to string.
+func ErrToStr(err error) (str string) {
 	var gerr *googleapi.Error
 	if errors.As(err, &gerr) {
 		return fmt.Sprintf("googleapi error: %s", gerr.Body)

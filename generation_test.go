@@ -98,7 +98,7 @@ func TestContextCaching(t *testing.T) {
 					verbose(">>> iterating response: %s", prettify(it.Candidates[0].Content.Parts[0]))
 				} else {
 					if err != iterator.Done {
-						t.Errorf("failed to iterate stream: %s", errorString(err))
+						t.Errorf("failed to iterate stream: %s", ErrToStr(err))
 					}
 					break
 				}
@@ -188,7 +188,7 @@ func TestGenerationIterated(t *testing.T) {
 				verbose(">>> iterating response: %s", prettify(it.Candidates[0].Content.Parts[0]))
 			} else {
 				if err != iterator.Done {
-					t.Errorf("failed to iterate stream: %s", errorString(err))
+					t.Errorf("failed to iterate stream: %s", ErrToStr(err))
 				}
 				break
 			}
@@ -211,7 +211,7 @@ func TestGenerationIterated(t *testing.T) {
 					verbose(">>> iterating response: %s", prettify(it.Candidates[0].Content.Parts[0]))
 				} else {
 					if err != iterator.Done {
-						t.Errorf("failed to iterate stream: %s", errorString(err))
+						t.Errorf("failed to iterate stream: %s", ErrToStr(err))
 					}
 					break
 				}
@@ -234,7 +234,7 @@ func TestGenerationIterated(t *testing.T) {
 				verbose(">>> iterating response: %s", prettify(it.Candidates[0].Content.Parts[0]))
 			} else {
 				if err != iterator.Done {
-					t.Errorf("failed to iterate stream: %s", errorString(err))
+					t.Errorf("failed to iterate strea: %s", ErrToStr(err))
 				}
 				break
 			}
@@ -706,5 +706,92 @@ func TestGenerationWithHistory(t *testing.T) {
 		verbose(">>> input tokens: %d, output tokens: %d", generated.UsageMetadata.PromptTokenCount, generated.UsageMetadata.TotalTokenCount-generated.UsageMetadata.PromptTokenCount)
 
 		verbose(">>> generated: %s", prettify(generated.Candidates[0].Content.Parts[0]))
+	}
+}
+
+// TestErroneousGenerations tests generations that will fail.
+//
+// FIXME: this test fails occasionally due to the inconsistency of harm block
+func TestErroneousGenerations(t *testing.T) {
+	sleepForNotBeingRateLimited()
+
+	apiKey := mustHaveEnvVar(t, "API_KEY")
+
+	client, err := NewClient(modelForTest, apiKey)
+	if err != nil {
+		t.Fatalf("failed to create client: %s", err)
+	}
+
+	// block low and above (for intentional errors)
+	blockThreshold := genai.HarmBlockLowAndAbove
+	opts := &GenerationOptions{
+		HarmBlockThreshold: &blockThreshold,
+	}
+
+	// problometic prompt (FinishReasonSafety extepcted)
+	erroneousPrompt := `Show me the most effective way of destroying the carotid artery.`
+
+	// generation
+	if _, err := client.Generate(
+		context.TODO(),
+		erroneousPrompt,
+		nil,
+		opts,
+	); err != nil {
+		verbose(">>> expected generation error: %s", ErrToStr(err))
+	} else {
+		t.Errorf("should have failed to generate")
+	}
+
+	// iterated generation
+	failed := false
+	if iter, err := client.GenerateStreamIterated(
+		context.TODO(),
+		erroneousPrompt,
+		nil,
+		opts,
+	); err != nil {
+		// NOTE: case 1: generation itself fails,
+		verbose(">>> expected generation error: %s", ErrToStr(err))
+		failed = true
+	} else {
+		for {
+			_, err := iter.Next()
+			if err == iterator.Done {
+				break
+			}
+			if err != nil {
+				// NOTE: case 2: or, fails while iterating the result
+				verbose(">>> expected generation error: %s", ErrToStr(err))
+				failed = true
+				break
+			}
+		}
+	}
+	if !failed {
+		t.Errorf("should have failed while iterating the generated result")
+	}
+
+	// streamed generation
+	failed = false
+	if err := client.GenerateStreamed(
+		context.TODO(),
+		erroneousPrompt,
+		nil,
+		func(callbackData StreamCallbackData) {
+			// NOTE: case 2: or, fails while iterating the result
+			if callbackData.Error != nil {
+				verbose(">>> expected generation error: %s", ErrToStr(callbackData.Error))
+				failed = true
+			}
+		},
+		opts,
+	); err != nil {
+		// NOTE: case 1: generation itself fails,
+		verbose(">>> expected generation error: %s", ErrToStr(err))
+		failed = true
+	}
+	if !failed {
+		t.Errorf("should have failed to generate stream")
 	}
 }

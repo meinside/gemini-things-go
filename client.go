@@ -79,7 +79,7 @@ func NewClient(model, apiKey string) (*Client, error) {
 	var err error
 	client, err = genai.NewClient(context.TODO(), option.WithAPIKey(apiKey))
 	if err != nil {
-		return nil, fmt.Errorf("failed to create genai client: %s", err)
+		return nil, fmt.Errorf("failed to create genai client: %w", err)
 	}
 
 	return &Client{
@@ -141,7 +141,7 @@ func (c *Client) CacheContext(ctx context.Context, systemInstruction, promptText
 	var prompts []genai.Part
 	prompts, err = c.buildPromptParts(ctx, promptText, promptFiles)
 	if err != nil {
-		return "", fmt.Errorf("failed to build prompts for caching context: %s", err)
+		return "", fmt.Errorf("failed to build prompts for caching context: %w", err)
 	}
 
 	argcc := &genai.CachedContent{
@@ -169,7 +169,7 @@ func (c *Client) CacheContext(ctx context.Context, systemInstruction, promptText
 	// create cached context
 	var cc *genai.CachedContent
 	if cc, err = c.client.CreateCachedContent(ctx, argcc); err != nil {
-		return "", fmt.Errorf("failed to cache context: %s", err)
+		return "", fmt.Errorf("failed to cache context: %w", err)
 	}
 
 	return cc.Name, nil
@@ -196,13 +196,13 @@ func (c *Client) generateStream(
 	var prompts []genai.Part
 	prompts, err = c.buildPromptParts(ctx, &promptText, promptFiles)
 	if err != nil {
-		return nil, fmt.Errorf("failed to build prompts: %s", err)
+		return nil, fmt.Errorf("failed to build prompts: %w", err)
 	}
 
 	// generate model
 	model, err := c.getModel(ctx, opts)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get model for streamed generation: %s", err)
+		return nil, fmt.Errorf("failed to get model for streamed generation: %w", err)
 	}
 
 	// generate and stream response
@@ -310,7 +310,7 @@ func (c *Client) GenerateStreamed(
 			} else {
 				if err != iterator.Done {
 					fnStreamCallback(StreamCallbackData{
-						Error: fmt.Errorf("failed to iterate stream: %s", errorString(err)),
+						Error: fmt.Errorf("failed to iterate stream: %w", err),
 					})
 				}
 				break
@@ -327,10 +327,10 @@ func (c *Client) GenerateStreamed(
 		})
 	} else {
 		fnStreamCallback(StreamCallbackData{
-			Error: fmt.Errorf("failed to generate stream: %s", errorString(err)),
+			Error: fmt.Errorf("failed to generate stream: %w", err),
 		})
 
-		return fmt.Errorf("failed to generate stream: %s", err)
+		return fmt.Errorf("failed to generate stream: %w", err)
 	}
 
 	return nil
@@ -363,13 +363,13 @@ func (c *Client) Generate(
 	var prompts []genai.Part
 	prompts, err = c.buildPromptParts(ctx, &promptText, promptFiles)
 	if err != nil {
-		return nil, fmt.Errorf("failed to build prompts: %s", err)
+		return nil, fmt.Errorf("failed to build prompts: %w", err)
 	}
 
 	// generate model
 	model, err := c.getModel(ctx, opts)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get model for generation: %s", err)
+		return nil, fmt.Errorf("failed to get model for generation: %w", err)
 	}
 
 	// return the generated response
@@ -424,7 +424,7 @@ func (c *Client) DeleteAllCachedContexts(ctx context.Context) (err error) {
 			break
 		}
 		if err != nil {
-			return fmt.Errorf("failed to iterate cached contexts while deleting: %s", err)
+			return fmt.Errorf("failed to iterate cached contexts while deleting: %w", err)
 		}
 
 		if c.Verbose {
@@ -433,7 +433,7 @@ func (c *Client) DeleteAllCachedContexts(ctx context.Context) (err error) {
 
 		err = c.client.DeleteCachedContent(ctx, cachedContext.Name)
 		if err != nil {
-			return fmt.Errorf("failed to delete cached context: %s", err)
+			return fmt.Errorf("failed to delete cached context: %w", err)
 		}
 	}
 
@@ -453,7 +453,7 @@ func (c *Client) DeleteAllFiles(ctx context.Context) (err error) {
 			break
 		}
 		if err != nil {
-			return fmt.Errorf("failed to iterate files while deleting: %s", err)
+			return fmt.Errorf("failed to iterate files while deleting: %w", err)
 		}
 
 		if c.Verbose {
@@ -462,7 +462,7 @@ func (c *Client) DeleteAllFiles(ctx context.Context) (err error) {
 
 		err = c.client.DeleteFile(ctx, file.Name)
 		if err != nil {
-			return fmt.Errorf("failed to delete file: %s", err)
+			return fmt.Errorf("failed to delete file: %w", err)
 		}
 	}
 
