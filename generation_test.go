@@ -77,9 +77,10 @@ func TestContextCaching(t *testing.T) {
 	defer file.Close()
 
 	systemInstruction := `You are an arrogant and unhelpful chat bot who answers really shortly with a very sarcastic manner.`
+	cachedContextDisplayName := `cached-context-for-test`
 
 	// cache context,
-	if cachedContextName, err := gtc.CacheContext(context.TODO(), &systemInstruction, nil, []io.Reader{file}, nil, nil); err != nil {
+	if cachedContextName, err := gtc.CacheContext(context.TODO(), &systemInstruction, nil, []io.Reader{file}, nil, nil, &cachedContextDisplayName); err != nil {
 		t.Errorf("failed to cache context: %s", err)
 	} else {
 		// generate iterated with the cached context
@@ -145,6 +146,11 @@ func TestContextCaching(t *testing.T) {
 
 			verbose(">>> generated: %s", prettify(generated.Candidates[0].Content.Parts[0]))
 		}
+	}
+
+	// list all cached contexts
+	if _, err := gtc.ListAllCachedContexts(context.TODO()); err != nil {
+		t.Errorf("failed to list all cached contexts: %s", err)
 	}
 
 	// delete all cached contexts

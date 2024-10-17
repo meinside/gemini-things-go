@@ -132,7 +132,9 @@ type GenerationOptions struct {
 }
 
 // CacheContext caches the context with given values and return the name of the cached context.
-func (c *Client) CacheContext(ctx context.Context, systemInstruction, promptText *string, promptFiles []io.Reader, tools []*genai.Tool, toolConfig *genai.ToolConfig) (cachedContextName string, err error) {
+//
+// `promptText`, `promptFiles`, `tools`, `toolConfig`, and `cachedContextDisplayName` are optional.
+func (c *Client) CacheContext(ctx context.Context, systemInstruction, promptText *string, promptFiles []io.Reader, tools []*genai.Tool, toolConfig *genai.ToolConfig, cachedContextDisplayName *string) (cachedContextName string, err error) {
 	if c.Verbose {
 		log.Printf("> caching context with system prompt: %s, prompt: %s, %d files, tools: %s, and tool config: %s", prettify(systemInstruction), prettify(promptText), len(promptFiles), prettify(tools), prettify(toolConfig))
 	}
@@ -144,8 +146,12 @@ func (c *Client) CacheContext(ctx context.Context, systemInstruction, promptText
 		return "", fmt.Errorf("failed to build prompts for caching context: %w", err)
 	}
 
+	// context to cache
 	argcc := &genai.CachedContent{
 		Model: c.model,
+	}
+	if cachedContextDisplayName != nil {
+		argcc.DisplayName = *cachedContextDisplayName
 	}
 
 	// system instruction
@@ -409,6 +415,32 @@ func (c *Client) SetCachedContextTTL(ctx context.Context, cachedContextName stri
 		})
 	}
 	return err
+}
+
+// ListAllCachedContexts lists all cached contexts.
+//
+// `listed` is a map of cached context name and display name.
+func (c *Client) ListAllCachedContexts(ctx context.Context) (listed map[string]genai.CachedContent, err error) {
+	listed = make(map[string]genai.CachedContent)
+
+	if c.Verbose {
+		log.Printf("> listing all cached contexts...")
+	}
+
+	iter := c.client.ListCachedContents(ctx)
+	for {
+		cachedContext, err := iter.Next()
+		if err == iterator.Done {
+			break
+		}
+		if err != nil {
+			return nil, fmt.Errorf("failed to iterate cached contexts while listing: %w", err)
+		}
+
+		listed[cachedContext.Name] = *cachedContext
+	}
+
+	return listed, nil
 }
 
 // DeleteAllCachedContexts deletes all cached contexts.
