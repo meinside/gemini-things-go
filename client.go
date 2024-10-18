@@ -463,10 +463,22 @@ func (c *Client) DeleteAllCachedContexts(ctx context.Context) (err error) {
 			fmt.Printf(".")
 		}
 
-		err = c.client.DeleteCachedContent(ctx, cachedContext.Name)
-		if err != nil {
-			return fmt.Errorf("failed to delete cached context: %w", err)
+		if err = c.DeleteCachedContext(ctx, cachedContext.Name); err != nil {
+			return err
 		}
+	}
+
+	return nil
+}
+
+// DeleteCachedContext deletes a cached context.
+func (c *Client) DeleteCachedContext(ctx context.Context, cachedContextName string) (err error) {
+	if c.Verbose {
+		log.Printf("> deleting cached context: %s...", cachedContextName)
+	}
+
+	if err = c.client.DeleteCachedContent(ctx, cachedContextName); err != nil {
+		return fmt.Errorf("failed to delete cached context: %w", err)
 	}
 
 	return nil
