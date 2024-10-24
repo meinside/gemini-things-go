@@ -134,7 +134,7 @@ type GenerationOptions struct {
 // CacheContext caches the context with given values and return the name of the cached context.
 //
 // `promptText`, `promptFiles`, `tools`, `toolConfig`, and `cachedContextDisplayName` are optional.
-func (c *Client) CacheContext(ctx context.Context, systemInstruction, promptText *string, promptFiles []io.Reader, tools []*genai.Tool, toolConfig *genai.ToolConfig, cachedContextDisplayName *string) (cachedContextName string, err error) {
+func (c *Client) CacheContext(ctx context.Context, systemInstruction, promptText *string, promptFiles map[string]io.Reader, tools []*genai.Tool, toolConfig *genai.ToolConfig, cachedContextDisplayName *string) (cachedContextName string, err error) {
 	if c.Verbose {
 		log.Printf("> caching context with system prompt: %s, prompt: %s, %d files, tools: %s, and tool config: %s", prettify(systemInstruction), prettify(promptText), len(promptFiles), prettify(tools), prettify(toolConfig))
 	}
@@ -185,7 +185,7 @@ func (c *Client) CacheContext(ctx context.Context, systemInstruction, promptText
 func (c *Client) generateStream(
 	ctx context.Context,
 	promptText string,
-	promptFiles []io.Reader,
+	promptFiles map[string]io.Reader,
 	options ...*GenerationOptions,
 ) (iterator *genai.GenerateContentResponseIterator, err error) {
 	// generation options
@@ -226,7 +226,7 @@ func (c *Client) generateStream(
 func (c *Client) GenerateStreamIterated(
 	ctx context.Context,
 	promptText string,
-	promptFiles []io.Reader,
+	promptFiles map[string]io.Reader,
 	options ...*GenerationOptions,
 ) (iterator *genai.GenerateContentResponseIterator, err error) {
 	return c.generateStream(ctx, promptText, promptFiles, options...)
@@ -238,7 +238,7 @@ func (c *Client) GenerateStreamIterated(
 func (c *Client) GenerateStreamed(
 	ctx context.Context,
 	promptText string,
-	promptFiles []io.Reader,
+	promptFiles map[string]io.Reader,
 	fnStreamCallback FnStreamCallback,
 	options ...*GenerationOptions,
 ) error {
@@ -348,7 +348,7 @@ func (c *Client) GenerateStreamed(
 func (c *Client) Generate(
 	ctx context.Context,
 	promptText string,
-	promptFiles []io.Reader,
+	promptFiles map[string]io.Reader,
 	options ...*GenerationOptions,
 ) (res *genai.GenerateContentResponse, err error) {
 	// set timeout

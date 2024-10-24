@@ -33,15 +33,19 @@ func FuncArg[T any](from map[string]any, key string) (*T, error) {
 }
 
 // UploadFilesAndWait uploads files and wait for them to be ready.
-func (c *Client) UploadFilesAndWait(ctx context.Context, files []io.Reader) (uploaded []genai.FileData, err error) {
+//
+// `files` is a map of keys: display name, and values: io.Reader.
+func (c *Client) UploadFilesAndWait(ctx context.Context, files map[string]io.Reader) (uploaded []genai.FileData, err error) {
 	uploaded = []genai.FileData{}
 	fileNames := []string{}
 
-	for i, file := range files {
+	i := 0
+	for displayName, file := range files {
 		if mimeType, recycledInput, err := readMimeAndRecycle(file); err == nil {
 			if matchedMimeType, supported := checkMimeType(mimeType); supported {
 				if file, err := c.client.UploadFile(ctx, "", recycledInput, &genai.UploadFileOptions{
-					MIMEType: matchedMimeType,
+					MIMEType:    matchedMimeType,
+					DisplayName: displayName,
 				}); err == nil {
 					uploaded = append(uploaded, genai.FileData{
 						MIMEType: file.MIMEType,
@@ -50,14 +54,16 @@ func (c *Client) UploadFilesAndWait(ctx context.Context, files []io.Reader) (upl
 
 					fileNames = append(fileNames, file.Name)
 				} else {
-					return nil, fmt.Errorf("failed to upload file[%d] for prompt: %w", i, err)
+					return nil, fmt.Errorf("failed to upload file[%d] (%s) for prompt: %w", i, displayName, err)
 				}
 			} else {
-				return nil, fmt.Errorf("MIME type of file[%d] not supported: %s", i, mimeType.String())
+				return nil, fmt.Errorf("MIME type of file[%d] (%s) not supported: %s", i, displayName, mimeType.String())
 			}
 		} else {
-			return nil, fmt.Errorf("failed to detect MIME type of file[%d]: %w", i, err)
+			return nil, fmt.Errorf("failed to detect MIME type of file[%d] (%s): %w", i, displayName, err)
 		}
+
+		i++
 	}
 
 	// NOTE: wait for all the uploaded files to be ready
@@ -111,7 +117,7 @@ func (c *Client) getModel(ctx context.Context, opts *GenerationOptions) (model *
 }
 
 // build prompt parts for prompting
-func (c *Client) buildPromptParts(ctx context.Context, promptText *string, promptFiles []io.Reader) (parts []genai.Part, err error) {
+func (c *Client) buildPromptParts(ctx context.Context, promptText *string, promptFiles map[string]io.Reader) (parts []genai.Part, err error) {
 	parts = []genai.Part{}
 
 	// text prompt

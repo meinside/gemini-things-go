@@ -80,7 +80,17 @@ func TestContextCaching(t *testing.T) {
 	cachedContextDisplayName := `cached-context-for-test`
 
 	// cache context,
-	if cachedContextName, err := gtc.CacheContext(context.TODO(), &systemInstruction, nil, []io.Reader{file}, nil, nil, &cachedContextDisplayName); err != nil {
+	if cachedContextName, err := gtc.CacheContext(
+		context.TODO(),
+		&systemInstruction,
+		nil,
+		map[string]io.Reader{
+			"client.go": file, // key: display name / value: file
+		},
+		nil,
+		nil,
+		&cachedContextDisplayName,
+	); err != nil {
 		t.Errorf("failed to cache context: %s", err)
 	} else {
 		// generate iterated with the cached context
@@ -208,7 +218,9 @@ func TestGenerationIterated(t *testing.T) {
 		if iterated, err := gtc.GenerateStreamIterated(
 			context.TODO(),
 			"What's the golang package name of this file? Can you give me a short sample code of using this file?",
-			[]io.Reader{file},
+			map[string]io.Reader{
+				"client.go": file, // key: display name / value: file
+			},
 		); err != nil {
 			t.Errorf("failed to generate from text prompt and file: %s", err)
 		} else {
@@ -231,7 +243,9 @@ func TestGenerationIterated(t *testing.T) {
 	if iterated, err := gtc.GenerateStreamIterated(
 		context.TODO(),
 		"Translate the text in the given file into English.",
-		[]io.Reader{strings.NewReader("동해물과 백두산이 마르고 닳도록 하느님이 보우하사 우리나라 만세")},
+		map[string]io.Reader{
+			"some lyrics": strings.NewReader("동해물과 백두산이 마르고 닳도록 하느님이 보우하사 우리나라 만세"), // key: display name / value: file
+		},
 	); err != nil {
 		t.Errorf("failed to generate from text prompt and bytes: %s", err)
 	} else {
@@ -298,7 +312,9 @@ func TestGenerationStreamed(t *testing.T) {
 		if err := gtc.GenerateStreamed(
 			context.TODO(),
 			"What's the golang package name of this file? Can you give me a short sample code of using this file?",
-			[]io.Reader{file},
+			map[string]io.Reader{
+				"client.go": file, // key: display name / value: file
+			},
 			func(data StreamCallbackData) {
 				if data.TextDelta != nil {
 					if _isVerbose {
@@ -324,7 +340,9 @@ func TestGenerationStreamed(t *testing.T) {
 	if err := gtc.GenerateStreamed(
 		context.TODO(),
 		"Translate the text in the given file into English.",
-		[]io.Reader{strings.NewReader("동해물과 백두산이 마르고 닳도록 하느님이 보우하사 우리나라 만세")},
+		map[string]io.Reader{
+			"some lyrics": strings.NewReader("동해물과 백두산이 마르고 닳도록 하느님이 보우하사 우리나라 만세"), // key: display name / value: file
+		},
 		func(data StreamCallbackData) {
 			if data.TextDelta != nil {
 				if _isVerbose {
@@ -382,7 +400,9 @@ func TestGenerationNonStreamed(t *testing.T) {
 		if generated, err := gtc.Generate(
 			context.TODO(),
 			"What's the golang package name of this file? Can you give me a short sample code of using this file?",
-			[]io.Reader{file},
+			map[string]io.Reader{
+				"client.go": file, // key: display name / value: file
+			},
 		); err != nil {
 			t.Errorf("failed to generate from text prompt and file: %s", err)
 		} else {
@@ -398,7 +418,9 @@ func TestGenerationNonStreamed(t *testing.T) {
 	if generated, err := gtc.Generate(
 		context.TODO(),
 		"Translate the text in the given file into English.",
-		[]io.Reader{strings.NewReader("동해물과 백두산이 마르고 닳도록 하느님이 보우하사 우리나라 만세")},
+		map[string]io.Reader{
+			"some lyrics": strings.NewReader("동해물과 백두산이 마르고 닳도록 하느님이 보우하사 우리나라 만세"), // key: display name / value: file
+		},
 	); err != nil {
 		t.Errorf("failed to generate from text prompt and bytes: %s", err)
 	} else {
