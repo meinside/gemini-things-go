@@ -91,7 +91,7 @@ func TestContextCaching(t *testing.T) {
 		nil,
 		&cachedContextDisplayName,
 	); err != nil {
-		t.Errorf("failed to cache context: %s", err)
+		t.Errorf("failed to cache context: %s", ErrToStr(err))
 	} else {
 		// generate iterated with the cached context
 		if iterated, err := gtc.GenerateStreamIterated(
@@ -102,7 +102,7 @@ func TestContextCaching(t *testing.T) {
 				CachedContextName: &cachedContextName,
 			},
 		); err != nil {
-			t.Errorf("failed to generate iterated from cached context: %s", err)
+			t.Errorf("failed to generate iterated from cached context: %s", ErrToStr(err))
 		} else {
 			for {
 				if it, err := iterated.Next(); err == nil {
@@ -138,7 +138,7 @@ func TestContextCaching(t *testing.T) {
 				CachedContextName: &cachedContextName,
 			},
 		); err != nil {
-			t.Errorf("failed to generate streamed from cached context: %s", err)
+			t.Errorf("failed to generate streamed from cached context: %s", ErrToStr(err))
 		}
 
 		// generate with the cached context
@@ -150,7 +150,7 @@ func TestContextCaching(t *testing.T) {
 				CachedContextName: &cachedContextName,
 			},
 		); err != nil {
-			t.Errorf("failed to generate from cached context: %s", err)
+			t.Errorf("failed to generate from cached context: %s", ErrToStr(err))
 		} else {
 			verbose(">>> input tokens: %d, output tokens: %d, cached tokens: %d", generated.UsageMetadata.PromptTokenCount, generated.UsageMetadata.TotalTokenCount-generated.UsageMetadata.PromptTokenCount, generated.UsageMetadata.CachedContentTokenCount)
 
@@ -160,17 +160,17 @@ func TestContextCaching(t *testing.T) {
 
 	// list all cached contexts
 	if _, err := gtc.ListAllCachedContexts(context.TODO()); err != nil {
-		t.Errorf("failed to list all cached contexts: %s", err)
+		t.Errorf("failed to list all cached contexts: %s", ErrToStr(err))
 	}
 
 	// delete all cached contexts
 	if err := gtc.DeleteAllCachedContexts(context.TODO()); err != nil {
-		t.Errorf("failed to delete all cached contexts: %s", err)
+		t.Errorf("failed to delete all cached contexts: %s", ErrToStr(err))
 	}
 
 	// delete all uploaded files
 	if err := gtc.DeleteAllFiles(context.TODO()); err != nil {
-		t.Errorf("failed to delete all uploaded files: %s", err)
+		t.Errorf("failed to delete all uploaded files: %s", ErrToStr(err))
 	}
 }
 
@@ -197,7 +197,7 @@ func TestGenerationIterated(t *testing.T) {
 		"What is the answer to life, the universe, and everything?",
 		nil,
 	); err != nil {
-		t.Errorf("failed to generate from text prompt: %s", err)
+		t.Errorf("failed to generate from text prompt: %s", ErrToStr(err))
 	} else {
 		for {
 			if it, err := iterated.Next(); err == nil {
@@ -222,7 +222,7 @@ func TestGenerationIterated(t *testing.T) {
 				"client.go": file, // key: display name / value: file
 			},
 		); err != nil {
-			t.Errorf("failed to generate from text prompt and file: %s", err)
+			t.Errorf("failed to generate from text prompt and file: %s", ErrToStr(err))
 		} else {
 			for {
 				if it, err := iterated.Next(); err == nil {
@@ -247,7 +247,7 @@ func TestGenerationIterated(t *testing.T) {
 			"some lyrics": strings.NewReader("동해물과 백두산이 마르고 닳도록 하느님이 보우하사 우리나라 만세"), // key: display name / value: file
 		},
 	); err != nil {
-		t.Errorf("failed to generate from text prompt and bytes: %s", err)
+		t.Errorf("failed to generate from text prompt and bytes: %s", ErrToStr(err))
 	} else {
 		for {
 			if it, err := iterated.Next(); err == nil {
@@ -263,7 +263,7 @@ func TestGenerationIterated(t *testing.T) {
 
 	// delete all uploaded files
 	if err := gtc.DeleteAllFiles(context.TODO()); err != nil {
-		t.Errorf("failed to delete all uploaded files: %s", err)
+		t.Errorf("failed to delete all uploaded files: %s", ErrToStr(err))
 	}
 }
 
@@ -304,7 +304,7 @@ func TestGenerationStreamed(t *testing.T) {
 		},
 		nil,
 	); err != nil {
-		t.Errorf("failed to generate from text prompt: %s", err)
+		t.Errorf("failed to generate from text prompt: %s", ErrToStr(err))
 	}
 
 	// prompt with files
@@ -330,7 +330,7 @@ func TestGenerationStreamed(t *testing.T) {
 			},
 			nil,
 		); err != nil {
-			t.Errorf("failed to generate from text prompt and file: %s", err)
+			t.Errorf("failed to generate from text prompt and file: %s", ErrToStr(err))
 		}
 	} else {
 		t.Errorf("failed to open file for test: %s", err)
@@ -358,12 +358,12 @@ func TestGenerationStreamed(t *testing.T) {
 		},
 		nil,
 	); err != nil {
-		t.Errorf("failed to generate from text prompt and bytes: %s", err)
+		t.Errorf("failed to generate from text prompt and bytes: %s", ErrToStr(err))
 	}
 
 	// delete all uploaded files
 	if err := gtc.DeleteAllFiles(context.TODO()); err != nil {
-		t.Errorf("failed to delete all uploaded files: %s", err)
+		t.Errorf("failed to delete all uploaded files: %s", ErrToStr(err))
 	}
 }
 
@@ -390,7 +390,7 @@ func TestGenerationNonStreamed(t *testing.T) {
 		"What is the answer to life, the universe, and everything?",
 		nil,
 	); err != nil {
-		t.Errorf("failed to generate from text prompt: %s", err)
+		t.Errorf("failed to generate from text prompt: %s", ErrToStr(err))
 	} else {
 		verbose(">>> generated: %s", prettify(generated.Candidates[0].Content.Parts[0]))
 	}
@@ -404,7 +404,7 @@ func TestGenerationNonStreamed(t *testing.T) {
 				"client.go": file, // key: display name / value: file
 			},
 		); err != nil {
-			t.Errorf("failed to generate from text prompt and file: %s", err)
+			t.Errorf("failed to generate from text prompt and file: %s", ErrToStr(err))
 		} else {
 			verbose(">>> input tokens: %d, output tokens: %d", generated.UsageMetadata.PromptTokenCount, generated.UsageMetadata.TotalTokenCount-generated.UsageMetadata.PromptTokenCount)
 
@@ -422,7 +422,7 @@ func TestGenerationNonStreamed(t *testing.T) {
 			"some lyrics": strings.NewReader("동해물과 백두산이 마르고 닳도록 하느님이 보우하사 우리나라 만세"), // key: display name / value: file
 		},
 	); err != nil {
-		t.Errorf("failed to generate from text prompt and bytes: %s", err)
+		t.Errorf("failed to generate from text prompt and bytes: %s", ErrToStr(err))
 	} else {
 		verbose(">>> input tokens: %d, output tokens: %d", generated.UsageMetadata.PromptTokenCount, generated.UsageMetadata.TotalTokenCount-generated.UsageMetadata.PromptTokenCount)
 
@@ -431,7 +431,7 @@ func TestGenerationNonStreamed(t *testing.T) {
 
 	// delete all uploaded files
 	if err := gtc.DeleteAllFiles(context.TODO()); err != nil {
-		t.Errorf("failed to delete all uploaded files: %s", err)
+		t.Errorf("failed to delete all uploaded files: %s", ErrToStr(err))
 	}
 }
 
@@ -524,7 +524,7 @@ func TestGenerationWithFunctionCall(t *testing.T) {
 			},
 		},
 	); err != nil {
-		t.Errorf("failed to generate with function calls: %s", err)
+		t.Errorf("failed to generate with function calls: %s", ErrToStr(err))
 	}
 }
 
@@ -604,7 +604,7 @@ func TestGenerationWithStructuredOutput(t *testing.T) {
 			}
 		}
 	} else {
-		t.Errorf("failed to generate with structured output: %s", err)
+		t.Errorf("failed to generate with structured output: %s", ErrToStr(err))
 	}
 }
 
@@ -628,7 +628,7 @@ func TestGenerationWithCodeExecution(t *testing.T) {
 	// prompt with function calls
 	if generated, err := gtc.Generate(
 		context.TODO(),
-		`Generate unique 6 numbers between 1 and 45. Make sure there is no duplicated number, and list the numbers in ascending order.`,
+		`Generate 6 unique random numbers between 1 and 45. Make sure there is no duplicated number, and list the numbers in ascending order.`,
 		nil,
 		&GenerationOptions{
 			Tools: []*genai.Tool{
@@ -654,7 +654,7 @@ func TestGenerationWithCodeExecution(t *testing.T) {
 			}
 		}
 	} else {
-		t.Errorf("failed to generate with code execution: %s", err)
+		t.Errorf("failed to generate with code execution: %s", ErrToStr(err))
 	}
 }
 
@@ -704,7 +704,7 @@ func TestGenerationWithHistory(t *testing.T) {
 			},
 		},
 	); err != nil {
-		t.Errorf("failed to generate from text prompt and history: %s", err)
+		t.Errorf("failed to generate from text prompt and history: %s", ErrToStr(err))
 	}
 
 	// text-only prompt with history
@@ -729,7 +729,7 @@ func TestGenerationWithHistory(t *testing.T) {
 			},
 		},
 	); err != nil {
-		t.Errorf("failed to generate from text prompt and history: %s", err)
+		t.Errorf("failed to generate from text prompt and history: %s", ErrToStr(err))
 	} else {
 		verbose(">>> input tokens: %d, output tokens: %d", generated.UsageMetadata.PromptTokenCount, generated.UsageMetadata.TotalTokenCount-generated.UsageMetadata.PromptTokenCount)
 

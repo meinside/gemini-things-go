@@ -1,6 +1,6 @@
 # gemini-things-go
 
-A helper library for generating things with Gemini API.
+A helper library for generating things with [Gemini API](https://github.com/google/generative-ai-go).
 
 ## Usage
 
