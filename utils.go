@@ -296,6 +296,11 @@ func prettify(v any) string {
 	return fmt.Sprintf("%+v", v)
 }
 
+// return pointer to the given value
+func ptr[T any](v T) *T {
+	return &v
+}
+
 // ErrToStr converts error (possibly goolge api error) to string.
 func ErrToStr(err error) (str string) {
 	var gerr *googleapi.Error

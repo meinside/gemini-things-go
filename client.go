@@ -2,12 +2,14 @@ package gt
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log"
 	"time"
 
 	"github.com/google/generative-ai-go/genai"
+	"google.golang.org/api/googleapi"
 	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
 )
@@ -22,6 +24,8 @@ Respond to the user according to the following principles:
 - Be as truthful as possible.
 - Be as comprehensive and informative as possible.
 `
+
+	maxRetryCount uint = 3 // NOTE: will retry on 5xx errors
 )
 
 // Client struct
@@ -129,6 +133,13 @@ type GenerationOptions struct {
 
 	// history (for session)
 	History []*genai.Content
+}
+
+// NewGenerationOptions returns a new GenerationOptions with default values.
+func NewGenerationOptions() *GenerationOptions {
+	return &GenerationOptions{
+		HarmBlockThreshold: ptr(genai.HarmBlockOnlyHigh),
+	}
 }
 
 // CacheContext caches the context with given values and return the name of the cached context.
@@ -345,6 +356,8 @@ func (c *Client) GenerateStreamed(
 // Generate generates with given values synchronously.
 //
 // It times out in `timeoutSeconds` seconds.
+//
+// It retries on 5xx errors for `maxRetryCount` times.
 func (c *Client) Generate(
 	ctx context.Context,
 	promptText string,
@@ -384,7 +397,28 @@ func (c *Client) Generate(
 		session.History = opts.History
 	}
 
-	return session.SendMessage(ctx, prompts...)
+	return c.generate(ctx, session, prompts, maxRetryCount)
+}
+
+// generate with retry count
+func (c *Client) generate(ctx context.Context, session *genai.ChatSession, parts []genai.Part, remainingRetryCount uint) (res *genai.GenerateContentResponse, err error) {
+	if c.Verbose && remainingRetryCount < maxRetryCount {
+		log.Printf("> retrying generation with remaining retry count: %d", remainingRetryCount)
+	}
+
+	res, err = session.SendMessage(ctx, parts...)
+	if err != nil {
+		var gerr *googleapi.Error
+		if errors.As(err, &gerr) && gerr.Code >= 500 { // google's 5xx errors,
+			if remainingRetryCount > 0 { // retriable,
+				// then retry
+				return c.generate(ctx, session, parts, remainingRetryCount-1)
+			} else { // all retries failed,
+				return nil, fmt.Errorf("all %d retries of generation failed with the latest error: %w", maxRetryCount, err)
+			}
+		}
+	}
+	return res, err
 }
 
 // SetCachedContextExpireTime sets the expiration time of a cached context.
