@@ -5,7 +5,7 @@ go 1.23.1
 require (
 	github.com/gabriel-vasile/mimetype v1.4.6
 	github.com/google/generative-ai-go v0.18.0
-	google.golang.org/api v0.206.0
+	google.golang.org/api v0.207.0
 )
 
 require (
@@ -14,7 +14,7 @@ require (
 	cloud.google.com/go/auth v0.10.2 // indirect
 	cloud.google.com/go/auth/oauth2adapt v0.2.5 // indirect
 	cloud.google.com/go/compute/metadata v0.5.2 // indirect
-	cloud.google.com/go/longrunning v0.6.2 // indirect
+	cloud.google.com/go/longrunning v0.6.3 // indirect
 	github.com/felixge/httpsnoop v1.0.4 // indirect
 	github.com/go-logr/logr v1.4.2 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
