@@ -58,7 +58,7 @@ func TestContextCaching(t *testing.T) {
 
 	apiKey := mustHaveEnvVar(t, "API_KEY")
 
-	gtc, err := NewClient(modelForTest, apiKey)
+	gtc, err := NewClient(apiKey, modelForTest)
 	if err != nil {
 		t.Fatalf("failed to create client: %s", err)
 	}
@@ -180,7 +180,7 @@ func TestGenerationIterated(t *testing.T) {
 
 	apiKey := mustHaveEnvVar(t, "API_KEY")
 
-	gtc, err := NewClient(modelForTest, apiKey)
+	gtc, err := NewClient(apiKey, modelForTest)
 	if err != nil {
 		t.Fatalf("failed to create client: %s", err)
 	}
@@ -273,7 +273,7 @@ func TestGenerationStreamed(t *testing.T) {
 
 	apiKey := mustHaveEnvVar(t, "API_KEY")
 
-	gtc, err := NewClient(modelForTest, apiKey)
+	gtc, err := NewClient(apiKey, modelForTest)
 	if err != nil {
 		t.Fatalf("failed to create client: %s", err)
 	}
@@ -373,7 +373,7 @@ func TestGenerationNonStreamed(t *testing.T) {
 
 	apiKey := mustHaveEnvVar(t, "API_KEY")
 
-	gtc, err := NewClient(modelForTest, apiKey)
+	gtc, err := NewClient(apiKey, modelForTest)
 	if err != nil {
 		t.Fatalf("failed to create client: %s", err)
 	}
@@ -450,7 +450,7 @@ func TestGenerationWithFunctionCall(t *testing.T) {
 
 	apiKey := mustHaveEnvVar(t, "API_KEY")
 
-	gtc, err := NewClient(modelForTest, apiKey)
+	gtc, err := NewClient(apiKey, modelForTest)
 	if err != nil {
 		t.Fatalf("failed to create client: %s", err)
 	}
@@ -541,7 +541,7 @@ func TestGenerationWithStructuredOutput(t *testing.T) {
 
 	apiKey := mustHaveEnvVar(t, "API_KEY")
 
-	gtc, err := NewClient(modelForTest, apiKey)
+	gtc, err := NewClient(apiKey, modelForTest)
 	if err != nil {
 		t.Fatalf("failed to create client: %s", err)
 	}
@@ -614,7 +614,7 @@ func TestGenerationWithCodeExecution(t *testing.T) {
 
 	apiKey := mustHaveEnvVar(t, "API_KEY")
 
-	gtc, err := NewClient(modelForTest, apiKey)
+	gtc, err := NewClient(apiKey, modelForTest)
 	if err != nil {
 		t.Fatalf("failed to create client: %s", err)
 	}
@@ -664,7 +664,7 @@ func TestGenerationWithHistory(t *testing.T) {
 
 	apiKey := mustHaveEnvVar(t, "API_KEY")
 
-	client, err := NewClient(modelForTest, apiKey)
+	client, err := NewClient(apiKey, modelForTest)
 	if err != nil {
 		t.Fatalf("failed to create client: %s", err)
 	}
@@ -745,7 +745,7 @@ func TestErroneousGenerations(t *testing.T) {
 
 	apiKey := mustHaveEnvVar(t, "API_KEY")
 
-	client, err := NewClient(modelForTest, apiKey)
+	client, err := NewClient(apiKey, modelForTest)
 	if err != nil {
 		t.Fatalf("failed to create client: %s", err)
 	}

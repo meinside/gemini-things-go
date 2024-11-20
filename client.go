@@ -30,10 +30,10 @@ Respond to the user according to the following principles:
 
 // Client struct
 type Client struct {
-	model  string
 	apiKey string
 	client *genai.Client
 
+	model                 string
 	systemInstructionFunc FnSystemInstruction
 
 	timeoutSeconds int
@@ -77,7 +77,7 @@ type FnSystemInstruction func() string
 type FnStreamCallback func(callbackData StreamCallbackData)
 
 // NewClient returns a new client with given values.
-func NewClient(model, apiKey string) (*Client, error) {
+func NewClient(apiKey, model string) (*Client, error) {
 	// genai client
 	var client *genai.Client
 	var err error
@@ -87,10 +87,10 @@ func NewClient(model, apiKey string) (*Client, error) {
 	}
 
 	return &Client{
-		model:  model,
 		apiKey: apiKey,
 		client: client,
 
+		model: model,
 		systemInstructionFunc: func() string {
 			return defaultSystemInstruction
 		},
