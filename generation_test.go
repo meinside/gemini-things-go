@@ -522,6 +522,14 @@ func TestGenerationWithFunctionCall(t *testing.T) {
 					},
 				},
 			},
+			ToolConfig: &genai.ToolConfig{
+				FunctionCallingConfig: &genai.FunctionCallingConfig{
+					Mode: genai.FunctionCallingAny,
+					AllowedFunctionNames: []string{
+						fnNameGenerateImages,
+					},
+				},
+			},
 		},
 	); err != nil {
 		t.Errorf("failed to generate with function calls: %s", ErrToStr(err))
