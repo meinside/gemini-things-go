@@ -152,7 +152,7 @@ func TestContextCaching(t *testing.T) {
 		); err != nil {
 			t.Errorf("failed to generate from cached context: %s", ErrToStr(err))
 		} else {
-			verbose(">>> input tokens: %d, output tokens: %d, cached tokens: %d", generated.UsageMetadata.PromptTokenCount, generated.UsageMetadata.TotalTokenCount-generated.UsageMetadata.PromptTokenCount, generated.UsageMetadata.CachedContentTokenCount)
+			verbose(">>> input tokens: %d, output tokens: %d, cached tokens: %d (usage metadata)", generated.UsageMetadata.PromptTokenCount, generated.UsageMetadata.CandidatesTokenCount, generated.UsageMetadata.CachedContentTokenCount)
 
 			verbose(">>> generated: %s", prettify(generated.Candidates[0].Content.Parts[0]))
 		}
@@ -295,7 +295,7 @@ func TestGenerationStreamed(t *testing.T) {
 					fmt.Print(*data.TextDelta) // print text stream
 				}
 			} else if data.NumTokens != nil {
-				verbose(">>> input tokens: %d, output tokens: %d", data.NumTokens.Input, data.NumTokens.Output)
+				verbose(">>> input tokens: %d, output tokens: %d, cached tokens: %d", data.NumTokens.Input, data.NumTokens.Output, data.NumTokens.Cached)
 			} else if data.FinishReason != nil {
 				t.Errorf("generation was finished with reason: %s", data.FinishReason.String())
 			} else if data.Error != nil {
@@ -321,7 +321,7 @@ func TestGenerationStreamed(t *testing.T) {
 						fmt.Print(*data.TextDelta) // print text stream
 					}
 				} else if data.NumTokens != nil {
-					verbose(">>> input tokens: %d, output tokens: %d", data.NumTokens.Input, data.NumTokens.Output)
+					verbose(">>> input tokens: %d, output tokens: %d, cached tokens: %d", data.NumTokens.Input, data.NumTokens.Output, data.NumTokens.Cached)
 				} else if data.FinishReason != nil {
 					t.Errorf("generation was finished with reason: %s", data.FinishReason.String())
 				} else if data.Error != nil {
@@ -349,7 +349,7 @@ func TestGenerationStreamed(t *testing.T) {
 					fmt.Print(*data.TextDelta) // print text stream
 				}
 			} else if data.NumTokens != nil {
-				verbose(">>> input tokens: %d, output tokens: %d", data.NumTokens.Input, data.NumTokens.Output)
+				verbose(">>> input tokens: %d, output tokens: %d, cached tokens: %d", data.NumTokens.Input, data.NumTokens.Output, data.NumTokens.Cached)
 			} else if data.FinishReason != nil {
 				t.Errorf("generation was finished with reason: %s", data.FinishReason.String())
 			} else if data.Error != nil {
@@ -406,7 +406,7 @@ func TestGenerationNonStreamed(t *testing.T) {
 		); err != nil {
 			t.Errorf("failed to generate from text prompt and file: %s", ErrToStr(err))
 		} else {
-			verbose(">>> input tokens: %d, output tokens: %d", generated.UsageMetadata.PromptTokenCount, generated.UsageMetadata.TotalTokenCount-generated.UsageMetadata.PromptTokenCount)
+			verbose(">>> input tokens: %d, output tokens: %d, cached tokens: %d (usage metadata)", generated.UsageMetadata.PromptTokenCount, generated.UsageMetadata.CandidatesTokenCount, generated.UsageMetadata.CachedContentTokenCount)
 
 			verbose(">>> generated: %s", prettify(generated.Candidates[0].Content.Parts[0]))
 		}
@@ -424,7 +424,7 @@ func TestGenerationNonStreamed(t *testing.T) {
 	); err != nil {
 		t.Errorf("failed to generate from text prompt and bytes: %s", ErrToStr(err))
 	} else {
-		verbose(">>> input tokens: %d, output tokens: %d", generated.UsageMetadata.PromptTokenCount, generated.UsageMetadata.TotalTokenCount-generated.UsageMetadata.PromptTokenCount)
+		verbose(">>> input tokens: %d, output tokens: %d, cached tokens: %d (usage metadata)", generated.UsageMetadata.PromptTokenCount, generated.UsageMetadata.CandidatesTokenCount, generated.UsageMetadata.CachedContentTokenCount)
 
 		verbose(">>> generated: %s", prettify(generated.Candidates[0].Content.Parts[0]))
 	}
@@ -485,7 +485,7 @@ func TestGenerationWithFunctionCall(t *testing.T) {
 					t.Errorf("function name does not match '%s': %s", fnNameGenerateImages, prettify(data.FunctionCall))
 				}
 			} else if data.NumTokens != nil {
-				verbose(">>> input tokens: %d, output tokens: %d", data.NumTokens.Input, data.NumTokens.Output)
+				verbose(">>> input tokens: %d, output tokens: %d, cached tokens: %d", data.NumTokens.Input, data.NumTokens.Output, data.NumTokens.Cached)
 			} else if data.Error != nil {
 				t.Errorf("failed to generate with function calls: %s", data.Error)
 			} else {
@@ -688,7 +688,7 @@ func TestGenerationWithHistory(t *testing.T) {
 					fmt.Print(*data.TextDelta) // print text stream
 				}
 			} else if data.NumTokens != nil {
-				verbose(">>> input tokens: %d, output tokens: %d", data.NumTokens.Input, data.NumTokens.Output)
+				verbose(">>> input tokens: %d, output tokens: %d, cached tokens: %d", data.NumTokens.Input, data.NumTokens.Output, data.NumTokens.Cached)
 			} else if data.FinishReason != nil {
 				t.Errorf("generation was finished with reason: %s", data.FinishReason.String())
 			} else if data.Error != nil {
@@ -739,7 +739,7 @@ func TestGenerationWithHistory(t *testing.T) {
 	); err != nil {
 		t.Errorf("failed to generate from text prompt and history: %s", ErrToStr(err))
 	} else {
-		verbose(">>> input tokens: %d, output tokens: %d", generated.UsageMetadata.PromptTokenCount, generated.UsageMetadata.TotalTokenCount-generated.UsageMetadata.PromptTokenCount)
+		verbose(">>> input tokens: %d, output tokens: %d, cached tokens: %d (usage metadata)", generated.UsageMetadata.PromptTokenCount, generated.UsageMetadata.CandidatesTokenCount, generated.UsageMetadata.CachedContentTokenCount)
 
 		verbose(">>> generated: %s", prettify(generated.Candidates[0].Content.Parts[0]))
 	}
