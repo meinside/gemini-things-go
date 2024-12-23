@@ -278,8 +278,8 @@ func (c *Client) GenerateStreamed(
 					if numTokensInput < it.UsageMetadata.PromptTokenCount {
 						numTokensInput = it.UsageMetadata.PromptTokenCount
 					}
-					if numTokensOutput < it.UsageMetadata.TotalTokenCount-it.UsageMetadata.PromptTokenCount {
-						numTokensOutput = it.UsageMetadata.TotalTokenCount - it.UsageMetadata.PromptTokenCount
+					if numTokensOutput < it.UsageMetadata.CandidatesTokenCount {
+						numTokensOutput = it.UsageMetadata.CandidatesTokenCount
 					}
 					if numTokensCached < it.UsageMetadata.CachedContentTokenCount {
 						numTokensCached = it.UsageMetadata.CachedContentTokenCount
