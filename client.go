@@ -73,8 +73,10 @@ type NumTokens struct {
 }
 
 // function definitions
-type FnSystemInstruction func() string
-type FnStreamCallback func(callbackData StreamCallbackData)
+type (
+	FnSystemInstruction func() string
+	FnStreamCallback    func(callbackData StreamCallbackData)
+)
 
 // NewClient returns a new client with given values.
 func NewClient(apiKey, model string) (*Client, error) {
