@@ -831,3 +831,23 @@ func TestErroneousGenerations(t *testing.T) {
 		t.Errorf("should have failed to generate stream")
 	}
 }
+
+// TestEmbeddings tests embeddings.
+func TestEmbeddings(t *testing.T) {
+	sleepForNotBeingRateLimited()
+
+	apiKey := mustHaveEnvVar(t, "API_KEY")
+
+	client, err := NewClient(apiKey, modelForTest)
+	if err != nil {
+		t.Fatalf("failed to create client: %s", err)
+	}
+
+	if v, err := client.GenerateEmbeddings(context.TODO(), "text-embedding-004", "", []genai.Part{
+		genai.Text("The quick brown fox jumps over the lazy dog."),
+	}); err != nil {
+		t.Errorf("failed to generate embeddings from text: %s", ErrToStr(err))
+	} else {
+		verbose(">>> embeddings: %+v", v)
+	}
+}
