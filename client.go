@@ -558,5 +558,8 @@ func (c *Client) GenerateEmbeddings(ctx context.Context, embeddingModel, title s
 	}
 
 	res, err := c.client.EmbeddingModel(embeddingModel).EmbedContentWithTitle(ctx, title, parts...)
-	return res.Embedding.Values, err
+	if res.Embedding != nil {
+		return res.Embedding.Values, err
+	}
+	return nil, err
 }
