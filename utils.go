@@ -305,7 +305,15 @@ func ptr[T any](v T) *T {
 func ErrToStr(err error) (str string) {
 	var gerr *googleapi.Error
 	if errors.As(err, &gerr) {
-		return fmt.Sprintf("googleapi error: %s", gerr.Body)
+		msg := gerr.Body
+		if len(msg) <= 0 {
+			msg = gerr.Message
+		}
+		if len(msg) <= 0 {
+			msg = fmt.Sprintf("HTTP %d", gerr.Code)
+		}
+
+		return fmt.Sprintf("googleapi error: %s", msg)
 	} else {
 		return err.Error()
 	}
