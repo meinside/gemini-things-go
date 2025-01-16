@@ -552,14 +552,18 @@ func (c *Client) DeleteAllFiles(ctx context.Context) (err error) {
 // GenerateEmbeddings generates embeddings with given values.
 //
 // https://ai.google.dev/gemini-api/docs/embeddings
-func (c *Client) GenerateEmbeddings(ctx context.Context, embeddingModel, title string, parts []genai.Part) ([]float32, error) {
+func (c *Client) GenerateEmbeddings(ctx context.Context, embeddingModel, title string, parts []genai.Part) (vectors []float32, err error) {
 	if c.Verbose {
 		log.Printf("> generating embeddings......")
 	}
 
-	res, err := c.client.EmbeddingModel(embeddingModel).EmbedContentWithTitle(ctx, title, parts...)
-	if res.Embedding != nil {
-		return res.Embedding.Values, err
+	var res *genai.EmbedContentResponse
+	if res, err = c.client.EmbeddingModel(embeddingModel).EmbedContentWithTitle(ctx, title, parts...); err == nil {
+		if res != nil && res.Embedding != nil {
+			vectors = res.Embedding.Values
+		}
+	} else {
+		err = fmt.Errorf("failed to generate embeddings: %w", err)
 	}
-	return nil, err
+	return
 }
