@@ -253,6 +253,8 @@ func SupportedMimeType(data []byte) (matchedMimeType string, supported bool, err
 func SupportedMimeTypePath(filepath string) (matchedMimeType string, supported bool, err error) {
 	var f *os.File
 	if f, err = os.Open(filepath); err == nil {
+		defer f.Close()
+
 		var mimeType *mimetype.MIME
 		if mimeType, err = mimetype.DetectReader(f); err == nil {
 			matchedMimeType, supported = checkMimeType(mimeType)
