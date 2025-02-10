@@ -321,6 +321,17 @@ func ErrToStr(err error) (str string) {
 	}
 }
 
+// IsQuotaExceeded returns if given error is from execeeded API quota.
+func IsQuotaExceeded(err error) bool {
+	var gerr *googleapi.Error
+	if errors.As(err, &gerr) {
+		if gerr.Code == 429 {
+			return true
+		}
+	}
+	return false
+}
+
 // read mime type of given input
 //
 // https://pkg.go.dev/github.com/gabriel-vasile/mimetype#example-package-DetectReader
