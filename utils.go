@@ -332,6 +332,17 @@ func IsQuotaExceeded(err error) bool {
 	return false
 }
 
+// IsModelOverloaded returns if given error is from overloaded model.
+func IsModelOverloaded(err error) bool {
+	var gerr *googleapi.Error
+	if errors.As(err, &gerr) {
+		if gerr.Code == 503 && gerr.Message == `The model is overloaded. Please try again later.` {
+			return true
+		}
+	}
+	return false
+}
+
 // read mime type of given input
 //
 // https://pkg.go.dev/github.com/gabriel-vasile/mimetype#example-package-DetectReader
