@@ -16,7 +16,8 @@ import (
 )
 
 const (
-	modelForTest = `gemini-1.5-flash-002` // NOTE: context caching is only available for stable versions of the model
+	modelForTestGeneration = `gemini-1.5-flash-002` // NOTE: context caching is only available for stable versions of the model
+	modelForTestEmbeddings = `text-embedding-004`
 )
 
 // flag for verbose log
@@ -58,7 +59,7 @@ func TestContextCaching(t *testing.T) {
 
 	apiKey := mustHaveEnvVar(t, "API_KEY")
 
-	gtc, err := NewClient(apiKey, modelForTest)
+	gtc, err := NewClient(apiKey, modelForTestGeneration)
 	if err != nil {
 		t.Fatalf("failed to create client: %s", err)
 	}
@@ -180,7 +181,7 @@ func TestGenerationIterated(t *testing.T) {
 
 	apiKey := mustHaveEnvVar(t, "API_KEY")
 
-	gtc, err := NewClient(apiKey, modelForTest)
+	gtc, err := NewClient(apiKey, modelForTestGeneration)
 	if err != nil {
 		t.Fatalf("failed to create client: %s", err)
 	}
@@ -273,7 +274,7 @@ func TestGenerationStreamed(t *testing.T) {
 
 	apiKey := mustHaveEnvVar(t, "API_KEY")
 
-	gtc, err := NewClient(apiKey, modelForTest)
+	gtc, err := NewClient(apiKey, modelForTestGeneration)
 	if err != nil {
 		t.Fatalf("failed to create client: %s", err)
 	}
@@ -373,7 +374,7 @@ func TestGenerationNonStreamed(t *testing.T) {
 
 	apiKey := mustHaveEnvVar(t, "API_KEY")
 
-	gtc, err := NewClient(apiKey, modelForTest)
+	gtc, err := NewClient(apiKey, modelForTestGeneration)
 	if err != nil {
 		t.Fatalf("failed to create client: %s", err)
 	}
@@ -450,7 +451,7 @@ func TestGenerationWithFunctionCall(t *testing.T) {
 
 	apiKey := mustHaveEnvVar(t, "API_KEY")
 
-	gtc, err := NewClient(apiKey, modelForTest)
+	gtc, err := NewClient(apiKey, modelForTestGeneration)
 	if err != nil {
 		t.Fatalf("failed to create client: %s", err)
 	}
@@ -549,7 +550,7 @@ func TestGenerationWithStructuredOutput(t *testing.T) {
 
 	apiKey := mustHaveEnvVar(t, "API_KEY")
 
-	gtc, err := NewClient(apiKey, modelForTest)
+	gtc, err := NewClient(apiKey, modelForTestGeneration)
 	if err != nil {
 		t.Fatalf("failed to create client: %s", err)
 	}
@@ -622,7 +623,7 @@ func TestGenerationWithCodeExecution(t *testing.T) {
 
 	apiKey := mustHaveEnvVar(t, "API_KEY")
 
-	gtc, err := NewClient(apiKey, modelForTest)
+	gtc, err := NewClient(apiKey, modelForTestGeneration)
 	if err != nil {
 		t.Fatalf("failed to create client: %s", err)
 	}
@@ -672,7 +673,7 @@ func TestGenerationWithHistory(t *testing.T) {
 
 	apiKey := mustHaveEnvVar(t, "API_KEY")
 
-	client, err := NewClient(apiKey, modelForTest)
+	client, err := NewClient(apiKey, modelForTestGeneration)
 	if err != nil {
 		t.Fatalf("failed to create client: %s", err)
 	}
@@ -753,7 +754,7 @@ func TestErroneousGenerations(t *testing.T) {
 
 	apiKey := mustHaveEnvVar(t, "API_KEY")
 
-	client, err := NewClient(apiKey, modelForTest)
+	client, err := NewClient(apiKey, modelForTestGeneration)
 	if err != nil {
 		t.Fatalf("failed to create client: %s", err)
 	}
@@ -838,12 +839,12 @@ func TestEmbeddings(t *testing.T) {
 
 	apiKey := mustHaveEnvVar(t, "API_KEY")
 
-	client, err := NewClient(apiKey, modelForTest)
+	client, err := NewClient(apiKey, modelForTestEmbeddings)
 	if err != nil {
 		t.Fatalf("failed to create client: %s", err)
 	}
 
-	if v, err := client.GenerateEmbeddings(context.TODO(), "text-embedding-004", "", []genai.Part{
+	if v, err := client.GenerateEmbeddings(context.TODO(), "", []genai.Part{
 		genai.Text("The quick brown fox jumps over the lazy dog."),
 	}); err != nil {
 		t.Errorf("failed to generate embeddings from text: %s", ErrToStr(err))
