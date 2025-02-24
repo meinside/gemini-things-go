@@ -364,9 +364,13 @@ func readMimeAndRecycle(input io.Reader) (mimeType *mimetype.MIME, recycled io.R
 	return mtype, recycled, err
 }
 
+// eg.
+//
+//	1,048,576 input tokens for gemini-2.0-flash
+//	2,048 input tokens for text-embedding-004
 const (
-	defaultChunkedTextLengthInBytes    uint = 10 * 1024
-	defaultOverlappedTextLengthInBytes uint = 0.5 * 1024
+	defaultChunkedTextLengthInBytes    uint = 1024 * 1024 * 2
+	defaultOverlappedTextLengthInBytes uint = defaultChunkedTextLengthInBytes / 100
 )
 
 // TextChunkOption contains options for chunking text.
