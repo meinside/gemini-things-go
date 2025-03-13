@@ -4,20 +4,21 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log"
 	"os"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/google/generative-ai-go/genai"
-	"google.golang.org/api/iterator"
+	"google.golang.org/genai"
+	// FIXME: remove this after all APIs are implemented
 )
 
 const (
-	modelForTestGeneration = `gemini-1.5-flash-002` // NOTE: context caching is only available for stable versions of the model
-	modelForTestEmbeddings = `text-embedding-004`
+	modelForContextCaching  = `gemini-1.5-flash-002` // NOTE: context caching is only available for stable versions of the model
+	modelForTextGeneration  = `gemini-2.0-flash-001`
+	modelForImageGeneration = `gemini-2.0-flash-exp`
+	modelForEmbeddings      = `text-embedding-004`
 )
 
 // flag for verbose log
@@ -59,34 +60,29 @@ func TestContextCaching(t *testing.T) {
 
 	apiKey := mustHaveEnvVar(t, "API_KEY")
 
-	gtc, err := NewClient(apiKey, modelForTestGeneration)
+	gtc, err := NewClient(apiKey, modelForContextCaching)
 	if err != nil {
 		t.Fatalf("failed to create client: %s", err)
 	}
-	defer func() {
-		if err := gtc.Close(); err != nil {
-			t.Errorf("failed to close client: %s", err)
-		}
-	}()
+	gtc.SetSystemInstructionFunc(nil) // FIXME: error: 'client error. Code: 400, Message: CachedContent can not be used with GenerateContent request setting system_instruction, tools or tool_config.'
 	gtc.Verbose = _isVerbose
 
 	// open a file for testing
 	file, err := os.Open("./client.go")
 	if err != nil {
-		t.Fatalf("failed to open file for test: %s", err)
+		t.Fatalf("failed to open file for caching context: %s", err)
 	}
 	defer file.Close()
 
-	systemInstruction := `You are an arrogant and unhelpful chat bot who answers really shortly with a very sarcastic manner.`
+	cachedSystemInstruction := `You are an arrogant and unhelpful chat bot who answers really shortly with a very sarcastic manner.`
 	cachedContextDisplayName := `cached-context-for-test`
 
 	// cache context,
 	if cachedContextName, err := gtc.CacheContext(
 		context.TODO(),
-		&systemInstruction,
-		nil,
-		map[string]io.Reader{
-			"client.go": file, // key: display name / value: file
+		&cachedSystemInstruction,
+		[]Prompt{
+			NewFilePrompt("client.go", file),
 		},
 		nil,
 		nil,
@@ -95,33 +91,26 @@ func TestContextCaching(t *testing.T) {
 		t.Errorf("failed to cache context: %s", ErrToStr(err))
 	} else {
 		// generate iterated with the cached context
-		if iterated, err := gtc.GenerateStreamIterated(
+		for it, err := range gtc.GenerateStreamIterated(
 			context.TODO(),
-			"What is this file?",
-			nil,
+			[]Prompt{NewTextPrompt("What is this file?")},
 			&GenerationOptions{
-				CachedContextName: &cachedContextName,
+				CachedContent: cachedContextName,
 			},
-		); err != nil {
-			t.Errorf("failed to generate iterated from cached context: %s", ErrToStr(err))
-		} else {
-			for {
-				if it, err := iterated.Next(); err == nil {
-					verbose(">>> iterating response: %s", prettify(it.Candidates[0].Content.Parts[0]))
-				} else {
-					if err != iterator.Done {
-						t.Errorf("failed to iterate stream: %s", ErrToStr(err))
-					}
-					break
-				}
+		) {
+			if err != nil {
+				t.Errorf("generation with cached context failed: %s", ErrToStr(err))
+			} else {
+				verbose(">>> iterating response: %s", prettify(it.Candidates[0].Content.Parts[0]))
 			}
 		}
 
 		// generate streamed response with the cached context
 		if err := gtc.GenerateStreamed(
 			context.TODO(),
-			"Can you give me any insight about this file?",
-			nil,
+			[]Prompt{
+				NewTextPrompt("Can you give me any insight about this file?"),
+			},
 			func(data StreamCallbackData) {
 				if data.TextDelta != nil {
 					if _isVerbose {
@@ -130,30 +119,46 @@ func TestContextCaching(t *testing.T) {
 				} else if data.NumTokens != nil {
 					verbose(">>> input tokens: %d, output tokens: %d, cached tokens: %d", data.NumTokens.Input, data.NumTokens.Output, data.NumTokens.Cached)
 				} else if data.FinishReason != nil {
-					t.Errorf("generation was finished with reason: %s", data.FinishReason.String())
+					t.Errorf("generation finished unexpectedly with reason: %s", *data.FinishReason)
 				} else if data.Error != nil {
-					t.Errorf("error while processing generation from cached context: %s", data.Error)
+					t.Errorf("error while processing generation with cached context: %s", data.Error)
 				}
 			},
 			&GenerationOptions{
-				CachedContextName: &cachedContextName,
+				CachedContent: cachedContextName,
 			},
 		); err != nil {
-			t.Errorf("failed to generate streamed from cached context: %s", ErrToStr(err))
+			t.Errorf("generation with cached context failed: %s", ErrToStr(err))
 		}
 
 		// generate with the cached context
 		if generated, err := gtc.Generate(
 			context.TODO(),
-			"How many standard libraries are used in this file?",
-			nil,
+			[]Prompt{
+				NewTextPrompt("How many standard golang libraries are used in this source code?"),
+			},
 			&GenerationOptions{
-				CachedContextName: &cachedContextName,
+				CachedContent: cachedContextName,
 			},
 		); err != nil {
-			t.Errorf("failed to generate from cached context: %s", ErrToStr(err))
+			t.Errorf("generation with cached context failed: %s", ErrToStr(err))
 		} else {
-			verbose(">>> input tokens: %d, output tokens: %d, cached tokens: %d (usage metadata)", generated.UsageMetadata.PromptTokenCount, generated.UsageMetadata.CandidatesTokenCount, generated.UsageMetadata.CachedContentTokenCount)
+			var promptTokenCount int32 = 0
+			var cachedContentTokenCount int32 = 0
+			if generated.UsageMetadata != nil {
+				if generated.UsageMetadata.PromptTokenCount != nil {
+					promptTokenCount = *generated.UsageMetadata.PromptTokenCount
+				}
+				if generated.UsageMetadata.CachedContentTokenCount != nil {
+					cachedContentTokenCount = *generated.UsageMetadata.CachedContentTokenCount
+				}
+			}
+
+			verbose(">>> input tokens: %d, output tokens: %d, cached tokens: %d (usage metadata)",
+				promptTokenCount,
+				generated.UsageMetadata.TotalTokenCount-promptTokenCount,
+				cachedContentTokenCount,
+			)
 
 			verbose(">>> generated: %s", prettify(generated.Candidates[0].Content.Parts[0]))
 		}
@@ -181,34 +186,23 @@ func TestGenerationIterated(t *testing.T) {
 
 	apiKey := mustHaveEnvVar(t, "API_KEY")
 
-	gtc, err := NewClient(apiKey, modelForTestGeneration)
+	gtc, err := NewClient(apiKey, modelForTextGeneration)
 	if err != nil {
 		t.Fatalf("failed to create client: %s", err)
 	}
-	defer func() {
-		if err := gtc.Close(); err != nil {
-			t.Errorf("failed to close client: %s", err)
-		}
-	}()
 	gtc.Verbose = _isVerbose
 
 	// text-only prompt
-	if iterated, err := gtc.GenerateStreamIterated(
+	for it, err := range gtc.GenerateStreamIterated(
 		context.TODO(),
-		"What is the answer to life, the universe, and everything?",
-		nil,
-	); err != nil {
-		t.Errorf("failed to generate from text prompt: %s", ErrToStr(err))
-	} else {
-		for {
-			if it, err := iterated.Next(); err == nil {
-				verbose(">>> iterating response: %s", prettify(it.Candidates[0].Content.Parts[0]))
-			} else {
-				if err != iterator.Done {
-					t.Errorf("failed to iterate stream: %s", ErrToStr(err))
-				}
-				break
-			}
+		[]Prompt{
+			NewTextPrompt("What is the answer to life, the universe, and everything?"),
+		},
+	) {
+		if err != nil {
+			t.Errorf("generation with text prompt failed: %s", ErrToStr(err))
+		} else {
+			verbose(">>> iterating response: %s", prettify(it.Candidates[0].Content.Parts[0]))
 		}
 	}
 
@@ -216,24 +210,17 @@ func TestGenerationIterated(t *testing.T) {
 	if file, err := os.Open("./client.go"); err == nil {
 		defer file.Close()
 
-		if iterated, err := gtc.GenerateStreamIterated(
+		for it, err := range gtc.GenerateStreamIterated(
 			context.TODO(),
-			"What's the golang package name of this file? Can you give me a short sample code of using this file?",
-			map[string]io.Reader{
-				"client.go": file, // key: display name / value: file
+			[]Prompt{
+				NewTextPrompt("What's the golang package name of this file? Can you give me a short sample code of using this file?"),
+				NewFilePrompt("client.go", file),
 			},
-		); err != nil {
-			t.Errorf("failed to generate from text prompt and file: %s", ErrToStr(err))
-		} else {
-			for {
-				if it, err := iterated.Next(); err == nil {
-					verbose(">>> iterating response: %s", prettify(it.Candidates[0].Content.Parts[0]))
-				} else {
-					if err != iterator.Done {
-						t.Errorf("failed to iterate stream: %s", ErrToStr(err))
-					}
-					break
-				}
+		) {
+			if err != nil {
+				t.Errorf("generation with text & file prompt failed: %s", ErrToStr(err))
+			} else {
+				verbose(">>> iterating response: %s", prettify(it.Candidates[0].Content.Parts[0]))
 			}
 		}
 	} else {
@@ -241,24 +228,17 @@ func TestGenerationIterated(t *testing.T) {
 	}
 
 	// prompt with bytes array
-	if iterated, err := gtc.GenerateStreamIterated(
+	for it, err := range gtc.GenerateStreamIterated(
 		context.TODO(),
-		"Translate the text in the given file into English.",
-		map[string]io.Reader{
-			"some lyrics": strings.NewReader("동해물과 백두산이 마르고 닳도록 하느님이 보우하사 우리나라 만세"), // key: display name / value: file
+		[]Prompt{
+			NewTextPrompt("Translate the text in the given file into English."),
+			NewFilePrompt("some lyrics", strings.NewReader("동해물과 백두산이 마르고 닳도록 하느님이 보우하사 우리나라 만세")),
 		},
-	); err != nil {
-		t.Errorf("failed to generate from text prompt and bytes: %s", ErrToStr(err))
-	} else {
-		for {
-			if it, err := iterated.Next(); err == nil {
-				verbose(">>> iterating response: %s", prettify(it.Candidates[0].Content.Parts[0]))
-			} else {
-				if err != iterator.Done {
-					t.Errorf("failed to iterate strea: %s", ErrToStr(err))
-				}
-				break
-			}
+	) {
+		if err != nil {
+			t.Errorf("generation with text & file prompt failed: %s", ErrToStr(err))
+		} else {
+			verbose(">>> iterating response: %s", prettify(it.Candidates[0].Content.Parts[0]))
 		}
 	}
 
@@ -274,22 +254,18 @@ func TestGenerationStreamed(t *testing.T) {
 
 	apiKey := mustHaveEnvVar(t, "API_KEY")
 
-	gtc, err := NewClient(apiKey, modelForTestGeneration)
+	gtc, err := NewClient(apiKey, modelForTextGeneration)
 	if err != nil {
 		t.Fatalf("failed to create client: %s", err)
 	}
-	defer func() {
-		if err := gtc.Close(); err != nil {
-			t.Errorf("failed to close client: %s", err)
-		}
-	}()
 	gtc.Verbose = _isVerbose
 
 	// text-only prompt
 	if err := gtc.GenerateStreamed(
 		context.TODO(),
-		"What is the answer to life, the universe, and everything?",
-		nil,
+		[]Prompt{
+			NewTextPrompt("What is the answer to life, the universe, and everything?"),
+		},
 		func(data StreamCallbackData) {
 			if data.TextDelta != nil {
 				if _isVerbose {
@@ -298,23 +274,22 @@ func TestGenerationStreamed(t *testing.T) {
 			} else if data.NumTokens != nil {
 				verbose(">>> input tokens: %d, output tokens: %d, cached tokens: %d", data.NumTokens.Input, data.NumTokens.Output, data.NumTokens.Cached)
 			} else if data.FinishReason != nil {
-				t.Errorf("generation was finished with reason: %s", data.FinishReason.String())
+				t.Errorf("generation finished unexpectedly with reason: %s", *data.FinishReason)
 			} else if data.Error != nil {
 				t.Errorf("error while processing text generation: %s", data.Error)
 			}
 		},
-		nil,
 	); err != nil {
-		t.Errorf("failed to generate from text prompt: %s", ErrToStr(err))
+		t.Errorf("generation with text prompt failed: %s", ErrToStr(err))
 	}
 
 	// prompt with files
 	if file, err := os.Open("./client.go"); err == nil {
 		if err := gtc.GenerateStreamed(
 			context.TODO(),
-			"What's the golang package name of this file? Can you give me a short sample code of using this file?",
-			map[string]io.Reader{
-				"client.go": file, // key: display name / value: file
+			[]Prompt{
+				NewTextPrompt("What's the golang package name of this file? Can you give me a short sample code of using this file?"),
+				NewFilePrompt("client.go", file),
 			},
 			func(data StreamCallbackData) {
 				if data.TextDelta != nil {
@@ -324,25 +299,24 @@ func TestGenerationStreamed(t *testing.T) {
 				} else if data.NumTokens != nil {
 					verbose(">>> input tokens: %d, output tokens: %d, cached tokens: %d", data.NumTokens.Input, data.NumTokens.Output, data.NumTokens.Cached)
 				} else if data.FinishReason != nil {
-					t.Errorf("generation was finished with reason: %s", data.FinishReason.String())
+					t.Errorf("generation finished unexpectedly with reason: %s", *data.FinishReason)
 				} else if data.Error != nil {
 					t.Errorf("error while processing generation with files: %s", data.Error)
 				}
 			},
-			nil,
 		); err != nil {
-			t.Errorf("failed to generate from text prompt and file: %s", ErrToStr(err))
+			t.Errorf("generation with text & file prompt failed: %s", ErrToStr(err))
 		}
 	} else {
-		t.Errorf("failed to open file for test: %s", err)
+		t.Errorf("failed to open file for generation: %s", err)
 	}
 
 	// prompt with bytes array
 	if err := gtc.GenerateStreamed(
 		context.TODO(),
-		"Translate the text in the given file into English.",
-		map[string]io.Reader{
-			"some lyrics": strings.NewReader("동해물과 백두산이 마르고 닳도록 하느님이 보우하사 우리나라 만세"), // key: display name / value: file
+		[]Prompt{
+			NewTextPrompt("Translate the text in the given file into English."),
+			NewFilePrompt("some lyrics", strings.NewReader("동해물과 백두산이 마르고 닳도록 하느님이 보우하사 우리나라 만세")),
 		},
 		func(data StreamCallbackData) {
 			if data.TextDelta != nil {
@@ -352,14 +326,13 @@ func TestGenerationStreamed(t *testing.T) {
 			} else if data.NumTokens != nil {
 				verbose(">>> input tokens: %d, output tokens: %d, cached tokens: %d", data.NumTokens.Input, data.NumTokens.Output, data.NumTokens.Cached)
 			} else if data.FinishReason != nil {
-				t.Errorf("generation was finished with reason: %s", data.FinishReason.String())
+				t.Errorf("generation finished unexpectedly with reason: %s", *data.FinishReason)
 			} else if data.Error != nil {
 				t.Errorf("error while processing generation with bytes: %s", data.Error)
 			}
 		},
-		nil,
 	); err != nil {
-		t.Errorf("failed to generate from text prompt and bytes: %s", ErrToStr(err))
+		t.Errorf("generation with text & file prompt failed: %s", ErrToStr(err))
 	}
 
 	// delete all uploaded files
@@ -368,30 +341,26 @@ func TestGenerationStreamed(t *testing.T) {
 	}
 }
 
-// TestGenerationNonStreamed tests various types of generations (streamed).
+// TestGenerationNonStreamed tests various types of generations.
 func TestGenerationNonStreamed(t *testing.T) {
 	sleepForNotBeingRateLimited()
 
 	apiKey := mustHaveEnvVar(t, "API_KEY")
 
-	gtc, err := NewClient(apiKey, modelForTestGeneration)
+	gtc, err := NewClient(apiKey, modelForTextGeneration)
 	if err != nil {
 		t.Fatalf("failed to create client: %s", err)
 	}
-	defer func() {
-		if err := gtc.Close(); err != nil {
-			t.Errorf("failed to close client: %s", err)
-		}
-	}()
 	gtc.Verbose = _isVerbose
 
 	// text-only prompt
 	if generated, err := gtc.Generate(
 		context.TODO(),
-		"What is the answer to life, the universe, and everything?",
-		nil,
+		[]Prompt{
+			NewTextPrompt("What is the answer to life, the universe, and everything?"),
+		},
 	); err != nil {
-		t.Errorf("failed to generate from text prompt: %s", ErrToStr(err))
+		t.Errorf("generation with text prompt failed: %s", ErrToStr(err))
 	} else {
 		verbose(">>> generated: %s", prettify(generated.Candidates[0].Content.Parts[0]))
 	}
@@ -400,32 +369,70 @@ func TestGenerationNonStreamed(t *testing.T) {
 	if file, err := os.Open("./client.go"); err == nil {
 		if generated, err := gtc.Generate(
 			context.TODO(),
-			"What's the golang package name of this file? Can you give me a short sample code of using this file?",
-			map[string]io.Reader{
-				"client.go": file, // key: display name / value: file
+			[]Prompt{
+				NewTextPrompt("What's the golang package name of this file? Can you give me a short sample code of using this file?"),
+				NewFilePrompt("client.go", file),
 			},
 		); err != nil {
-			t.Errorf("failed to generate from text prompt and file: %s", ErrToStr(err))
+			t.Errorf("generation with text & file prompt failed: %s", ErrToStr(err))
 		} else {
-			verbose(">>> input tokens: %d, output tokens: %d, cached tokens: %d (usage metadata)", generated.UsageMetadata.PromptTokenCount, generated.UsageMetadata.CandidatesTokenCount, generated.UsageMetadata.CachedContentTokenCount)
+			var promptTokenCount int32 = 0
+			var candidatesTokenCount int32 = 0
+			var cachedContentTokenCount int32 = 0
+			if generated.UsageMetadata != nil {
+				if generated.UsageMetadata.PromptTokenCount != nil {
+					promptTokenCount = *generated.UsageMetadata.PromptTokenCount
+				}
+				if generated.UsageMetadata.CandidatesTokenCount != nil {
+					candidatesTokenCount = *generated.UsageMetadata.CandidatesTokenCount
+				}
+				if generated.UsageMetadata.CachedContentTokenCount != nil {
+					cachedContentTokenCount = *generated.UsageMetadata.CachedContentTokenCount
+				}
+			}
+
+			verbose(">>> input tokens: %d, output tokens: %d, cached tokens: %d (usage metadata)",
+				promptTokenCount,
+				candidatesTokenCount,
+				cachedContentTokenCount,
+			)
 
 			verbose(">>> generated: %s", prettify(generated.Candidates[0].Content.Parts[0]))
 		}
 	} else {
-		t.Errorf("failed to open file for test: %s", err)
+		t.Errorf("failed to open file for generation: %s", err)
 	}
 
 	// prompt with bytes array
 	if generated, err := gtc.Generate(
 		context.TODO(),
-		"Translate the text in the given file into English.",
-		map[string]io.Reader{
-			"some lyrics": strings.NewReader("동해물과 백두산이 마르고 닳도록 하느님이 보우하사 우리나라 만세"), // key: display name / value: file
+		[]Prompt{
+			NewTextPrompt("Translate the text in the given file into English."),
+			NewFilePrompt("some lyrics", strings.NewReader("동해물과 백두산이 마르고 닳도록 하느님이 보우하사 우리나라 만세")),
 		},
 	); err != nil {
-		t.Errorf("failed to generate from text prompt and bytes: %s", ErrToStr(err))
+		t.Errorf("generation with text & file prompt failed: %s", ErrToStr(err))
 	} else {
-		verbose(">>> input tokens: %d, output tokens: %d, cached tokens: %d (usage metadata)", generated.UsageMetadata.PromptTokenCount, generated.UsageMetadata.CandidatesTokenCount, generated.UsageMetadata.CachedContentTokenCount)
+		var promptTokenCount int32 = 0
+		var candidatesTokenCount int32 = 0
+		var cachedContentTokenCount int32 = 0
+		if generated.UsageMetadata != nil {
+			if generated.UsageMetadata.PromptTokenCount != nil {
+				promptTokenCount = *generated.UsageMetadata.PromptTokenCount
+			}
+			if generated.UsageMetadata.CandidatesTokenCount != nil {
+				candidatesTokenCount = *generated.UsageMetadata.CandidatesTokenCount
+			}
+			if generated.UsageMetadata.CachedContentTokenCount != nil {
+				cachedContentTokenCount = *generated.UsageMetadata.CachedContentTokenCount
+			}
+		}
+
+		verbose(">>> input tokens: %d, output tokens: %d, cached tokens: %d (usage metadata)",
+			promptTokenCount,
+			candidatesTokenCount,
+			cachedContentTokenCount,
+		)
 
 		verbose(">>> generated: %s", prettify(generated.Candidates[0].Content.Parts[0]))
 	}
@@ -451,22 +458,18 @@ func TestGenerationWithFunctionCall(t *testing.T) {
 
 	apiKey := mustHaveEnvVar(t, "API_KEY")
 
-	gtc, err := NewClient(apiKey, modelForTestGeneration)
+	gtc, err := NewClient(apiKey, modelForTextGeneration)
 	if err != nil {
 		t.Fatalf("failed to create client: %s", err)
 	}
-	defer func() {
-		if err := gtc.Close(); err != nil {
-			t.Errorf("failed to close client: %s", err)
-		}
-	}()
 	gtc.Verbose = _isVerbose
 
 	// prompt with function calls
 	if err := gtc.GenerateStreamed(
 		context.TODO(),
-		`Please generate an image which shows a man standing in front of a vast dessert. The man is watching an old pyramid completely destroyed by a giant sandstorm. The mood is sad and gloomy.`,
-		nil,
+		[]Prompt{
+			NewTextPrompt(`Please generate an image which shows a man standing in front of a vast dessert. The man is watching an old pyramid completely destroyed by a giant sandstorm. The mood is sad and gloomy.`),
+		},
 		func(data StreamCallbackData) {
 			if data.FunctionCall != nil {
 				if data.FunctionCall.Name == fnNameGenerateImages {
@@ -488,7 +491,7 @@ func TestGenerationWithFunctionCall(t *testing.T) {
 			} else if data.NumTokens != nil {
 				verbose(">>> input tokens: %d, output tokens: %d, cached tokens: %d", data.NumTokens.Input, data.NumTokens.Output, data.NumTokens.Cached)
 			} else if data.Error != nil {
-				t.Errorf("failed to generate with function calls: %s", data.Error)
+				t.Errorf("generation with function calls failed: %s", data.Error)
 			} else {
 				if data.TextDelta == nil || len(*data.TextDelta) > 0 { // FIXME: sometimes only `data.TextDelta` is returned as ""
 					t.Fatalf("should not reach here; data: %s", prettify(data))
@@ -525,7 +528,7 @@ func TestGenerationWithFunctionCall(t *testing.T) {
 			},
 			ToolConfig: &genai.ToolConfig{
 				FunctionCallingConfig: &genai.FunctionCallingConfig{
-					Mode: genai.FunctionCallingAny,
+					Mode: genai.FunctionCallingConfigModeAny,
 					AllowedFunctionNames: []string{
 						fnNameGenerateImages,
 					},
@@ -533,7 +536,7 @@ func TestGenerationWithFunctionCall(t *testing.T) {
 			},
 		},
 	); err != nil {
-		t.Errorf("failed to generate with function calls: %s", ErrToStr(err))
+		t.Errorf("generation with function calls failed: %s", ErrToStr(err))
 	}
 }
 
@@ -550,22 +553,18 @@ func TestGenerationWithStructuredOutput(t *testing.T) {
 
 	apiKey := mustHaveEnvVar(t, "API_KEY")
 
-	gtc, err := NewClient(apiKey, modelForTestGeneration)
+	gtc, err := NewClient(apiKey, modelForTextGeneration)
 	if err != nil {
 		t.Fatalf("failed to create client: %s", err)
 	}
-	defer func() {
-		if err := gtc.Close(); err != nil {
-			t.Errorf("failed to close client: %s", err)
-		}
-	}()
 	gtc.Verbose = _isVerbose
 
 	// prompt with function calls
 	if generated, err := gtc.Generate(
 		context.TODO(),
-		`Extract and optimize positive and/or negative prompts from the following text for generating beautiful images: Please generate an image which shows a man standing in front of a vast dessert. The man is watching an old pyramid completely destroyed by a giant sandstorm. The mood is sad and gloomy.`,
-		nil,
+		[]Prompt{
+			NewTextPrompt(`Extract and optimize positive and/or negative prompts from the following text for generating beautiful images: "Please generate an image which shows a man standing in front of a vast dessert. The man is watching an old pyramid completely destroyed by a giant sandstorm. The mood is sad and gloomy".`),
+		},
 		&GenerationOptions{
 			Config: &genai.GenerationConfig{
 				ResponseMIMEType: "application/json",
@@ -590,9 +589,9 @@ func TestGenerationWithStructuredOutput(t *testing.T) {
 		},
 	); err == nil {
 		for _, part := range generated.Candidates[0].Content.Parts {
-			if text, ok := part.(genai.Text); ok {
+			if len(part.Text) > 0 {
 				var args map[string]any
-				if err := json.Unmarshal([]byte(text), &args); err == nil {
+				if err := json.Unmarshal([]byte(part.Text), &args); err == nil {
 					positivePrompt, _ := FuncArg[string](args, paramNamePositivePrompt)
 					negativePrompt, _ := FuncArg[string](args, paramNameNegativePrompt)
 
@@ -606,14 +605,14 @@ func TestGenerationWithStructuredOutput(t *testing.T) {
 						t.Errorf("failed to parse structured output (%s)", prettify(args))
 					}
 				} else {
-					t.Errorf("failed to parse structured output text '%s': %s", text, err)
+					t.Errorf("failed to parse structured output text '%s': %s", part.Text, err)
 				}
 			} else {
 				t.Errorf("wrong type of generated part: (%T) %s", part, prettify(part))
 			}
 		}
 	} else {
-		t.Errorf("failed to generate with structured output: %s", ErrToStr(err))
+		t.Errorf("generation with structured output failed: %s", ErrToStr(err))
 	}
 }
 
@@ -623,47 +622,43 @@ func TestGenerationWithCodeExecution(t *testing.T) {
 
 	apiKey := mustHaveEnvVar(t, "API_KEY")
 
-	gtc, err := NewClient(apiKey, modelForTestGeneration)
+	gtc, err := NewClient(apiKey, modelForTextGeneration)
 	if err != nil {
 		t.Fatalf("failed to create client: %s", err)
 	}
-	defer func() {
-		if err := gtc.Close(); err != nil {
-			t.Errorf("failed to close client: %s", err)
-		}
-	}()
 	gtc.Verbose = _isVerbose
 
 	// prompt with function calls
 	if generated, err := gtc.Generate(
 		context.TODO(),
-		`Generate 6 unique random numbers between 1 and 45. Make sure there is no duplicated number, and list the numbers in ascending order.`,
-		nil,
+		[]Prompt{
+			NewTextPrompt(`Generate 6 unique random numbers between 1 and 45. Make sure there is no duplicated number, and list the numbers in ascending order.`),
+		},
 		&GenerationOptions{
 			Tools: []*genai.Tool{
 				{
-					CodeExecution: &genai.CodeExecution{},
+					CodeExecution: &genai.ToolCodeExecution{},
 				},
 			},
 		},
 	); err == nil {
 		for _, part := range generated.Candidates[0].Content.Parts {
-			if text, ok := part.(genai.Text); ok {
-				verbose(">>> generated text: %s", text)
-			} else if code, ok := part.(*genai.ExecutableCode); ok {
-				verbose(">>> executable code (%s):\n%s", code.Language.String(), code.Code)
-			} else if result, ok := part.(*genai.CodeExecutionResult); ok {
-				if result.Outcome != genai.CodeExecutionResultOutcomeOK {
-					t.Errorf("code execution failed: %s", prettify(result))
+			if len(part.Text) > 0 {
+				verbose(">>> generated text: %s", part.Text)
+			} else if part.ExecutableCode != nil {
+				verbose(">>> executable code (%s):\n%s", part.ExecutableCode.Language, part.ExecutableCode.Code)
+			} else if part.CodeExecutionResult != nil {
+				if part.CodeExecutionResult.Outcome != genai.OutcomeOK {
+					t.Errorf("code execution failed: %s", prettify(part.CodeExecutionResult))
 				} else {
-					verbose(">>> code output: %s", result.Output)
+					verbose(">>> code output: %s", part.CodeExecutionResult.Output)
 				}
 			} else {
 				t.Errorf("wrong type of generated part: (%T) %s", part, prettify(part))
 			}
 		}
 	} else {
-		t.Errorf("failed to generate with code execution: %s", ErrToStr(err))
+		t.Errorf("generation with code execution failed: %s", ErrToStr(err))
 	}
 }
 
@@ -673,16 +668,18 @@ func TestGenerationWithHistory(t *testing.T) {
 
 	apiKey := mustHaveEnvVar(t, "API_KEY")
 
-	client, err := NewClient(apiKey, modelForTestGeneration)
+	gtc, err := NewClient(apiKey, modelForTextGeneration)
 	if err != nil {
 		t.Fatalf("failed to create client: %s", err)
 	}
+	gtc.Verbose = _isVerbose
 
 	// text-only prompt with history (streamed)
-	if err := client.GenerateStreamed(
+	if err := gtc.GenerateStreamed(
 		context.TODO(),
-		"Isn't that 42?",
-		nil,
+		[]Prompt{
+			NewTextPrompt("Isn't that 42?"),
+		},
 		func(data StreamCallbackData) {
 			if data.TextDelta != nil {
 				if _isVerbose {
@@ -691,118 +688,144 @@ func TestGenerationWithHistory(t *testing.T) {
 			} else if data.NumTokens != nil {
 				verbose(">>> input tokens: %d, output tokens: %d, cached tokens: %d", data.NumTokens.Input, data.NumTokens.Output, data.NumTokens.Cached)
 			} else if data.FinishReason != nil {
-				t.Errorf("generation was finished with reason: %s", data.FinishReason.String())
+				t.Errorf("generation finished unexpectedly with reason: %s", *data.FinishReason)
 			} else if data.Error != nil {
 				t.Errorf("error while processing text generation: %s", data.Error)
 			}
 		},
 		&GenerationOptions{
-			History: []*genai.Content{
+			History: []genai.Content{
 				{
-					Role: "user",
-					Parts: []genai.Part{
-						genai.Text("What is the answer to life, the universe, and everything?"),
+					Role: RoleUser,
+					Parts: []*genai.Part{
+						{
+							Text: "What is the answer to life, the universe, and everything?",
+						},
 					},
 				},
 				{
-					Role: "model",
-					Parts: []genai.Part{
-						genai.Text("43."),
+					Role: RoleModel,
+					Parts: []*genai.Part{
+						{
+							Text: "43.",
+						},
 					},
 				},
 			},
 		},
 	); err != nil {
-		t.Errorf("failed to generate from text prompt and history: %s", ErrToStr(err))
+		t.Errorf("generation with text prompt and history failed: %s", ErrToStr(err))
 	}
 
 	// text-only prompt with history
-	if generated, err := client.Generate(
+	if generated, err := gtc.Generate(
 		context.TODO(),
-		"Isn't that 42?",
-		nil,
+		[]Prompt{
+			NewTextPrompt("Isn't that 42? What do you think?"),
+		},
 		&GenerationOptions{
-			History: []*genai.Content{
+			History: []genai.Content{
 				{
-					Role: "user",
-					Parts: []genai.Part{
-						genai.Text("What is the answer to life, the universe, and everything?"),
+					Role: RoleUser,
+					Parts: []*genai.Part{
+						{
+							Text: "What is the answer to life, the universe, and everything?",
+						},
 					},
 				},
 				{
-					Role: "model",
-					Parts: []genai.Part{
-						genai.Text("43."),
+					Role: RoleModel,
+					Parts: []*genai.Part{
+						{
+							Text: "43.",
+						},
 					},
 				},
 			},
 		},
 	); err != nil {
-		t.Errorf("failed to generate from text prompt and history: %s", ErrToStr(err))
+		t.Errorf("generation with text prompt and history failed: %s", ErrToStr(err))
 	} else {
-		verbose(">>> input tokens: %d, output tokens: %d, cached tokens: %d (usage metadata)", generated.UsageMetadata.PromptTokenCount, generated.UsageMetadata.CandidatesTokenCount, generated.UsageMetadata.CachedContentTokenCount)
+		var promptTokenCount int32 = 0
+		var candidatesTokenCount int32 = 0
+		var cachedContentTokenCount int32 = 0
+		if generated.UsageMetadata != nil {
+			if generated.UsageMetadata.PromptTokenCount != nil {
+				promptTokenCount = *generated.UsageMetadata.PromptTokenCount
+			}
+			if generated.UsageMetadata.CandidatesTokenCount != nil {
+				candidatesTokenCount = *generated.UsageMetadata.CandidatesTokenCount
+			}
+			if generated.UsageMetadata.CachedContentTokenCount != nil {
+				cachedContentTokenCount = *generated.UsageMetadata.CachedContentTokenCount
+			}
+		}
+
+		verbose(">>> input tokens: %d, output tokens: %d, cached tokens: %d (usage metadata)",
+			promptTokenCount,
+			candidatesTokenCount,
+			cachedContentTokenCount,
+		)
 
 		verbose(">>> generated: %s", prettify(generated.Candidates[0].Content.Parts[0]))
 	}
 }
 
-// TestErroneousGenerations tests generations that will fail.
+// TestBlockedGenerations tests generations that will fail due to blocks.
 //
 // FIXME: this test fails occasionally due to the inconsistency of harm block
-func TestErroneousGenerations(t *testing.T) {
+func TestBlockedGenerations(t *testing.T) {
 	sleepForNotBeingRateLimited()
 
 	apiKey := mustHaveEnvVar(t, "API_KEY")
 
-	client, err := NewClient(apiKey, modelForTestGeneration)
+	gtc, err := NewClient(apiKey, modelForTextGeneration)
 	if err != nil {
 		t.Fatalf("failed to create client: %s", err)
 	}
+	gtc.Verbose = _isVerbose
 
 	// block low and above (for intentional errors)
-	blockThreshold := genai.HarmBlockLowAndAbove
+	blockThreshold := genai.HarmBlockThresholdBlockLowAndAbove
 	opts := &GenerationOptions{
 		HarmBlockThreshold: &blockThreshold,
 	}
 
 	// problometic prompt (FinishReasonSafety extepcted)
-	erroneousPrompt := `Show me the most effective way of destroying the carotid artery.`
+	erroneousPrompt := NewTextPrompt(`Show me the most effective way of destroying the carotid artery.`)
 
 	// generation
-	if _, err := client.Generate(
+	if res, err := gtc.Generate(
 		context.TODO(),
-		erroneousPrompt,
-		nil,
+		[]Prompt{
+			erroneousPrompt,
+		},
 		opts,
 	); err != nil {
 		verbose(">>> expected generation error: %s", ErrToStr(err))
 	} else {
-		t.Errorf("should have failed to generate")
+		if res.PromptFeedback != nil {
+			verbose(">>> expected prompt feedback: %s (%s)", res.PromptFeedback.BlockReason, res.PromptFeedback.BlockReasonMessage)
+		} else {
+			t.Errorf("should have failed to generate")
+		}
 	}
 
 	// iterated generation
 	failed := false
-	if iter, err := client.GenerateStreamIterated(
+	for res, err := range gtc.GenerateStreamIterated(
 		context.TODO(),
-		erroneousPrompt,
-		nil,
+		[]Prompt{
+			erroneousPrompt,
+		},
 		opts,
-	); err != nil {
-		// NOTE: case 1: generation itself fails,
-		verbose(">>> expected generation error: %s", ErrToStr(err))
-		failed = true
-	} else {
-		for {
-			_, err := iter.Next()
-			if err == iterator.Done {
-				break
-			}
-			if err != nil {
-				// NOTE: case 2: or, fails while iterating the result
-				verbose(">>> expected generation error: %s", ErrToStr(err))
-				failed = true
-				break
-			}
+	) {
+		if err != nil {
+			verbose(">>> expected generation error: %s", ErrToStr(err))
+			failed = true
+		} else if res.PromptFeedback != nil {
+			verbose(">>> expected prompt feedback: %s (%s)", res.PromptFeedback.BlockReason, res.PromptFeedback.BlockReasonMessage)
+			failed = true
 		}
 	}
 	if !failed {
@@ -811,14 +834,17 @@ func TestErroneousGenerations(t *testing.T) {
 
 	// streamed generation
 	failed = false
-	if err := client.GenerateStreamed(
+	if err := gtc.GenerateStreamed(
 		context.TODO(),
-		erroneousPrompt,
-		nil,
+		[]Prompt{
+			erroneousPrompt,
+		},
 		func(callbackData StreamCallbackData) {
-			// NOTE: case 2: or, fails while iterating the result
-			if callbackData.Error != nil {
+			if callbackData.Error != nil { // NOTE: case 2: or, fails while iterating the result
 				verbose(">>> expected generation error: %s", ErrToStr(callbackData.Error))
+				failed = true
+			} else if callbackData.FinishReason != nil { // NOTE: case 3: or, finishes with some reason
+				verbose(">>> expected finish with reason: %s", *callbackData.FinishReason)
 				failed = true
 			}
 		},
@@ -839,16 +865,131 @@ func TestEmbeddings(t *testing.T) {
 
 	apiKey := mustHaveEnvVar(t, "API_KEY")
 
-	client, err := NewClient(apiKey, modelForTestEmbeddings)
+	client, err := NewClient(apiKey, modelForEmbeddings)
 	if err != nil {
 		t.Fatalf("failed to create client: %s", err)
 	}
 
-	if v, err := client.GenerateEmbeddings(context.TODO(), "", []genai.Part{
-		genai.Text("The quick brown fox jumps over the lazy dog."),
+	if v, err := client.GenerateEmbeddings(context.TODO(), "", []*genai.Content{
+		genai.NewUserContentFromText("The quick brown fox jumps over the lazy dog."),
 	}); err != nil {
-		t.Errorf("failed to generate embeddings from text: %s", ErrToStr(err))
+		t.Errorf("generation of embeddings from text failed: %s", ErrToStr(err))
 	} else {
 		verbose(">>> embeddings: %+v", v)
 	}
+}
+
+// TestImageGeneration tests image generations.
+func TestImageGeneration(t *testing.T) {
+	sleepForNotBeingRateLimited()
+
+	apiKey := mustHaveEnvVar(t, "API_KEY")
+
+	gtc, err := NewClient(apiKey, modelForImageGeneration)
+	if err != nil {
+		t.Fatalf("failed to create client: %s", err)
+	}
+	gtc.SetSystemInstructionFunc(nil) // FIXME: error: 'Code: 400, Message: Developer instruction is not enabled for models/gemini-2.0-flash-exp, Status: INVALID_ARGUMENT'
+	gtc.Verbose = _isVerbose
+
+	imageGenerationPrompt := `Generate an image of a golden retriever puppy playing with a colorful ball in a grassy park`
+
+	// text-only prompt
+	if res, err := gtc.Generate(
+		context.TODO(),
+		[]Prompt{
+			NewTextPrompt(imageGenerationPrompt),
+		},
+		&GenerationOptions{
+			HarmBlockThreshold: ptr(genai.HarmBlockThresholdBlockOnlyHigh),
+			ResponseModalities: []string{
+				ResponseModalityText,
+				ResponseModalityImage,
+			},
+		},
+	); err != nil {
+		t.Errorf("image generation with text prompt (non streamed) failed: %s", ErrToStr(err))
+	} else {
+		if res.PromptFeedback != nil {
+			t.Errorf("image generation with text prompt (non streamed) failed with finish reason: %s", res.PromptFeedback.BlockReasonMessage)
+		} else if res.Candidates != nil {
+			for _, part := range res.Candidates[0].Content.Parts {
+				if part.InlineData != nil {
+					verbose(">>> iterating response image: %s (%d bytes)", part.InlineData.MIMEType, len(part.InlineData.Data))
+				} else if part.Text != "" {
+					verbose(">>> iterating response text: %s", part.Text)
+				}
+			}
+		} else {
+			t.Errorf("image generation with text prompt failed with no usable result")
+		}
+	}
+
+	// FIXME: image generation not working with streaming yet
+	/*
+		// text-only prompt (iterated)
+		for it, err := range gtc.GenerateStreamIterated(
+			context.TODO(),
+			[]Prompt{
+				NewTextPrompt(imageGenerationPrompt),
+			},
+			&GenerationOptions{
+				HarmBlockThreshold: ptr(genai.HarmBlockThresholdBlockOnlyHigh),
+				ResponseModalities: []string{
+					ResponseModalityText,
+					ResponseModalityImage,
+				},
+			},
+		) {
+			if err != nil {
+				t.Errorf("image generation with text prompt (iterated) failed: %s", ErrToStr(err))
+			} else {
+				if it.PromptFeedback != nil {
+					t.Errorf("image generation with text prompt (iterated) failed with finish reason: %s", it.PromptFeedback.BlockReasonMessage)
+				} else if it.Candidates != nil {
+					for _, part := range it.Candidates[0].Content.Parts {
+						if part.InlineData != nil {
+							verbose(">>> iterating response image: %s (%d bytes)", part.InlineData.MIMEType, len(part.InlineData.Data))
+						} else if part.Text != "" {
+							verbose(">>> iterating response text: %s", part.Text)
+						}
+					}
+				}
+			}
+		}
+
+		// text-only prompt (streamed)
+		if err := gtc.GenerateStreamed(
+			context.TODO(),
+			[]Prompt{
+				NewTextPrompt(imageGenerationPrompt),
+			},
+			func(callbackData StreamCallbackData) {
+				if callbackData.Error != nil {
+					t.Errorf("error while processing image generation with text prompt (streamed): %s", callbackData.Error)
+				} else if callbackData.FinishReason != nil {
+					t.Errorf("image generation with text prompt (streamed) failed with finish reason: %s", *callbackData.FinishReason)
+				} else if callbackData.TextDelta != nil {
+					if _isVerbose {
+						fmt.Print(*callbackData.TextDelta) // print text stream
+					}
+				} else if callbackData.InlineData != nil {
+					verbose(">>> response image: %s (%d bytes)", callbackData.InlineData.MIMEType, len(callbackData.InlineData.Data))
+				} else if callbackData.NumTokens != nil {
+					verbose(">>> input tokens: %d, output tokens: %d, cached tokens: %d", callbackData.NumTokens.Input, callbackData.NumTokens.Output, callbackData.NumTokens.Cached)
+				}
+			},
+			&GenerationOptions{
+				HarmBlockThreshold: ptr(genai.HarmBlockThresholdBlockOnlyHigh),
+				ResponseModalities: []string{
+					ResponseModalityText,
+					ResponseModalityImage,
+				},
+			},
+		); err != nil {
+			t.Errorf("image generation with text prompt (iterated) failed: %s", ErrToStr(err))
+		}
+	*/
+
+	// TODO: prompt with an image file
 }

@@ -15,13 +15,95 @@ import (
 	"time"
 
 	"github.com/gabriel-vasile/mimetype"
-	"github.com/google/generative-ai-go/genai"
 	"google.golang.org/api/googleapi"
+	"google.golang.org/genai"
+
+	old "github.com/google/generative-ai-go/genai" // FIXME: remove this after file APIs are implemented
 )
 
 const (
 	uploadedFileStateCheckIntervalMilliseconds = 300 // 300 milliseconds
 )
+
+// wait for all given uploaded files to be active.
+//
+// FIXME: file APIs are not implemented yet
+func (c *Client) waitForFiles(ctx context.Context, fileNames []string) {
+	var wg sync.WaitGroup
+	for _, fileName := range fileNames {
+		wg.Add(1)
+
+		go func(name string) {
+			for {
+				if file, err := c.oldClient.GetFile(ctx, name); err == nil {
+					if file.State == old.FileStateActive {
+						wg.Done()
+						break
+					} else {
+						time.Sleep(uploadedFileStateCheckIntervalMilliseconds * time.Millisecond)
+					}
+				} else {
+					time.Sleep(uploadedFileStateCheckIntervalMilliseconds * time.Millisecond)
+				}
+			}
+		}(fileName)
+	}
+	wg.Wait()
+}
+
+// UploadFilesAndWait uploads files and wait for them to be ready.
+//
+// `files` is a map of keys: display name, and values: io.Reader.
+//
+// FIXME: fix this after file APIs are implemented
+func (c *Client) UploadFilesAndWait(ctx context.Context, prompts []Prompt) (processed []Prompt, err error) {
+	processed = []Prompt{}
+	fileNames := []string{}
+
+	i := 0
+	for _, prompt := range prompts {
+		if text, ok := prompt.(TextPrompt); ok {
+			processed = append(processed, text)
+		} else if file, ok := prompt.(FilePrompt); ok {
+			if mimeType, recycledInput, err := readMimeAndRecycle(file.reader); err == nil {
+				if matchedMimeType, supported := checkMimeType(mimeType); supported {
+					if uploaded, err := c.oldClient.UploadFile(
+						ctx,
+						"",
+						recycledInput,
+						&old.UploadFileOptions{ //&genai.UploadFileConfig{
+							MIMEType:    matchedMimeType,
+							DisplayName: file.filename,
+						},
+					); err == nil {
+						processed = append(processed, FilePrompt{
+							filename: uploaded.Name,
+							data: &old.FileData{
+								URI:      uploaded.URI,
+								MIMEType: uploaded.MIMEType,
+							},
+						})
+
+						fileNames = append(fileNames, uploaded.Name)
+					} else {
+						return nil, fmt.Errorf("failed to upload file[%d] (%s) for prompt: %w", i, file.filename, err)
+					}
+				} else {
+					return nil, fmt.Errorf("MIME type of file[%d] (%s) not supported: %s", i, file.filename, mimeType.String())
+				}
+			} else {
+				return nil, fmt.Errorf("failed to detect MIME type of file[%d] (%s): %w", i, file.filename, err)
+			}
+
+			i++
+		}
+	}
+
+	// NOTE: wait for all the uploaded files to be ready
+	c.waitForFiles(ctx, fileNames)
+
+	return processed, nil
+}
 
 // FuncArg searches for and returns a value with given `key` from the function call arguments `from`.
 func FuncArg[T any](from map[string]any, key string) (*T, error) {
@@ -34,136 +116,117 @@ func FuncArg[T any](from map[string]any, key string) (*T, error) {
 	return nil, nil // not found
 }
 
-// UploadFilesAndWait uploads files and wait for them to be ready.
-//
-// `files` is a map of keys: display name, and values: io.Reader.
-func (c *Client) UploadFilesAndWait(ctx context.Context, files map[string]io.Reader) (uploaded []genai.FileData, err error) {
-	uploaded = []genai.FileData{}
-	fileNames := []string{}
-
-	i := 0
-	for displayName, file := range files {
-		if mimeType, recycledInput, err := readMimeAndRecycle(file); err == nil {
-			if matchedMimeType, supported := checkMimeType(mimeType); supported {
-				if file, err := c.client.UploadFile(ctx, "", recycledInput, &genai.UploadFileOptions{
-					MIMEType:    matchedMimeType,
-					DisplayName: displayName,
-				}); err == nil {
-					uploaded = append(uploaded, genai.FileData{
-						MIMEType: file.MIMEType,
-						URI:      file.URI,
-					})
-
-					fileNames = append(fileNames, file.Name)
-				} else {
-					return nil, fmt.Errorf("failed to upload file[%d] (%s) for prompt: %w", i, displayName, err)
-				}
-			} else {
-				return nil, fmt.Errorf("MIME type of file[%d] (%s) not supported: %s", i, displayName, mimeType.String())
-			}
-		} else {
-			return nil, fmt.Errorf("failed to detect MIME type of file[%d] (%s): %w", i, displayName, err)
-		}
-
-		i++
-	}
-
-	// NOTE: wait for all the uploaded files to be ready
-	waitForFiles(ctx, c.client, fileNames)
-
-	return uploaded, nil
+// Prompt interface for prompts
+type Prompt interface {
+	ToPart() genai.Part
+	String() string
 }
 
-// get generative model
-func (c *Client) getModel(ctx context.Context, opts *GenerationOptions) (model *genai.GenerativeModel, err error) {
-	// model
-	if opts == nil || opts.CachedContextName == nil {
-		model = c.client.GenerativeModel(c.model)
-
-		// system instruction
-		if c.systemInstructionFunc != nil {
-			model.SystemInstruction = genai.NewUserContent(genai.Text(c.systemInstructionFunc()))
-		}
-
-		// tool configs
-		if opts != nil {
-			if len(opts.Tools) > 0 {
-				model.Tools = opts.Tools
-			}
-			if opts.ToolConfig != nil {
-				model.ToolConfig = opts.ToolConfig
-			}
-		}
-	} else {
-		// NOTE: CachedContent can not be used with GenerateContent request setting system_instruction, tools or tool_config.
-		if argcc, err := c.client.GetCachedContent(ctx, *opts.CachedContextName); err == nil {
-			model = c.client.GenerativeModelFromCachedContent(argcc)
-		} else {
-			return nil, fmt.Errorf("failed to get cached content while generating model: %w", err)
-		}
-	}
-
-	// generation config
-	if opts != nil && opts.Config != nil {
-		model.GenerationConfig = *opts.Config
-	}
-
-	// safety settings for all categories (default: block only high)
-	if opts != nil && opts.HarmBlockThreshold != nil {
-		model.SafetySettings = safetySettings(*opts.HarmBlockThreshold)
-	} else {
-		model.SafetySettings = safetySettings(genai.HarmBlockOnlyHigh)
-	}
-
-	return
+// TextPrompt struct
+type TextPrompt struct {
+	text string
 }
 
-// build prompt parts for prompting
-func (c *Client) buildPromptParts(ctx context.Context, promptText *string, promptFiles map[string]io.Reader) (parts []genai.Part, err error) {
-	parts = []genai.Part{}
+// ToPart converts text prompt to genai.Part.
+func (p TextPrompt) ToPart() genai.Part {
+	return genai.Part{
+		Text: p.text,
+	}
+}
 
-	// text prompt
-	if promptText != nil {
-		parts = append(parts, genai.Text(*promptText))
+// String returns the text prompt as a string.
+func (p TextPrompt) String() string {
+	return fmt.Sprintf("text='%s'", p.text)
+}
+
+// NewTextPrompt returns a TextPrompt with given text.
+func NewTextPrompt(text string) Prompt {
+	return TextPrompt{
+		text: text,
+	}
+}
+
+// FilePrompt struct
+type FilePrompt struct {
+	filename string
+	reader   io.Reader
+
+	data *old.FileData // *genai.FileData
+}
+
+// ToPart converts file prompt to genai.Part.
+func (p FilePrompt) ToPart() genai.Part {
+	return genai.Part{
+		FileData: &genai.FileData{
+			FileURI:  p.data.URI,
+			MIMEType: p.data.MIMEType,
+		},
+	}
+}
+
+// String returns the file prompt as a string.
+func (p FilePrompt) String() string {
+	return fmt.Sprintf("file='%s'", p.filename)
+}
+
+// NewFilePrompt returns a FilePrompt with given filename and reader.
+func NewFilePrompt(filename string, reader io.Reader) Prompt {
+	return FilePrompt{
+		filename: filename,
+		reader:   reader,
+	}
+}
+
+// build prompt contents for prompting
+// func (c *Client) buildPromptContents(ctx context.Context, prompts []Prompt, histories []genai.Content) (parts genai.PartSlice, err error) {
+func (c *Client) buildPromptContents(ctx context.Context, prompts []Prompt, histories []genai.Content) (contents []*genai.Content, err error) {
+	var processed []Prompt
+	processed, err = c.UploadFilesAndWait(ctx, prompts)
+	if err != nil {
+		return nil, fmt.Errorf("failed to upload files for prompt: %w", err)
 	}
 
-	// files
-	if len(promptFiles) > 0 {
-		if uploaded, err := c.UploadFilesAndWait(ctx, promptFiles); err == nil {
-			for _, part := range uploaded {
-				parts = append(parts, part)
-			}
-		} else {
-			return nil, fmt.Errorf("failed to upload files for prompt: %w", err)
+	for _, history := range histories {
+		for _, part := range history.Parts {
+			contents = append(contents, &genai.Content{
+				Role: history.Role,
+				Parts: []*genai.Part{
+					part,
+				},
+			})
 		}
 	}
+	for _, prompt := range processed {
+		contents = append(contents, &genai.Content{
+			Role: RoleUser,
+			Parts: []*genai.Part{
+				ptr(prompt.ToPart()),
+			},
+		})
+	}
 
-	return parts, nil
+	return contents, nil
 }
 
 // generate safety settings for all supported harm categories
-func safetySettings(threshold genai.HarmBlockThreshold) (settings []*genai.SafetySetting) {
-	for _, category := range []genai.HarmCategory{
-		/*
-			// categories for PaLM 2 (Legacy) models
-			genai.HarmCategoryUnspecified,
-			genai.HarmCategoryDerogatory,
-			genai.HarmCategoryToxicity,
-			genai.HarmCategoryViolence,
-			genai.HarmCategorySexual,
-			genai.HarmCategoryMedical,
-			genai.HarmCategoryDangerous,
-		*/
+func safetySettings(threshold *genai.HarmBlockThreshold) (settings []*genai.SafetySetting) {
+	if threshold == nil {
+		// threshold = ptr(genai.HarmBlockThresholdBlockOnlyHigh)
+		threshold = ptr(genai.HarmBlockThresholdOff)
+	}
 
+	for _, category := range []genai.HarmCategory{
 		// all categories supported by Gemini models
-		genai.HarmCategoryHarassment,
 		genai.HarmCategoryHateSpeech,
-		genai.HarmCategorySexuallyExplicit,
 		genai.HarmCategoryDangerousContent,
+		genai.HarmCategoryHarassment,
+		genai.HarmCategorySexuallyExplicit,
+		genai.HarmCategoryCivicIntegrity,
 	} {
 		settings = append(settings, &genai.SafetySetting{
+			// Method:    genai.HarmBlockMethodSeverity, // FIXME: error 'method parameter is not supported in Gemini API'
 			Category:  category,
-			Threshold: threshold,
+			Threshold: *threshold,
 		})
 	}
 
@@ -254,8 +317,6 @@ func SupportedMimeType(data []byte) (matchedMimeType string, supported bool, err
 func SupportedMimeTypePath(filepath string) (matchedMimeType string, supported bool, err error) {
 	var f *os.File
 	if f, err = os.Open(filepath); err == nil {
-		defer f.Close()
-
 		var mimeType *mimetype.MIME
 		if mimeType, err = mimetype.DetectReader(f); err == nil {
 			matchedMimeType, supported = checkMimeType(mimeType)
@@ -265,30 +326,6 @@ func SupportedMimeTypePath(filepath string) (matchedMimeType string, supported b
 	}
 
 	return "", false, err
-}
-
-// wait for all given uploaded files to be active.
-func waitForFiles(ctx context.Context, client *genai.Client, fileNames []string) {
-	var wg sync.WaitGroup
-	for _, fileName := range fileNames {
-		wg.Add(1)
-
-		go func(name string) {
-			for {
-				if file, err := client.GetFile(ctx, name); err == nil {
-					if file.State == genai.FileStateActive {
-						wg.Done()
-						break
-					} else {
-						time.Sleep(uploadedFileStateCheckIntervalMilliseconds * time.Millisecond)
-					}
-				} else {
-					time.Sleep(uploadedFileStateCheckIntervalMilliseconds * time.Millisecond)
-				}
-			}
-		}(fileName)
-	}
-	wg.Wait()
 }
 
 // prettify given thing in JSON format
@@ -304,19 +341,17 @@ func ptr[T any](v T) *T {
 	return &v
 }
 
-// ErrToStr converts error (possibly goolge api error) to string.
+// ErrToStr converts error (possibly genai error) to string.
 func ErrToStr(err error) (str string) {
-	var gerr *googleapi.Error
-	if errors.As(err, &gerr) {
-		msg := gerr.Body
-		if len(msg) <= 0 {
-			msg = gerr.Message
-		}
-		if len(msg) <= 0 {
-			msg = fmt.Sprintf("HTTP %d", gerr.Code)
-		}
-
-		return fmt.Sprintf("googleapi error: %s", msg)
+	var ce *genai.ClientError
+	var se *genai.ServerError
+	var gerr *googleapi.Error // FIXME: remove this after file APIs are implemented
+	if errors.As(err, &ce) {
+		return fmt.Sprintf("genai client error: %s", ce.Error())
+	} else if errors.As(err, &se) {
+		return fmt.Sprintf("genai server error: %s", se.Error())
+	} else if errors.As(err, &gerr) { // FIXME: remove this after file APIs are implemented
+		return fmt.Sprintf("googleapi error: %s", gerr.Body)
 	} else {
 		return err.Error()
 	}
@@ -324,8 +359,18 @@ func ErrToStr(err error) (str string) {
 
 // IsQuotaExceeded returns if given error is from execeeded API quota.
 func IsQuotaExceeded(err error) bool {
-	var gerr *googleapi.Error
-	if errors.As(err, &gerr) {
+	var ce *genai.ClientError
+	var se *genai.ServerError
+	var gerr *googleapi.Error // FIXME: remove this after file APIs are implemented
+	if errors.As(err, &ce) {
+		if ce.Code == 429 {
+			return true
+		}
+	} else if errors.As(err, &se) {
+		if se.Code == 429 {
+			return true
+		}
+	} else if errors.As(err, &gerr) { // FIXME: remove this after file APIs are implemented
 		if gerr.Code == 429 {
 			return true
 		}
@@ -335,8 +380,18 @@ func IsQuotaExceeded(err error) bool {
 
 // IsModelOverloaded returns if given error is from overloaded model.
 func IsModelOverloaded(err error) bool {
-	var gerr *googleapi.Error
-	if errors.As(err, &gerr) {
+	var ce *genai.ClientError
+	var se *genai.ServerError
+	var gerr *googleapi.Error // FIXME: remove this after file APIs are implemented
+	if errors.As(err, &ce) {
+		if ce.Code == 503 && ce.Message == `The model is overloaded. Please try again later.` {
+			return true
+		}
+	} else if errors.As(err, &se) {
+		if se.Code == 503 && se.Message == `The model is overloaded. Please try again later.` {
+			return true
+		}
+	} else if errors.As(err, &gerr) { // FIXME: remove this after file APIs are implemented
 		if gerr.Code == 503 && gerr.Message == `The model is overloaded. Please try again later.` {
 			return true
 		}
