@@ -53,18 +53,16 @@ func (c *Client) waitForFiles(ctx context.Context, fileNames []string) {
 
 // UploadFilesAndWait uploads files and wait for them to be ready.
 //
-// `files` is a map of keys: display name, and values: io.Reader.
-//
 // FIXME: fix this after file APIs are implemented
-func (c *Client) UploadFilesAndWait(ctx context.Context, prompts []Prompt) (processed []Prompt, err error) {
+func (c *Client) UploadFilesAndWait(ctx context.Context, files []Prompt) (processed []Prompt, err error) {
 	processed = []Prompt{}
 	fileNames := []string{}
 
 	i := 0
-	for _, prompt := range prompts {
-		if text, ok := prompt.(TextPrompt); ok {
+	for _, f := range files {
+		if text, ok := f.(TextPrompt); ok {
 			processed = append(processed, text)
-		} else if file, ok := prompt.(FilePrompt); ok {
+		} else if file, ok := f.(FilePrompt); ok {
 			if mimeType, recycledInput, err := readMimeAndRecycle(file.reader); err == nil {
 				if matchedMimeType, supported := checkMimeType(mimeType); supported {
 					if uploaded, err := c.oldClient.UploadFile(
@@ -93,6 +91,35 @@ func (c *Client) UploadFilesAndWait(ctx context.Context, prompts []Prompt) (proc
 				}
 			} else {
 				return nil, fmt.Errorf("failed to detect MIME type of file[%d] (%s): %w", i, file.filename, err)
+			}
+
+			i++
+		} else if fbytes, ok := f.(BytesPrompt); ok {
+			mimeType := mimetype.Detect(fbytes.bytes)
+			if matchedMimeType, supported := checkMimeType(mimeType); supported {
+				if uploaded, err := c.oldClient.UploadFile(
+					ctx,
+					"",
+					bytes.NewReader(fbytes.bytes),
+					&old.UploadFileOptions{ //&genai.UploadFileConfig{
+						MIMEType:    matchedMimeType,
+						DisplayName: fmt.Sprintf("%d bytes of file", len(fbytes.bytes)),
+					},
+				); err == nil {
+					processed = append(processed, FilePrompt{
+						filename: uploaded.Name,
+						data: &old.FileData{
+							URI:      uploaded.URI,
+							MIMEType: uploaded.MIMEType,
+						},
+					})
+
+					fileNames = append(fileNames, uploaded.Name)
+				} else {
+					return nil, fmt.Errorf("failed to upload file[%d] (%d bytes) for prompt: %w", i, len(fbytes.bytes), err)
+				}
+			} else {
+				return nil, fmt.Errorf("MIME type of file[%d] (%d bytes) not supported: %s", i, len(fbytes.bytes), mimeType.String())
 			}
 
 			i++

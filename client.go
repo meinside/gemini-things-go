@@ -217,7 +217,7 @@ func (c *Client) generateStream(
 	var contents []*genai.Content
 	contents, err = c.buildPromptContents(ctx, prompts, history)
 	if err != nil {
-		yieldErrorAndEndIterator(fmt.Errorf("failed to build prompts: %w", err))
+		return yieldErrorAndEndIterator(fmt.Errorf("failed to build prompts: %w", err))
 	}
 
 	// stream
