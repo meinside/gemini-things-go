@@ -139,8 +139,8 @@ func (p TextPrompt) String() string {
 	return fmt.Sprintf("text='%s'", p.text)
 }
 
-// NewTextPrompt returns a TextPrompt with given text.
-func NewTextPrompt(text string) Prompt {
+// PromptFromText returns a Prompt with given text.
+func PromptFromText(text string) Prompt {
 	return TextPrompt{
 		text: text,
 	}
@@ -166,14 +166,46 @@ func (p FilePrompt) ToPart() genai.Part {
 
 // String returns the file prompt as a string.
 func (p FilePrompt) String() string {
+	if p.data != nil {
+		return fmt.Sprintf("file='%s';uri='%s';mimeType=%s", p.filename, p.data.URI, p.data.MIMEType)
+	}
 	return fmt.Sprintf("file='%s'", p.filename)
 }
 
-// NewFilePrompt returns a FilePrompt with given filename and reader.
-func NewFilePrompt(filename string, reader io.Reader) Prompt {
+// PromptFromFile returns a Prompt with given filename and reader.
+func PromptFromFile(filename string, reader io.Reader) Prompt {
 	return FilePrompt{
 		filename: filename,
 		reader:   reader,
+	}
+}
+
+// BytesPrompt struct
+type BytesPrompt struct {
+	bytes    []byte
+	mimeType string
+}
+
+// ToPart converts bytes prompt to genai.Part.
+func (p BytesPrompt) ToPart() genai.Part {
+	return genai.Part{
+		InlineData: &genai.Blob{
+			Data:     p.bytes,
+			MIMEType: p.mimeType,
+		},
+	}
+}
+
+// String returns the inline file prompt as a string.
+func (p BytesPrompt) String() string {
+	return fmt.Sprintf("bytes[%d];mimeType=%s", len(p.bytes), p.mimeType)
+}
+
+// PromptFromBytes returns a Prompt with given bytes.
+func PromptFromBytes(bytes []byte) Prompt {
+	return BytesPrompt{
+		bytes:    bytes,
+		mimeType: mimetype.Detect(bytes).String(),
 	}
 }
 
@@ -465,10 +497,7 @@ func ChunkText(text string, opts ...TextChunkOption) (ChunkedText, error) {
 	var chunk string
 	var chunks []string
 	for start := 0; start < len(text); start += int(chunkSize) {
-		end := start + int(chunkSize)
-		if end > len(text) {
-			end = len(text)
-		}
+		end := min(start+int(chunkSize), len(text))
 
 		// cut text
 		offset := start

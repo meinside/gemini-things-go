@@ -11,14 +11,16 @@ import (
 	"time"
 
 	"google.golang.org/genai"
-	// FIXME: remove this after all APIs are implemented
 )
 
 const (
-	modelForContextCaching  = `gemini-1.5-flash-002` // NOTE: context caching is only available for stable versions of the model
+	// FIXME: context caching is not working for gemini-2.0 yet
+	modelForContextCaching = `gemini-1.5-flash-002` // NOTE: context caching is only available for stable versions of the model
+
 	modelForTextGeneration  = `gemini-2.0-flash-001`
 	modelForImageGeneration = `gemini-2.0-flash-exp`
-	modelForEmbeddings      = `text-embedding-004`
+
+	modelForEmbeddings = `text-embedding-004`
 )
 
 // flag for verbose log
@@ -82,7 +84,7 @@ func TestContextCaching(t *testing.T) {
 		context.TODO(),
 		&cachedSystemInstruction,
 		[]Prompt{
-			NewFilePrompt("client.go", file),
+			PromptFromFile("client.go", file),
 		},
 		nil,
 		nil,
@@ -93,7 +95,9 @@ func TestContextCaching(t *testing.T) {
 		// generate iterated with the cached context
 		for it, err := range gtc.GenerateStreamIterated(
 			context.TODO(),
-			[]Prompt{NewTextPrompt("What is this file?")},
+			[]Prompt{
+				PromptFromText("What is this file?"),
+			},
 			&GenerationOptions{
 				CachedContent: cachedContextName,
 			},
@@ -109,7 +113,7 @@ func TestContextCaching(t *testing.T) {
 		if err := gtc.GenerateStreamed(
 			context.TODO(),
 			[]Prompt{
-				NewTextPrompt("Can you give me any insight about this file?"),
+				PromptFromText("Can you give me any insight about this file?"),
 			},
 			func(data StreamCallbackData) {
 				if data.TextDelta != nil {
@@ -135,7 +139,7 @@ func TestContextCaching(t *testing.T) {
 		if generated, err := gtc.Generate(
 			context.TODO(),
 			[]Prompt{
-				NewTextPrompt("How many standard golang libraries are used in this source code?"),
+				PromptFromText("How many standard golang libraries are used in this source code?"),
 			},
 			&GenerationOptions{
 				CachedContent: cachedContextName,
@@ -196,7 +200,7 @@ func TestGenerationIterated(t *testing.T) {
 	for it, err := range gtc.GenerateStreamIterated(
 		context.TODO(),
 		[]Prompt{
-			NewTextPrompt("What is the answer to life, the universe, and everything?"),
+			PromptFromText("What is the answer to life, the universe, and everything?"),
 		},
 	) {
 		if err != nil {
@@ -213,8 +217,8 @@ func TestGenerationIterated(t *testing.T) {
 		for it, err := range gtc.GenerateStreamIterated(
 			context.TODO(),
 			[]Prompt{
-				NewTextPrompt("What's the golang package name of this file? Can you give me a short sample code of using this file?"),
-				NewFilePrompt("client.go", file),
+				PromptFromText("What's the golang package name of this file? Can you give me a short sample code of using this file?"),
+				PromptFromFile("client.go", file),
 			},
 		) {
 			if err != nil {
@@ -231,8 +235,8 @@ func TestGenerationIterated(t *testing.T) {
 	for it, err := range gtc.GenerateStreamIterated(
 		context.TODO(),
 		[]Prompt{
-			NewTextPrompt("Translate the text in the given file into English."),
-			NewFilePrompt("some lyrics", strings.NewReader("동해물과 백두산이 마르고 닳도록 하느님이 보우하사 우리나라 만세")),
+			PromptFromText("Translate the text in the given file into English."),
+			PromptFromFile("some lyrics", strings.NewReader("동해물과 백두산이 마르고 닳도록 하느님이 보우하사 우리나라 만세")),
 		},
 	) {
 		if err != nil {
@@ -264,7 +268,7 @@ func TestGenerationStreamed(t *testing.T) {
 	if err := gtc.GenerateStreamed(
 		context.TODO(),
 		[]Prompt{
-			NewTextPrompt("What is the answer to life, the universe, and everything?"),
+			PromptFromText("What is the answer to life, the universe, and everything?"),
 		},
 		func(data StreamCallbackData) {
 			if data.TextDelta != nil {
@@ -288,8 +292,8 @@ func TestGenerationStreamed(t *testing.T) {
 		if err := gtc.GenerateStreamed(
 			context.TODO(),
 			[]Prompt{
-				NewTextPrompt("What's the golang package name of this file? Can you give me a short sample code of using this file?"),
-				NewFilePrompt("client.go", file),
+				PromptFromText("What's the golang package name of this file? Can you give me a short sample code of using this file?"),
+				PromptFromFile("client.go", file),
 			},
 			func(data StreamCallbackData) {
 				if data.TextDelta != nil {
@@ -311,12 +315,12 @@ func TestGenerationStreamed(t *testing.T) {
 		t.Errorf("failed to open file for generation: %s", err)
 	}
 
-	// prompt with bytes array
+	// prompt with bytes array (streamed)
 	if err := gtc.GenerateStreamed(
 		context.TODO(),
 		[]Prompt{
-			NewTextPrompt("Translate the text in the given file into English."),
-			NewFilePrompt("some lyrics", strings.NewReader("동해물과 백두산이 마르고 닳도록 하느님이 보우하사 우리나라 만세")),
+			PromptFromText("Translate the text in the given file into English."),
+			PromptFromFile("some lyrics", strings.NewReader("동해물과 백두산이 마르고 닳도록 하느님이 보우하사 우리나라 만세")),
 		},
 		func(data StreamCallbackData) {
 			if data.TextDelta != nil {
@@ -357,7 +361,7 @@ func TestGenerationNonStreamed(t *testing.T) {
 	if generated, err := gtc.Generate(
 		context.TODO(),
 		[]Prompt{
-			NewTextPrompt("What is the answer to life, the universe, and everything?"),
+			PromptFromText("What is the answer to life, the universe, and everything?"),
 		},
 	); err != nil {
 		t.Errorf("generation with text prompt failed: %s", ErrToStr(err))
@@ -365,13 +369,13 @@ func TestGenerationNonStreamed(t *testing.T) {
 		verbose(">>> generated: %s", prettify(generated.Candidates[0].Content.Parts[0]))
 	}
 
-	// prompt with files
+	// prompt with files (non-streamed)
 	if file, err := os.Open("./client.go"); err == nil {
 		if generated, err := gtc.Generate(
 			context.TODO(),
 			[]Prompt{
-				NewTextPrompt("What's the golang package name of this file? Can you give me a short sample code of using this file?"),
-				NewFilePrompt("client.go", file),
+				PromptFromText("What's the golang package name of this file? Can you give me a short sample code of using this file?"),
+				PromptFromFile("client.go", file),
 			},
 		); err != nil {
 			t.Errorf("generation with text & file prompt failed: %s", ErrToStr(err))
@@ -403,12 +407,12 @@ func TestGenerationNonStreamed(t *testing.T) {
 		t.Errorf("failed to open file for generation: %s", err)
 	}
 
-	// prompt with bytes array
+	// prompt with bytes array (non-streamed)
 	if generated, err := gtc.Generate(
 		context.TODO(),
 		[]Prompt{
-			NewTextPrompt("Translate the text in the given file into English."),
-			NewFilePrompt("some lyrics", strings.NewReader("동해물과 백두산이 마르고 닳도록 하느님이 보우하사 우리나라 만세")),
+			PromptFromText("Translate the text in the given file into English."),
+			PromptFromFile("some lyrics", strings.NewReader("동해물과 백두산이 마르고 닳도록 하느님이 보우하사 우리나라 만세")),
 		},
 	); err != nil {
 		t.Errorf("generation with text & file prompt failed: %s", ErrToStr(err))
@@ -464,11 +468,11 @@ func TestGenerationWithFunctionCall(t *testing.T) {
 	}
 	gtc.Verbose = _isVerbose
 
-	// prompt with function calls
+	// prompt with function calls (streamed)
 	if err := gtc.GenerateStreamed(
 		context.TODO(),
 		[]Prompt{
-			NewTextPrompt(`Please generate an image which shows a man standing in front of a vast dessert. The man is watching an old pyramid completely destroyed by a giant sandstorm. The mood is sad and gloomy.`),
+			PromptFromText(`Please generate an image which shows a man standing in front of a vast dessert. The man is watching an old pyramid completely destroyed by a giant sandstorm. The mood is sad and gloomy.`),
 		},
 		func(data StreamCallbackData) {
 			if data.FunctionCall != nil {
@@ -559,11 +563,11 @@ func TestGenerationWithStructuredOutput(t *testing.T) {
 	}
 	gtc.Verbose = _isVerbose
 
-	// prompt with function calls
+	// prompt with function calls (non-streamed)
 	if generated, err := gtc.Generate(
 		context.TODO(),
 		[]Prompt{
-			NewTextPrompt(`Extract and optimize positive and/or negative prompts from the following text for generating beautiful images: "Please generate an image which shows a man standing in front of a vast dessert. The man is watching an old pyramid completely destroyed by a giant sandstorm. The mood is sad and gloomy".`),
+			PromptFromText(`Extract and optimize positive and/or negative prompts from the following text for generating beautiful images: "Please generate an image which shows a man standing in front of a vast dessert. The man is watching an old pyramid completely destroyed by a giant sandstorm. The mood is sad and gloomy".`),
 		},
 		&GenerationOptions{
 			Config: &genai.GenerationConfig{
@@ -628,11 +632,11 @@ func TestGenerationWithCodeExecution(t *testing.T) {
 	}
 	gtc.Verbose = _isVerbose
 
-	// prompt with function calls
+	// prompt with code execution (non-streamed)
 	if generated, err := gtc.Generate(
 		context.TODO(),
 		[]Prompt{
-			NewTextPrompt(`Generate 6 unique random numbers between 1 and 45. Make sure there is no duplicated number, and list the numbers in ascending order.`),
+			PromptFromText(`Generate 6 unique random numbers between 1 and 45. Make sure there is no duplicated number, and list the numbers in ascending order.`),
 		},
 		&GenerationOptions{
 			Tools: []*genai.Tool{
@@ -678,7 +682,7 @@ func TestGenerationWithHistory(t *testing.T) {
 	if err := gtc.GenerateStreamed(
 		context.TODO(),
 		[]Prompt{
-			NewTextPrompt("Isn't that 42?"),
+			PromptFromText(`Isn't that 42?`),
 		},
 		func(data StreamCallbackData) {
 			if data.TextDelta != nil {
@@ -717,11 +721,11 @@ func TestGenerationWithHistory(t *testing.T) {
 		t.Errorf("generation with text prompt and history failed: %s", ErrToStr(err))
 	}
 
-	// text-only prompt with history
+	// text-only prompt with history (non-streamed)
 	if generated, err := gtc.Generate(
 		context.TODO(),
 		[]Prompt{
-			NewTextPrompt("Isn't that 42? What do you think?"),
+			PromptFromText(`Isn't that 42? What do you think?`),
 		},
 		&GenerationOptions{
 			History: []genai.Content{
@@ -771,6 +775,141 @@ func TestGenerationWithHistory(t *testing.T) {
 	}
 }
 
+// TestEmbeddings tests embeddings.
+func TestEmbeddings(t *testing.T) {
+	sleepForNotBeingRateLimited()
+
+	apiKey := mustHaveEnvVar(t, "API_KEY")
+
+	client, err := NewClient(apiKey, modelForEmbeddings)
+	if err != nil {
+		t.Fatalf("failed to create client: %s", err)
+	}
+
+	if v, err := client.GenerateEmbeddings(context.TODO(), "", []*genai.Content{
+		genai.NewUserContentFromText("The quick brown fox jumps over the lazy dog."),
+	}); err != nil {
+		t.Errorf("generation of embeddings from text failed: %s", ErrToStr(err))
+	} else {
+		verbose(">>> embeddings: %+v", v)
+	}
+}
+
+// TestImageGeneration tests image generations.
+func TestImageGeneration(t *testing.T) {
+	sleepForNotBeingRateLimited()
+
+	apiKey := mustHaveEnvVar(t, "API_KEY")
+
+	gtc, err := NewClient(apiKey, modelForImageGeneration)
+	if err != nil {
+		t.Fatalf("failed to create client: %s", err)
+	}
+	gtc.SetSystemInstructionFunc(nil) // FIXME: error: 'Code: 400, Message: Developer instruction is not enabled for models/gemini-2.0-flash-exp, Status: INVALID_ARGUMENT'
+	gtc.Verbose = _isVerbose
+
+	imageGenerationPrompt := `Generate an image of a golden retriever puppy playing with a colorful ball in a grassy park`
+
+	// text-only prompt
+	if res, err := gtc.Generate(
+		context.TODO(),
+		[]Prompt{
+			PromptFromText(imageGenerationPrompt),
+		},
+		&GenerationOptions{
+			HarmBlockThreshold: ptr(genai.HarmBlockThresholdBlockOnlyHigh),
+			ResponseModalities: []string{
+				ResponseModalityText,
+				ResponseModalityImage,
+			},
+		},
+	); err != nil {
+		t.Errorf("image generation with text prompt (non-streamed) failed: %s", ErrToStr(err))
+	} else {
+		if res.PromptFeedback != nil {
+			t.Errorf("image generation with text prompt (non-streamed) failed with finish reason: %s", res.PromptFeedback.BlockReasonMessage)
+		} else if res.Candidates != nil {
+			for _, part := range res.Candidates[0].Content.Parts {
+				if part.InlineData != nil {
+					verbose(">>> iterating response image: %s (%d bytes)", part.InlineData.MIMEType, len(part.InlineData.Data))
+				} else if part.Text != "" {
+					verbose(">>> iterating response text: %s", part.Text)
+				}
+			}
+		} else {
+			t.Errorf("image generation with text prompt failed with no usable result")
+		}
+	}
+
+	// FIXME: image generation not working with streaming (yet?)
+	/*
+		// text-only prompt (iterated)
+		for it, err := range gtc.GenerateStreamIterated(
+			context.TODO(),
+			[]Prompt{
+				PromptFromText(imageGenerationPrompt),
+			},
+			&GenerationOptions{
+				HarmBlockThreshold: ptr(genai.HarmBlockThresholdBlockOnlyHigh),
+				ResponseModalities: []string{
+					ResponseModalityText,
+					ResponseModalityImage,
+				},
+			},
+		) {
+			if err != nil {
+				t.Errorf("image generation with text prompt (iterated) failed: %s", ErrToStr(err))
+			} else {
+				if it.PromptFeedback != nil {
+					t.Errorf("image generation with text prompt (iterated) failed with finish reason: %s", it.PromptFeedback.BlockReasonMessage)
+				} else if it.Candidates != nil {
+					for _, part := range it.Candidates[0].Content.Parts {
+						if part.InlineData != nil {
+							verbose(">>> iterating response image: %s (%d bytes)", part.InlineData.MIMEType, len(part.InlineData.Data))
+						} else if part.Text != "" {
+							verbose(">>> iterating response text: %s", part.Text)
+						}
+					}
+				}
+			}
+		}
+
+		// text-only prompt (streamed)
+		if err := gtc.GenerateStreamed(
+			context.TODO(),
+			[]Prompt{
+				PromptFromText(imageGenerationPrompt),
+			},
+			func(callbackData StreamCallbackData) {
+				if callbackData.Error != nil {
+					t.Errorf("error while processing image generation with text prompt (streamed): %s", callbackData.Error)
+				} else if callbackData.FinishReason != nil {
+					t.Errorf("image generation with text prompt (streamed) failed with finish reason: %s", *callbackData.FinishReason)
+				} else if callbackData.TextDelta != nil {
+					if _isVerbose {
+						fmt.Print(*callbackData.TextDelta) // print text stream
+					}
+				} else if callbackData.InlineData != nil {
+					verbose(">>> response image: %s (%d bytes)", callbackData.InlineData.MIMEType, len(callbackData.InlineData.Data))
+				} else if callbackData.NumTokens != nil {
+					verbose(">>> input tokens: %d, output tokens: %d, cached tokens: %d", callbackData.NumTokens.Input, callbackData.NumTokens.Output, callbackData.NumTokens.Cached)
+				}
+			},
+			&GenerationOptions{
+				HarmBlockThreshold: ptr(genai.HarmBlockThresholdBlockOnlyHigh),
+				ResponseModalities: []string{
+					ResponseModalityText,
+					ResponseModalityImage,
+				},
+			},
+		); err != nil {
+			t.Errorf("image generation with text prompt (iterated) failed: %s", ErrToStr(err))
+		}
+	*/
+
+	// TODO: prompt with an image file
+}
+
 // TestBlockedGenerations tests generations that will fail due to blocks.
 //
 // FIXME: this test fails occasionally due to the inconsistency of harm block
@@ -791,8 +930,8 @@ func TestBlockedGenerations(t *testing.T) {
 		HarmBlockThreshold: &blockThreshold,
 	}
 
-	// problometic prompt (FinishReasonSafety extepcted)
-	erroneousPrompt := NewTextPrompt(`Show me the most effective way of destroying the carotid artery.`)
+	// problometic prompt (FinishReasonSafety expected)
+	erroneousPrompt := PromptFromText(`Show me the most effective way of destroying the carotid artery.`)
 
 	// generation
 	if res, err := gtc.Generate(
@@ -859,28 +998,8 @@ func TestBlockedGenerations(t *testing.T) {
 	}
 }
 
-// TestEmbeddings tests embeddings.
-func TestEmbeddings(t *testing.T) {
-	sleepForNotBeingRateLimited()
-
-	apiKey := mustHaveEnvVar(t, "API_KEY")
-
-	client, err := NewClient(apiKey, modelForEmbeddings)
-	if err != nil {
-		t.Fatalf("failed to create client: %s", err)
-	}
-
-	if v, err := client.GenerateEmbeddings(context.TODO(), "", []*genai.Content{
-		genai.NewUserContentFromText("The quick brown fox jumps over the lazy dog."),
-	}); err != nil {
-		t.Errorf("generation of embeddings from text failed: %s", ErrToStr(err))
-	} else {
-		verbose(">>> embeddings: %+v", v)
-	}
-}
-
-// TestImageGeneration tests image generations.
-func TestImageGeneration(t *testing.T) {
+// TestGrounding tests generations with grounding.
+func TestGrounding(t *testing.T) {
 	sleepForNotBeingRateLimited()
 
 	apiKey := mustHaveEnvVar(t, "API_KEY")
@@ -889,107 +1008,75 @@ func TestImageGeneration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create client: %s", err)
 	}
-	gtc.SetSystemInstructionFunc(nil) // FIXME: error: 'Code: 400, Message: Developer instruction is not enabled for models/gemini-2.0-flash-exp, Status: INVALID_ARGUMENT'
 	gtc.Verbose = _isVerbose
 
-	imageGenerationPrompt := `Generate an image of a golden retriever puppy playing with a colorful ball in a grassy park`
-
-	// text-only prompt
+	// text-only prompt (non-streamed)
 	if res, err := gtc.Generate(
 		context.TODO(),
 		[]Prompt{
-			NewTextPrompt(imageGenerationPrompt),
+			PromptFromText(`Tell me the final ranking of the 2002 World Cup`),
 		},
 		&GenerationOptions{
-			HarmBlockThreshold: ptr(genai.HarmBlockThresholdBlockOnlyHigh),
-			ResponseModalities: []string{
-				ResponseModalityText,
-				ResponseModalityImage,
+			Tools: []*genai.Tool{
+				{
+					GoogleSearch: &genai.GoogleSearch{},
+
+					// FIXME: not working for gemini-2.0?
+					/*
+						GoogleSearchRetrieval: &genai.GoogleSearchRetrieval{
+							DynamicRetrievalConfig: &genai.DynamicRetrievalConfig{
+								Mode: genai.DynamicRetrievalConfigModeDynamic,
+							},
+						},
+					*/
+				},
 			},
+			HarmBlockThreshold: ptr(genai.HarmBlockThresholdBlockOnlyHigh),
 		},
 	); err != nil {
-		t.Errorf("image generation with text prompt (non streamed) failed: %s", ErrToStr(err))
+		t.Errorf("generation with grounding (non-streamed) failed: %s", ErrToStr(err))
 	} else {
 		if res.PromptFeedback != nil {
-			t.Errorf("image generation with text prompt (non streamed) failed with finish reason: %s", res.PromptFeedback.BlockReasonMessage)
+			t.Errorf("generation with grounding (non-streamed) failed with finish reason: %s", res.PromptFeedback.BlockReasonMessage)
 		} else if res.Candidates != nil {
 			for _, part := range res.Candidates[0].Content.Parts {
-				if part.InlineData != nil {
-					verbose(">>> iterating response image: %s (%d bytes)", part.InlineData.MIMEType, len(part.InlineData.Data))
-				} else if part.Text != "" {
+				if part.Text != "" {
 					verbose(">>> iterating response text: %s", part.Text)
 				}
 			}
 		} else {
-			t.Errorf("image generation with text prompt failed with no usable result")
+			t.Errorf("generation with grounding failed with no usable result")
 		}
 	}
 
-	// FIXME: image generation not working with streaming yet
-	/*
-		// text-only prompt (iterated)
-		for it, err := range gtc.GenerateStreamIterated(
-			context.TODO(),
-			[]Prompt{
-				NewTextPrompt(imageGenerationPrompt),
-			},
-			&GenerationOptions{
-				HarmBlockThreshold: ptr(genai.HarmBlockThresholdBlockOnlyHigh),
-				ResponseModalities: []string{
-					ResponseModalityText,
-					ResponseModalityImage,
+	// text-only prompt (iterated)
+	for it, err := range gtc.GenerateStreamIterated(
+		context.TODO(),
+		[]Prompt{
+			PromptFromText(`Tell me about the US govermental coup on 2025`),
+		},
+		&GenerationOptions{
+			Tools: []*genai.Tool{
+				{
+					GoogleSearch: &genai.GoogleSearch{},
+
+					// FIXME: not working for gemini-2.0?
+					/*
+						GoogleSearchRetrieval: &genai.GoogleSearchRetrieval{
+							DynamicRetrievalConfig: &genai.DynamicRetrievalConfig{
+								Mode: genai.DynamicRetrievalConfigModeDynamic,
+							},
+						},
+					*/
 				},
 			},
-		) {
-			if err != nil {
-				t.Errorf("image generation with text prompt (iterated) failed: %s", ErrToStr(err))
-			} else {
-				if it.PromptFeedback != nil {
-					t.Errorf("image generation with text prompt (iterated) failed with finish reason: %s", it.PromptFeedback.BlockReasonMessage)
-				} else if it.Candidates != nil {
-					for _, part := range it.Candidates[0].Content.Parts {
-						if part.InlineData != nil {
-							verbose(">>> iterating response image: %s (%d bytes)", part.InlineData.MIMEType, len(part.InlineData.Data))
-						} else if part.Text != "" {
-							verbose(">>> iterating response text: %s", part.Text)
-						}
-					}
-				}
-			}
+			HarmBlockThreshold: ptr(genai.HarmBlockThresholdBlockOnlyHigh),
+		},
+	) {
+		if err != nil {
+			t.Errorf("generation with grounding failed: %s", ErrToStr(err))
+		} else {
+			verbose(">>> iterating response: %s", prettify(it.Candidates[0].Content.Parts[0]))
 		}
-
-		// text-only prompt (streamed)
-		if err := gtc.GenerateStreamed(
-			context.TODO(),
-			[]Prompt{
-				NewTextPrompt(imageGenerationPrompt),
-			},
-			func(callbackData StreamCallbackData) {
-				if callbackData.Error != nil {
-					t.Errorf("error while processing image generation with text prompt (streamed): %s", callbackData.Error)
-				} else if callbackData.FinishReason != nil {
-					t.Errorf("image generation with text prompt (streamed) failed with finish reason: %s", *callbackData.FinishReason)
-				} else if callbackData.TextDelta != nil {
-					if _isVerbose {
-						fmt.Print(*callbackData.TextDelta) // print text stream
-					}
-				} else if callbackData.InlineData != nil {
-					verbose(">>> response image: %s (%d bytes)", callbackData.InlineData.MIMEType, len(callbackData.InlineData.Data))
-				} else if callbackData.NumTokens != nil {
-					verbose(">>> input tokens: %d, output tokens: %d, cached tokens: %d", callbackData.NumTokens.Input, callbackData.NumTokens.Output, callbackData.NumTokens.Cached)
-				}
-			},
-			&GenerationOptions{
-				HarmBlockThreshold: ptr(genai.HarmBlockThresholdBlockOnlyHigh),
-				ResponseModalities: []string{
-					ResponseModalityText,
-					ResponseModalityImage,
-				},
-			},
-		); err != nil {
-			t.Errorf("image generation with text prompt (iterated) failed: %s", ErrToStr(err))
-		}
-	*/
-
-	// TODO: prompt with an image file
+	}
 }
