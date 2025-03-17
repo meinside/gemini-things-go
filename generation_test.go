@@ -19,6 +19,10 @@ const (
 
 	modelForTextGeneration  = `gemini-2.0-flash-001`
 	modelForImageGeneration = `gemini-2.0-flash-exp`
+	// modelForImageGeneration = `gemini-2.0-flash-exp-image-generation`
+
+	modelForTextGenerationWithGrounding             = `gemini-2.0-flash-001`
+	modelForTextGenerationWithGoogleSearchRetrieval = `gemini-1.5-flash` // FIXME: Google Search retrieval is only compatible with Gemini 1.5 models
 
 	modelForEmbeddings = `text-embedding-004`
 )
@@ -67,7 +71,10 @@ func TestContextCaching(t *testing.T) {
 		t.Fatalf("failed to create client: %s", err)
 	}
 	gtc.SetSystemInstructionFunc(nil) // FIXME: error: 'client error. Code: 400, Message: CachedContent can not be used with GenerateContent request setting system_instruction, tools or tool_config.'
+	gtc.DeleteFilesOnClose = true
+	gtc.DeleteCachesOnClose = true
 	gtc.Verbose = _isVerbose
+	defer gtc.Close()
 
 	// open a file for testing
 	file, err := os.Open("./client.go")
@@ -173,15 +180,7 @@ func TestContextCaching(t *testing.T) {
 		t.Errorf("failed to list all cached contexts: %s", ErrToStr(err))
 	}
 
-	// delete all cached contexts
-	if err := gtc.DeleteAllCachedContexts(context.TODO()); err != nil {
-		t.Errorf("failed to delete all cached contexts: %s", ErrToStr(err))
-	}
-
-	// delete all uploaded files
-	if err := gtc.DeleteAllFiles(context.TODO()); err != nil {
-		t.Errorf("failed to delete all uploaded files: %s", ErrToStr(err))
-	}
+	// NOTE: caches and files will be deleted on close
 }
 
 // TestGenerationIterated tests various types of generations (iterator).
@@ -194,7 +193,9 @@ func TestGenerationIterated(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create client: %s", err)
 	}
+	gtc.DeleteFilesOnClose = true
 	gtc.Verbose = _isVerbose
+	defer gtc.Close()
 
 	// text-only prompt
 	for it, err := range gtc.GenerateStreamIterated(
@@ -246,10 +247,7 @@ func TestGenerationIterated(t *testing.T) {
 		}
 	}
 
-	// delete all uploaded files
-	if err := gtc.DeleteAllFiles(context.TODO()); err != nil {
-		t.Errorf("failed to delete all uploaded files: %s", ErrToStr(err))
-	}
+	// NOTE: files will be deleted on close
 }
 
 // TestGenerationStreamed tests various types of generations (streamed).
@@ -262,7 +260,9 @@ func TestGenerationStreamed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create client: %s", err)
 	}
+	gtc.DeleteFilesOnClose = true
 	gtc.Verbose = _isVerbose
+	defer gtc.Close()
 
 	// text-only prompt
 	if err := gtc.GenerateStreamed(
@@ -339,10 +339,7 @@ func TestGenerationStreamed(t *testing.T) {
 		t.Errorf("generation with text & file prompt failed: %s", ErrToStr(err))
 	}
 
-	// delete all uploaded files
-	if err := gtc.DeleteAllFiles(context.TODO()); err != nil {
-		t.Errorf("failed to delete all uploaded files: %s", ErrToStr(err))
-	}
+	// NOTE: files will be deleted on close
 }
 
 // TestGenerationNonStreamed tests various types of generations.
@@ -355,7 +352,9 @@ func TestGenerationNonStreamed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create client: %s", err)
 	}
+	gtc.DeleteFilesOnClose = true
 	gtc.Verbose = _isVerbose
+	defer gtc.Close()
 
 	// text-only prompt
 	if generated, err := gtc.Generate(
@@ -441,9 +440,71 @@ func TestGenerationNonStreamed(t *testing.T) {
 		verbose(">>> generated: %s", prettify(generated.Candidates[0].Content.Parts[0]))
 	}
 
-	// delete all uploaded files
-	if err := gtc.DeleteAllFiles(context.TODO()); err != nil {
-		t.Errorf("failed to delete all uploaded files: %s", ErrToStr(err))
+	// NOTE: files will be deleted on close
+}
+
+func TestGenerationWithFileConverter(t *testing.T) {
+	sleepForNotBeingRateLimited()
+
+	apiKey := mustHaveEnvVar(t, "API_KEY")
+
+	jsonlForTest := `{"name": "John Doe", "age": 45, "gender": "m"}
+{"name": "Janet Doe", "age": 42, "gender": "f"}
+{"name": "Jane Doe", "age": 15, "gender": "f"}`
+
+	gtc, err := NewClient(apiKey, modelForTextGeneration)
+	if err != nil {
+		t.Fatalf("failed to create client: %s", err)
+	}
+	// set file converter for mime type: 'application/jsonl(application/x-ndjson)'
+	gtc.SetFileConverter("application/x-ndjson", func(bs []byte) ([]byte, string, error) { // NOTE: a simple JSONL -> CSV converter
+		type record struct {
+			Name   string `json:"name"`
+			Age    int    `json:"age"`
+			Gender string `json:"gender"`
+		}
+		converted := strings.Builder{}
+		converted.Write([]byte("name,age,gender\n"))
+		for _, line := range strings.Split(string(bs), "\n") {
+			var decoded record
+			if err := json.Unmarshal([]byte(line), &decoded); err == nil {
+				converted.Write(fmt.Appendf(nil, `"%s",%d,"%s"\n`, decoded.Name, decoded.Age, decoded.Gender))
+			}
+		}
+		return []byte(converted.String()), "text/csv", nil
+	})
+	gtc.DeleteFilesOnClose = true
+	gtc.Verbose = _isVerbose
+	defer gtc.Close()
+
+	if generated, err := gtc.Generate(context.TODO(), []Prompt{
+		PromptFromText("Infer the relationships between the characters from the given information."),
+		PromptFromBytes([]byte(jsonlForTest)),
+	}, &GenerationOptions{}); err != nil {
+		t.Errorf("generation with file converter failed: %s", ErrToStr(err))
+	} else {
+		var promptTokenCount int32 = 0
+		var candidatesTokenCount int32 = 0
+		var cachedContentTokenCount int32 = 0
+		if generated.UsageMetadata != nil {
+			if generated.UsageMetadata.PromptTokenCount != nil {
+				promptTokenCount = *generated.UsageMetadata.PromptTokenCount
+			}
+			if generated.UsageMetadata.CandidatesTokenCount != nil {
+				candidatesTokenCount = *generated.UsageMetadata.CandidatesTokenCount
+			}
+			if generated.UsageMetadata.CachedContentTokenCount != nil {
+				cachedContentTokenCount = *generated.UsageMetadata.CachedContentTokenCount
+			}
+		}
+
+		verbose(">>> input tokens: %d, output tokens: %d, cached tokens: %d (usage metadata)",
+			promptTokenCount,
+			candidatesTokenCount,
+			cachedContentTokenCount,
+		)
+
+		verbose(">>> generated with file converter: %s", prettify(generated.Candidates[0].Content.Parts[0]))
 	}
 }
 
@@ -467,6 +528,7 @@ func TestGenerationWithFunctionCall(t *testing.T) {
 		t.Fatalf("failed to create client: %s", err)
 	}
 	gtc.Verbose = _isVerbose
+	defer gtc.Close()
 
 	// prompt with function calls (streamed)
 	if err := gtc.GenerateStreamed(
@@ -562,6 +624,7 @@ func TestGenerationWithStructuredOutput(t *testing.T) {
 		t.Fatalf("failed to create client: %s", err)
 	}
 	gtc.Verbose = _isVerbose
+	defer gtc.Close()
 
 	// prompt with function calls (non-streamed)
 	if generated, err := gtc.Generate(
@@ -631,6 +694,7 @@ func TestGenerationWithCodeExecution(t *testing.T) {
 		t.Fatalf("failed to create client: %s", err)
 	}
 	gtc.Verbose = _isVerbose
+	defer gtc.Close()
 
 	// prompt with code execution (non-streamed)
 	if generated, err := gtc.Generate(
@@ -677,6 +741,7 @@ func TestGenerationWithHistory(t *testing.T) {
 		t.Fatalf("failed to create client: %s", err)
 	}
 	gtc.Verbose = _isVerbose
+	defer gtc.Close()
 
 	// text-only prompt with history (streamed)
 	if err := gtc.GenerateStreamed(
@@ -781,12 +846,14 @@ func TestEmbeddings(t *testing.T) {
 
 	apiKey := mustHaveEnvVar(t, "API_KEY")
 
-	client, err := NewClient(apiKey, modelForEmbeddings)
+	gtc, err := NewClient(apiKey, modelForEmbeddings)
 	if err != nil {
 		t.Fatalf("failed to create client: %s", err)
 	}
+	gtc.Verbose = _isVerbose
+	defer gtc.Close()
 
-	if v, err := client.GenerateEmbeddings(context.TODO(), "", []*genai.Content{
+	if v, err := gtc.GenerateEmbeddings(context.TODO(), "", []*genai.Content{
 		genai.NewUserContentFromText("The quick brown fox jumps over the lazy dog."),
 	}); err != nil {
 		t.Errorf("generation of embeddings from text failed: %s", ErrToStr(err))
@@ -807,6 +874,7 @@ func TestImageGeneration(t *testing.T) {
 	}
 	gtc.SetSystemInstructionFunc(nil) // FIXME: error: 'Code: 400, Message: Developer instruction is not enabled for models/gemini-2.0-flash-exp, Status: INVALID_ARGUMENT'
 	gtc.Verbose = _isVerbose
+	defer gtc.Close()
 
 	imageGenerationPrompt := `Generate an image of a golden retriever puppy playing with a colorful ball in a grassy park`
 
@@ -819,7 +887,7 @@ func TestImageGeneration(t *testing.T) {
 		&GenerationOptions{
 			HarmBlockThreshold: ptr(genai.HarmBlockThresholdBlockOnlyHigh),
 			ResponseModalities: []string{
-				ResponseModalityText,
+				ResponseModalityText, // FIXME: when not given, error: 'Code: 400, Message: Model does not support the requested response modalities: image, Status: INVALID_ARGUMENT'
 				ResponseModalityImage,
 			},
 		},
@@ -829,11 +897,13 @@ func TestImageGeneration(t *testing.T) {
 		if res.PromptFeedback != nil {
 			t.Errorf("image generation with text prompt (non-streamed) failed with finish reason: %s", res.PromptFeedback.BlockReasonMessage)
 		} else if res.Candidates != nil {
-			for _, part := range res.Candidates[0].Content.Parts {
-				if part.InlineData != nil {
-					verbose(">>> iterating response image: %s (%d bytes)", part.InlineData.MIMEType, len(part.InlineData.Data))
-				} else if part.Text != "" {
-					verbose(">>> iterating response text: %s", part.Text)
+			for _, cand := range res.Candidates {
+				for _, part := range cand.Content.Parts {
+					if part.InlineData != nil {
+						verbose(">>> iterating response image: %s (%d bytes)", part.InlineData.MIMEType, len(part.InlineData.Data))
+					} else if part.Text != "" {
+						verbose(">>> iterating response text: %s", part.Text)
+					}
 				}
 			}
 		} else {
@@ -907,6 +977,34 @@ func TestImageGeneration(t *testing.T) {
 		}
 	*/
 
+	// test `GenerateImages`
+	if res, err := gtc.GenerateImages(
+		context.TODO(),
+		imageGenerationPrompt,
+	); err != nil {
+		t.Errorf("image generation with `GenerateImages` failed: %s", ErrToStr(err))
+	} else {
+		if len(res.GeneratedImages) > 0 {
+			for _, image := range res.GeneratedImages {
+				if image.RAIFilteredReason != "" {
+					t.Errorf("image generation with `GenerateImages` failed with filtered reason: %s", image.RAIFilteredReason)
+				} else {
+					if image.EnhancedPrompt != "" {
+						verbose(">>> iterating response image with enhanced prompt: '%s'", image.EnhancedPrompt)
+					}
+
+					if image.Image == nil {
+						t.Errorf("image generation with `GenerateImages` failed with null image")
+					} else {
+						verbose(">>> iterating response image: %s (%d bytes)", image.Image.MIMEType, len(image.Image.ImageBytes))
+					}
+				}
+			}
+		} else {
+			t.Errorf("image generation with `GenerateImages` failed with no usable result")
+		}
+	}
+
 	// TODO: prompt with an image file
 }
 
@@ -923,6 +1021,7 @@ func TestBlockedGenerations(t *testing.T) {
 		t.Fatalf("failed to create client: %s", err)
 	}
 	gtc.Verbose = _isVerbose
+	defer gtc.Close()
 
 	// block low and above (for intentional errors)
 	blockThreshold := genai.HarmBlockThresholdBlockLowAndAbove
@@ -998,17 +1097,18 @@ func TestBlockedGenerations(t *testing.T) {
 	}
 }
 
-// TestGrounding tests generations with grounding.
+// TestGroundingWithGoogleSearch tests generations with grounding with google search.
 func TestGrounding(t *testing.T) {
 	sleepForNotBeingRateLimited()
 
 	apiKey := mustHaveEnvVar(t, "API_KEY")
 
-	gtc, err := NewClient(apiKey, modelForImageGeneration)
+	gtc, err := NewClient(apiKey, modelForTextGenerationWithGrounding)
 	if err != nil {
 		t.Fatalf("failed to create client: %s", err)
 	}
 	gtc.Verbose = _isVerbose
+	defer gtc.Close()
 
 	// text-only prompt (non-streamed)
 	if res, err := gtc.Generate(
@@ -1020,24 +1120,15 @@ func TestGrounding(t *testing.T) {
 			Tools: []*genai.Tool{
 				{
 					GoogleSearch: &genai.GoogleSearch{},
-
-					// FIXME: not working for gemini-2.0?
-					/*
-						GoogleSearchRetrieval: &genai.GoogleSearchRetrieval{
-							DynamicRetrievalConfig: &genai.DynamicRetrievalConfig{
-								Mode: genai.DynamicRetrievalConfigModeDynamic,
-							},
-						},
-					*/
 				},
 			},
 			HarmBlockThreshold: ptr(genai.HarmBlockThresholdBlockOnlyHigh),
 		},
 	); err != nil {
-		t.Errorf("generation with grounding (non-streamed) failed: %s", ErrToStr(err))
+		t.Errorf("generation with grounding with google search (non-streamed) failed: %s", ErrToStr(err))
 	} else {
 		if res.PromptFeedback != nil {
-			t.Errorf("generation with grounding (non-streamed) failed with finish reason: %s", res.PromptFeedback.BlockReasonMessage)
+			t.Errorf("generation with grounding with google search (non-streamed) failed with finish reason: %s", res.PromptFeedback.BlockReasonMessage)
 		} else if res.Candidates != nil {
 			for _, part := range res.Candidates[0].Content.Parts {
 				if part.Text != "" {
@@ -1045,7 +1136,7 @@ func TestGrounding(t *testing.T) {
 				}
 			}
 		} else {
-			t.Errorf("generation with grounding failed with no usable result")
+			t.Errorf("generation with grounding with google search failed with no usable result")
 		}
 	}
 
@@ -1059,22 +1150,87 @@ func TestGrounding(t *testing.T) {
 			Tools: []*genai.Tool{
 				{
 					GoogleSearch: &genai.GoogleSearch{},
-
-					// FIXME: not working for gemini-2.0?
-					/*
-						GoogleSearchRetrieval: &genai.GoogleSearchRetrieval{
-							DynamicRetrievalConfig: &genai.DynamicRetrievalConfig{
-								Mode: genai.DynamicRetrievalConfigModeDynamic,
-							},
-						},
-					*/
 				},
 			},
 			HarmBlockThreshold: ptr(genai.HarmBlockThresholdBlockOnlyHigh),
 		},
 	) {
 		if err != nil {
-			t.Errorf("generation with grounding failed: %s", ErrToStr(err))
+			t.Errorf("generation with grounding with google search failed: %s", ErrToStr(err))
+		} else {
+			verbose(">>> iterating response: %s", prettify(it.Candidates[0].Content.Parts[0]))
+		}
+	}
+}
+
+// TestGoogleSearchRetrieval tests generations with Google Search retrieval.
+func TestGoogleSearchRetrieval(t *testing.T) {
+	sleepForNotBeingRateLimited()
+
+	apiKey := mustHaveEnvVar(t, "API_KEY")
+
+	gtc, err := NewClient(apiKey, modelForTextGenerationWithGoogleSearchRetrieval)
+	if err != nil {
+		t.Fatalf("failed to create client: %s", err)
+	}
+	gtc.Verbose = _isVerbose
+	defer gtc.Close()
+
+	// text-only prompt (non-streamed)
+	if res, err := gtc.Generate(
+		context.TODO(),
+		[]Prompt{
+			PromptFromText(`Who is MTG Joe?`),
+		},
+		&GenerationOptions{
+			Tools: []*genai.Tool{
+				{
+					GoogleSearchRetrieval: &genai.GoogleSearchRetrieval{
+						DynamicRetrievalConfig: &genai.DynamicRetrievalConfig{
+							Mode: genai.DynamicRetrievalConfigModeDynamic,
+						},
+					},
+				},
+			},
+			HarmBlockThreshold: ptr(genai.HarmBlockThresholdBlockOnlyHigh),
+		},
+	); err != nil {
+		t.Errorf("generation with google search retrieval (non-streamed) failed: %s", ErrToStr(err))
+	} else {
+		if res.PromptFeedback != nil {
+			t.Errorf("generation with google search retrieval (non-streamed) failed with finish reason: %s", res.PromptFeedback.BlockReasonMessage)
+		} else if res.Candidates != nil {
+			for _, part := range res.Candidates[0].Content.Parts {
+				if part.Text != "" {
+					verbose(">>> iterating response text: %s", part.Text)
+				}
+			}
+		} else {
+			t.Errorf("generation with google search retrieval failed with no usable result")
+		}
+	}
+
+	// text-only prompt (iterated)
+	for it, err := range gtc.GenerateStreamIterated(
+		context.TODO(),
+		[]Prompt{
+			PromptFromText(`Tell me about the Magic: the Gathering's Esper Self-Bounce deck in 1Q of 2025.`),
+		},
+		&GenerationOptions{
+			Tools: []*genai.Tool{
+				{
+					GoogleSearchRetrieval: &genai.GoogleSearchRetrieval{
+						DynamicRetrievalConfig: &genai.DynamicRetrievalConfig{
+							Mode: genai.DynamicRetrievalConfigModeDynamic,
+						},
+					},
+				},
+			},
+			HarmBlockThreshold: ptr(genai.HarmBlockThresholdBlockOnlyHigh),
+		},
+	) {
+		if err != nil {
+			t.Errorf("generation with google search retrieval failed: %s", ErrToStr(err))
 		} else {
 			verbose(">>> iterating response: %s", prettify(it.Candidates[0].Content.Parts[0]))
 		}

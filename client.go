@@ -42,12 +42,15 @@ type Client struct {
 
 	model                 string
 	systemInstructionFunc FnSystemInstruction
+	fileConvertFuncs      map[string]FnConvertBytes
 
 	timeoutSeconds int
 
-	Verbose bool
+	DeleteFilesOnClose  bool
+	DeleteCachesOnClose bool
+	Verbose             bool
 
-	oldClient *old.Client // FIXME: remove this after all APIs are implemented
+	oldClient *old.Client // FIXME: remove this after file APIs are implemented
 }
 
 // StreamCallbackData struct contains the data for stream callback function.
@@ -91,7 +94,11 @@ type NumTokens struct {
 // function definitions
 type (
 	FnSystemInstruction func() string
-	FnStreamCallback    func(callbackData StreamCallbackData)
+
+	// returns converted bytes, converted mime type, and/or error
+	FnConvertBytes func(bytes []byte) ([]byte, string, error)
+
+	FnStreamCallback func(callbackData StreamCallbackData)
 )
 
 // NewClient returns a new client with given values.
@@ -108,7 +115,7 @@ func NewClient(apiKey, model string) (*Client, error) {
 		return nil, fmt.Errorf("failed to create genai client: %w", err)
 	}
 
-	// FIXME: remove this after all APIs are implemented
+	// FIXME: remove these lines after file APIs are implemented
 	var oldClient *old.Client
 	oldClient, err = old.NewClient(context.TODO(), option.WithAPIKey(apiKey))
 	if err != nil {
@@ -123,18 +130,69 @@ func NewClient(apiKey, model string) (*Client, error) {
 		systemInstructionFunc: func() string {
 			return defaultSystemInstruction
 		},
+		fileConvertFuncs: make(map[string]FnConvertBytes),
 
 		timeoutSeconds: defaultTimeoutSeconds,
 
-		Verbose: false,
+		DeleteFilesOnClose:  false,
+		DeleteCachesOnClose: false,
+		Verbose:             false,
 
-		oldClient: oldClient, // FIXME: remove this after all APIs are implemented
+		oldClient: oldClient, // FIXME: remove this line after file APIs are implemented
 	}, nil
 }
 
 // Close closes the client.
-func (c *Client) Close() error {
-	return c.oldClient.Close() // FIXME: remove this after all APIs are implemented
+func (c *Client) Close(ctx ...context.Context) error {
+	errs := []error{}
+
+	var ctxx context.Context
+	if len(ctx) > 0 {
+		ctxx = ctx[0]
+	} else {
+		ctxx = context.TODO()
+	}
+
+	// delete all files before close
+	if c.DeleteFilesOnClose {
+		if c.Verbose {
+			log.Printf("> deleting all files before close...")
+		}
+
+		if err := c.DeleteAllFiles(ctxx); err != nil {
+			if c.Verbose {
+				log.Printf("> failed to delete all files before close: %s", err)
+			}
+
+			errs = append(errs, err)
+		}
+	}
+
+	// delete all caches before close
+	if c.DeleteCachesOnClose {
+		if c.Verbose {
+			log.Printf("> deleting all caches before close...")
+		}
+
+		if err := c.DeleteAllCachedContexts(ctxx); err != nil {
+			if c.Verbose {
+				log.Printf("> failed to delete all caches before close: %s", err)
+			}
+
+			errs = append(errs, err)
+		}
+	}
+
+	// FIXME: remove these lines after file APIs are implemented
+	if err := c.oldClient.Close(); err != nil {
+		if c.Verbose {
+			log.Printf("> failed to close old client: %s", err)
+		}
+
+		errs = append(errs, err)
+	}
+
+	return errors.Join(errs...)
 }
 
 // SetSystemInstructionFunc sets the system instruction function.
@@ -142,6 +200,13 @@ func (c *Client) Close() error {
 // NOTE: if a model or function does not support system instruction, set `nil` with this function.
 func (c *Client) SetSystemInstructionFunc(fn FnSystemInstruction) {
 	c.systemInstructionFunc = fn
+}
+
+// SetFileConverter sets the file converter function which converts given bytes to another kind of bytes before uploading.
+//
+// NOTE: given function will be called only when the mime type is not supported defaultly (see function: `SupportedMimeType`)
+func (c *Client) SetFileConverter(mimeType string, fn FnConvertBytes) {
+	c.fileConvertFuncs[mimeType] = fn
 }
 
 // SetTimeout sets the timeout in seconds.
@@ -155,7 +220,7 @@ const (
 	ResponseModalityImage = "Image"
 )
 
-// GenerationOptions struct for function Generate.
+// GenerationOptions struct for text generations
 type GenerationOptions struct {
 	// generation config
 	Config *genai.GenerationConfig
@@ -386,6 +451,69 @@ func (c *Client) Generate(
 	}
 
 	return c.generate(ctx, contents, maxRetryCount, opts)
+}
+
+// ImageGenerationOptions struct for generating images
+type ImageGenerationOptions struct {
+	NegativePrompt           string                    `json:"negativePrompt,omitempty"`
+	NumberOfImages           *int32                    `json:"numberOfImages,omitempty"`
+	AspectRatio              string                    `json:"aspectRatio,omitempty"`
+	GuidanceScale            *float32                  `json:"guidanceScale,omitempty"`
+	Seed                     *int32                    `json:"seed,omitempty"`
+	SafetyFilterLevel        genai.SafetyFilterLevel   `json:"safetyFilterLevel,omitempty"`
+	PersonGeneration         genai.PersonGeneration    `json:"personGeneration,omitempty"`
+	IncludeSafetyAttributes  bool                      `json:"includeSafetyAttributes,omitempty"`
+	IncludeRAIReason         bool                      `json:"includeRaiReason,omitempty"`
+	Language                 genai.ImagePromptLanguage `json:"language,omitempty"`
+	OutputMIMEType           string                    `json:"outputMimeType,omitempty"`
+	OutputCompressionQuality *int32                    `json:"outputCompressionQuality,omitempty"`
+	AddWatermark             bool                      `json:"addWatermark,omitempty"`
+	EnhancePrompt            bool                      `json:"enhancePrompt,omitempty"`
+}
+
+// GenerateImages generates images with given prompt.
+func (c *Client) GenerateImages(
+	ctx context.Context,
+	prompt string,
+	options ...*ImageGenerationOptions,
+) (res *genai.GenerateImagesResponse, err error) {
+	// set timeout
+	ctx, cancel := context.WithTimeout(ctx, time.Duration(c.timeoutSeconds)*time.Second)
+	defer cancel()
+
+	// generation options
+	var config *genai.GenerateImagesConfig = nil
+	var opts *ImageGenerationOptions = nil
+	if len(options) > 0 {
+		opts = options[0]
+		config = &genai.GenerateImagesConfig{
+			NegativePrompt:           opts.NegativePrompt,
+			NumberOfImages:           opts.NumberOfImages,
+			AspectRatio:              opts.AspectRatio,
+			GuidanceScale:            opts.GuidanceScale,
+			Seed:                     opts.Seed,
+			SafetyFilterLevel:        opts.SafetyFilterLevel,
+			PersonGeneration:         opts.PersonGeneration,
+			IncludeSafetyAttributes:  opts.IncludeRAIReason,
+			IncludeRAIReason:         opts.IncludeRAIReason,
+			Language:                 opts.Language,
+			OutputMIMEType:           opts.OutputMIMEType,
+			OutputCompressionQuality: opts.OutputCompressionQuality,
+			AddWatermark:             opts.AddWatermark,
+			EnhancePrompt:            opts.EnhancePrompt,
+		}
+	}
+
+	if c.Verbose {
+		log.Printf("> generating images with prompt: '%s' (options: %s)", prompt, prettify(opts))
+	}
+
+	return c.client.Models.GenerateImages(
+		ctx,
+		c.model,
+		prompt,
+		config,
+	)
 }
 
 // generate with retry count
@@ -623,12 +751,13 @@ func (c *Client) DeleteCachedContext(
 
 // DeleteAllFiles deletes all uploaded files.
 //
-// FIXME: fix this after all APIs are implemented
+// FIXME: fix this function after file APIs are implemented
 func (c *Client) DeleteAllFiles(ctx context.Context) (err error) {
 	if c.Verbose {
 		log.Printf("> deleting all uploaded files...")
 	}
 
+	// FIXME: fix this line after file APIs are implemented
 	iter := c.oldClient.ListFiles(ctx)
 	for {
 		file, err := iter.Next()
@@ -643,6 +772,7 @@ func (c *Client) DeleteAllFiles(ctx context.Context) (err error) {
 			fmt.Printf(".")
 		}
 
+		// FIXME: fix this line after file APIs are implemented
 		err = c.oldClient.DeleteFile(ctx, file.Name)
 		if err != nil {
 			return fmt.Errorf("failed to delete file: %w", err)
