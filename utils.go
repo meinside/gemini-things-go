@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"slices"
@@ -27,7 +28,7 @@ const (
 
 // wait for all given uploaded files to be active.
 //
-// FIXME: file APIs are not implemented yet
+// FIXME: fix this function(replace `c.oldClient`) after file APIs are implemented in `genai`
 func (c *Client) waitForFiles(ctx context.Context, fileNames []string) {
 	var wg sync.WaitGroup
 	for _, fileName := range fileNames {
@@ -53,57 +54,51 @@ func (c *Client) waitForFiles(ctx context.Context, fileNames []string) {
 
 // UploadFilesAndWait uploads files and wait for them to be ready.
 //
-// FIXME: fix this after file APIs are implemented
+// FIXME: fix this function(replace `c.oldClient`) after file APIs are implemented in `genai`
 func (c *Client) UploadFilesAndWait(ctx context.Context, files []Prompt) (processed []Prompt, err error) {
 	processed = []Prompt{}
 	fileNames := []string{}
 
-	i := 0
+	fileIndex := 0
 	for _, f := range files {
 		if text, ok := f.(TextPrompt); ok {
 			processed = append(processed, text)
 		} else if file, ok := f.(FilePrompt); ok {
-			if mimeType, recycledInput, err := readMimeAndRecycle(file.reader); err == nil {
-				if matchedMimeType, supported := checkMimeType(mimeType); supported {
-					if uploaded, err := c.oldClient.UploadFile(
-						ctx,
-						"",
-						recycledInput,
-						&old.UploadFileOptions{ //&genai.UploadFileConfig{
-							MIMEType:    matchedMimeType,
-							DisplayName: file.filename,
-						},
-					); err == nil {
-						processed = append(processed, FilePrompt{
-							filename: uploaded.Name,
-							data: &old.FileData{
-								URI:      uploaded.URI,
-								MIMEType: uploaded.MIMEType,
-							},
-						})
-
-						fileNames = append(fileNames, uploaded.Name)
+			// read mime type,
+			if mimeType, reader, err := readMimeAndRecycle(file.reader); err == nil {
+				// check mime type,
+				var matchedMimeType string
+				var supported bool
+				if matchedMimeType, supported = checkMimeType(mimeType); !supported {
+					// if it has a custom converter, convert it
+					if fn, exists := c.fileConvertFuncs[matchedMimeType]; !exists {
+						return nil, fmt.Errorf("MIME type of file[%d] (%s) not supported: %s", fileIndex, file.filename, mimeType.String())
 					} else {
-						return nil, fmt.Errorf("failed to upload file[%d] (%s) for prompt: %w", i, file.filename, err)
-					}
-				} else {
-					return nil, fmt.Errorf("MIME type of file[%d] (%s) not supported: %s", i, file.filename, mimeType.String())
-				}
-			} else {
-				return nil, fmt.Errorf("failed to detect MIME type of file[%d] (%s): %w", i, file.filename, err)
-			}
+						if bs, err := io.ReadAll(reader); err == nil {
+							if c.Verbose {
+								log.Printf("> converting reader with custom file converter for %s...", matchedMimeType)
+							}
 
-			i++
-		} else if fbytes, ok := f.(BytesPrompt); ok {
-			mimeType := mimetype.Detect(fbytes.bytes)
-			if matchedMimeType, supported := checkMimeType(mimeType); supported {
+							if converted, convertedMimeType, err := fn(bs); err == nil {
+								reader = bytes.NewBuffer(converted)
+								matchedMimeType = convertedMimeType
+							} else {
+								return nil, fmt.Errorf("converting %s failed: %w", matchedMimeType, err)
+							}
+						} else {
+							return nil, fmt.Errorf("read failed while converting %s: %w", matchedMimeType, err)
+						}
+					}
+				}
+
+				// upload
 				if uploaded, err := c.oldClient.UploadFile(
 					ctx,
 					"",
-					bytes.NewReader(fbytes.bytes),
+					reader,
 					&old.UploadFileOptions{ //&genai.UploadFileConfig{
 						MIMEType:    matchedMimeType,
-						DisplayName: fmt.Sprintf("%d bytes of file", len(fbytes.bytes)),
+						DisplayName: file.filename,
 					},
 				); err == nil {
 					processed = append(processed, FilePrompt{
@@ -116,13 +111,62 @@ func (c *Client) UploadFilesAndWait(ctx context.Context, files []Prompt) (proces
 
 					fileNames = append(fileNames, uploaded.Name)
 				} else {
-					return nil, fmt.Errorf("failed to upload file[%d] (%d bytes) for prompt: %w", i, len(fbytes.bytes), err)
+					return nil, fmt.Errorf("failed to upload file[%d] (%s) for prompt: %w", fileIndex, file.filename, err)
 				}
 			} else {
-				return nil, fmt.Errorf("MIME type of file[%d] (%d bytes) not supported: %s", i, len(fbytes.bytes), mimeType.String())
+				return nil, fmt.Errorf("failed to detect MIME type of file[%d] (%s): %w", fileIndex, file.filename, err)
 			}
 
-			i++
+			fileIndex++
+		} else if fbytes, ok := f.(BytesPrompt); ok {
+			// read mime type,
+			mimeType := mimetype.Detect(fbytes.bytes)
+
+			// check mime type,
+			var matchedMimeType string
+			var supported bool
+			if matchedMimeType, supported = checkMimeType(mimeType); !supported {
+				// if it has a custom converter, convert it
+				if fn, exists := c.fileConvertFuncs[matchedMimeType]; !exists {
+					return nil, fmt.Errorf("MIME type of file[%d] (%d bytes) not supported: %s", fileIndex, len(fbytes.bytes), mimeType.String())
+				} else {
+					if c.Verbose {
+						log.Printf("> converting bytes with custom file converter for %s...", matchedMimeType)
+					}
+
+					if converted, convertedMimeType, err := fn(fbytes.bytes); err == nil {
+						fbytes.bytes = converted
+						matchedMimeType = convertedMimeType
+					} else {
+						return nil, fmt.Errorf("converting %s failed: %w", matchedMimeType, err)
+					}
+				}
+			}
+
+			// upload
+			if uploaded, err := c.oldClient.UploadFile(
+				ctx,
+				"",
+				bytes.NewReader(fbytes.bytes),
+				&old.UploadFileOptions{ //&genai.UploadFileConfig{
+					MIMEType:    matchedMimeType,
+					DisplayName: fmt.Sprintf("%d bytes of file", len(fbytes.bytes)),
+				},
+			); err == nil {
+				processed = append(processed, FilePrompt{
+					filename: uploaded.Name,
+					data: &old.FileData{
+						URI:      uploaded.URI,
+						MIMEType: uploaded.MIMEType,
+					},
+				})
+
+				fileNames = append(fileNames, uploaded.Name)
+			} else {
+				return nil, fmt.Errorf("failed to upload file[%d] (%d bytes) for prompt: %w", fileIndex, len(fbytes.bytes), err)
+			}
+
+			fileIndex++
 		}
 	}
 
@@ -237,7 +281,6 @@ func PromptFromBytes(bytes []byte) Prompt {
 }
 
 // build prompt contents for prompting
-// func (c *Client) buildPromptContents(ctx context.Context, prompts []Prompt, histories []genai.Content) (parts genai.PartSlice, err error) {
 func (c *Client) buildPromptContents(ctx context.Context, prompts []Prompt, histories []genai.Content) (contents []*genai.Content, err error) {
 	var processed []Prompt
 	processed, err = c.UploadFilesAndWait(ctx, prompts)
@@ -283,7 +326,7 @@ func safetySettings(threshold *genai.HarmBlockThreshold) (settings []*genai.Safe
 		genai.HarmCategoryCivicIntegrity,
 	} {
 		settings = append(settings, &genai.SafetySetting{
-			// Method:    genai.HarmBlockMethodSeverity, // FIXME: error 'method parameter is not supported in Gemini API'
+			// Method:    genai.HarmBlockMethodSeverity, // FIXME: => error: 'method parameter is not supported in Gemini API'
 			Category:  category,
 			Threshold: *threshold,
 		})
@@ -294,7 +337,7 @@ func safetySettings(threshold *genai.HarmBlockThreshold) (settings []*genai.Safe
 
 // check if given file's mime type is matched and supported
 //
-// https://ai.google.dev/gemini-api/docs/prompting_with_media?lang=go#supported_file_formats
+// https://ai.google.dev/gemini-api/docs/file-prompting-strategies
 func checkMimeType(mimeType *mimetype.MIME) (matched string, supported bool) {
 	return func(mimeType *mimetype.MIME) (matchedMimeType string, supportedMimeType bool) {
 		matchedMimeType = mimeType.String() // fallback
@@ -401,6 +444,8 @@ func ptr[T any](v T) *T {
 }
 
 // ErrToStr converts error (possibly genai error) to string.
+//
+// FIXME: fix this function(remove `gerr`) after file APIs are implemented in `genai`
 func ErrToStr(err error) (str string) {
 	var ce *genai.ClientError
 	var se *genai.ServerError
@@ -417,6 +462,8 @@ func ErrToStr(err error) (str string) {
 }
 
 // IsQuotaExceeded returns if given error is from execeeded API quota.
+//
+// FIXME: fix this function(remove `gerr`) after file APIs are implemented in `genai`
 func IsQuotaExceeded(err error) bool {
 	var ce *genai.ClientError
 	var se *genai.ServerError
@@ -438,6 +485,8 @@ func IsQuotaExceeded(err error) bool {
 }
 
 // IsModelOverloaded returns if given error is from overloaded model.
+//
+// FIXME: fix this function(remove `gerr`) after file APIs are implemented in `genai`
 func IsModelOverloaded(err error) bool {
 	var ce *genai.ClientError
 	var se *genai.ServerError
@@ -458,7 +507,7 @@ func IsModelOverloaded(err error) bool {
 	return false
 }
 
-// read mime type of given input
+// read mime type of given io.Reader
 //
 // https://pkg.go.dev/github.com/gabriel-vasile/mimetype#example-package-DetectReader
 func readMimeAndRecycle(input io.Reader) (mimeType *mimetype.MIME, recycled io.Reader, err error) {
