@@ -201,7 +201,7 @@ func TestGenerationIterated(t *testing.T) {
 	for it, err := range gtc.GenerateStreamIterated(
 		context.TODO(),
 		[]Prompt{
-			PromptFromText("What is the answer to life, the universe, and everything?"),
+			PromptFromText(`What is the answer to life, the universe, and everything?`),
 		},
 	) {
 		if err != nil {
@@ -218,7 +218,7 @@ func TestGenerationIterated(t *testing.T) {
 		for it, err := range gtc.GenerateStreamIterated(
 			context.TODO(),
 			[]Prompt{
-				PromptFromText("What's the golang package name of this file? Can you give me a short sample code of using this file?"),
+				PromptFromText(`What's the golang package name of this file? Can you give me a short sample code of using this file?`),
 				PromptFromFile("client.go", file),
 			},
 		) {
@@ -236,8 +236,8 @@ func TestGenerationIterated(t *testing.T) {
 	for it, err := range gtc.GenerateStreamIterated(
 		context.TODO(),
 		[]Prompt{
-			PromptFromText("Translate the text in the given file into English."),
-			PromptFromFile("some lyrics", strings.NewReader("동해물과 백두산이 마르고 닳도록 하느님이 보우하사 우리나라 만세")),
+			PromptFromText(`Translate the text in the given file into English.`),
+			PromptFromFile("some lyrics", strings.NewReader(`동해물과 백두산이 마르고 닳도록 하느님이 보우하사 우리나라 만세`)),
 		},
 	) {
 		if err != nil {
@@ -268,7 +268,7 @@ func TestGenerationStreamed(t *testing.T) {
 	if err := gtc.GenerateStreamed(
 		context.TODO(),
 		[]Prompt{
-			PromptFromText("What is the answer to life, the universe, and everything?"),
+			PromptFromText(`What is the answer to life, the universe, and everything?`),
 		},
 		func(data StreamCallbackData) {
 			if data.TextDelta != nil {
@@ -292,7 +292,7 @@ func TestGenerationStreamed(t *testing.T) {
 		if err := gtc.GenerateStreamed(
 			context.TODO(),
 			[]Prompt{
-				PromptFromText("What's the golang package name of this file? Can you give me a short sample code of using this file?"),
+				PromptFromText(`What's the golang package name of this file? Can you give me a short sample code of using this file?`),
 				PromptFromFile("client.go", file),
 			},
 			func(data StreamCallbackData) {
@@ -319,8 +319,8 @@ func TestGenerationStreamed(t *testing.T) {
 	if err := gtc.GenerateStreamed(
 		context.TODO(),
 		[]Prompt{
-			PromptFromText("Translate the text in the given file into English."),
-			PromptFromFile("some lyrics", strings.NewReader("동해물과 백두산이 마르고 닳도록 하느님이 보우하사 우리나라 만세")),
+			PromptFromText(`Translate the text in the given file into English.`),
+			PromptFromFile("some lyrics", strings.NewReader(`동해물과 백두산이 마르고 닳도록 하느님이 보우하사 우리나라 만세`)),
 		},
 		func(data StreamCallbackData) {
 			if data.TextDelta != nil {
@@ -360,7 +360,7 @@ func TestGenerationNonStreamed(t *testing.T) {
 	if generated, err := gtc.Generate(
 		context.TODO(),
 		[]Prompt{
-			PromptFromText("What is the answer to life, the universe, and everything?"),
+			PromptFromText(`What is the answer to life, the universe, and everything?`),
 		},
 	); err != nil {
 		t.Errorf("generation with text prompt failed: %s", ErrToStr(err))
@@ -373,7 +373,7 @@ func TestGenerationNonStreamed(t *testing.T) {
 		if generated, err := gtc.Generate(
 			context.TODO(),
 			[]Prompt{
-				PromptFromText("What's the golang package name of this file? Can you give me a short sample code of using this file?"),
+				PromptFromText(`What's the golang package name of this file? Can you give me a short sample code of using this file?`),
 				PromptFromFile("client.go", file),
 			},
 		); err != nil {
@@ -410,8 +410,8 @@ func TestGenerationNonStreamed(t *testing.T) {
 	if generated, err := gtc.Generate(
 		context.TODO(),
 		[]Prompt{
-			PromptFromText("Translate the text in the given file into English."),
-			PromptFromFile("some lyrics", strings.NewReader("동해물과 백두산이 마르고 닳도록 하느님이 보우하사 우리나라 만세")),
+			PromptFromText(`Translate the text in the given file into English.`),
+			PromptFromFile("some lyrics", strings.NewReader(`동해물과 백두산이 마르고 닳도록 하느님이 보우하사 우리나라 만세`)),
 		},
 	); err != nil {
 		t.Errorf("generation with text & file prompt failed: %s", ErrToStr(err))
@@ -443,42 +443,47 @@ func TestGenerationNonStreamed(t *testing.T) {
 	// NOTE: files will be deleted on close
 }
 
+// TestGenerationWithFileConverter tests generations with custom file converters.
 func TestGenerationWithFileConverter(t *testing.T) {
 	sleepForNotBeingRateLimited()
 
 	apiKey := mustHaveEnvVar(t, "API_KEY")
 
-	jsonlForTest := `{"name": "John Doe", "age": 45, "gender": "m"}
-{"name": "Janet Doe", "age": 42, "gender": "f"}
-{"name": "Jane Doe", "age": 15, "gender": "f"}`
-
 	gtc, err := NewClient(apiKey, modelForTextGeneration)
 	if err != nil {
 		t.Fatalf("failed to create client: %s", err)
 	}
-	// set file converter for mime type: 'application/jsonl(application/x-ndjson)'
-	gtc.SetFileConverter("application/x-ndjson", func(bs []byte) ([]byte, string, error) { // NOTE: a simple JSONL -> CSV converter
-		type record struct {
-			Name   string `json:"name"`
-			Age    int    `json:"age"`
-			Gender string `json:"gender"`
-		}
-		converted := strings.Builder{}
-		converted.Write([]byte("name,age,gender\n"))
-		for _, line := range strings.Split(string(bs), "\n") {
-			var decoded record
-			if err := json.Unmarshal([]byte(line), &decoded); err == nil {
-				converted.Write(fmt.Appendf(nil, `"%s",%d,"%s"\n`, decoded.Name, decoded.Age, decoded.Gender))
+	// set custom file converters
+	gtc.SetFileConverter(
+		"application/x-ndjson", // for: 'application/jsonl' (application/x-ndjson)
+		func(bs []byte) ([]byte, string, error) {
+			// NOTE: a simple JSONL -> CSV converter
+			type record struct {
+				Name   string `json:"name"`
+				Age    int    `json:"age"`
+				Gender string `json:"gender"`
 			}
-		}
-		return []byte(converted.String()), "text/csv", nil
-	})
+			converted := strings.Builder{}
+			converted.Write([]byte("name,age,gender\n"))
+			for _, line := range strings.Split(string(bs), "\n") {
+				var decoded record
+				if err := json.Unmarshal([]byte(line), &decoded); err == nil {
+					converted.Write(fmt.Appendf(nil, `"%s",%d,"%s"\n`, decoded.Name, decoded.Age, decoded.Gender))
+				}
+			}
+			return []byte(converted.String()), "text/csv", nil
+		},
+	)
 	gtc.DeleteFilesOnClose = true
 	gtc.Verbose = _isVerbose
 	defer gtc.Close()
 
+	jsonlForTest := `{"name": "John Doe", "age": 45, "gender": "m"}
+{"name": "Janet Doe", "age": 42, "gender": "f"}
+{"name": "Jane Doe", "age": 15, "gender": "f"}`
+
 	if generated, err := gtc.Generate(context.TODO(), []Prompt{
-		PromptFromText("Infer the relationships between the characters from the given information."),
+		PromptFromText(`Infer the relationships between the characters from the given information.`),
 		PromptFromBytes([]byte(jsonlForTest)),
 	}, &GenerationOptions{}); err != nil {
 		t.Errorf("generation with file converter failed: %s", ErrToStr(err))
@@ -512,14 +517,90 @@ func TestGenerationWithFileConverter(t *testing.T) {
 func TestGenerationWithFunctionCall(t *testing.T) {
 	sleepForNotBeingRateLimited()
 
+	// function declarations
 	const (
-		fnNameGenerateImages      = "generate_images"
-		fnDescGenerateImages      = `This function generates beautiful images by extracting and optimizing positive and/or negative prompts from the text given by the user.`
+		// for extracting positive/negative prompts for image generation
+		fnNameExtractPrompts      = "extract_prompts_for_image_generation"
+		fnDescExtractPrompts      = `This function extracts positive and/or negative prompts from the text given by the user which will be used for generating images.`
 		fnParamNamePositivePrompt = "positive_prompt"
 		fnParamDescPositivePrompt = `A text prompt for generating images with image generation models(eg. Stable Diffusion, or DALL-E). This prompt describes what to be included in the resulting images. It should be in English and optimized following the image generation models' prompt guides.`
 		fnParamNameNegativePrompt = "negative_prompt"
 		fnParamDescNegativePrompt = `A text prompt for image generation models(eg. Stable Diffusion, or DALL-E) to define what not to be included in the resulting images. It should be in English and optimized following the image generation models' prompt guides.`
+
+		// for returning the result of image generation
+		fnNameImageGenerationFinished    = "image_generation_finished"
+		fnDescImageGenerationFinished    = `This function is called when the image generation finishes with the given parameters.`
+		fnParamNameGeneratedSuccessfully = "success"
+		fnParamDescGeneratedSuccessfully = "If the generation was successful or not."
+		fnParamNameGeneratedSize         = "size"
+		fnParamDescGeneratedSize         = `The size of the generated image file in bytes.`
+		fnParamNameGeneratedResolution   = "resolution"
+		fnParamDescGeneratedResolution   = `The resolution of the generated image file.`
+		fnParamNameGeneratedFilepath     = "filepath"
+		fnParamDescGeneratedFilepath     = "The filepath of the generated image file."
 	)
+	fnDeclarations := []*genai.FunctionDeclaration{
+		{
+			Name:        fnNameExtractPrompts,
+			Description: fnDescExtractPrompts,
+			Parameters: &genai.Schema{
+				Type:     genai.TypeObject,
+				Nullable: false,
+				Properties: map[string]*genai.Schema{
+					fnParamNamePositivePrompt: {
+						Type:        genai.TypeString,
+						Description: fnParamDescPositivePrompt,
+						Nullable:    false,
+					},
+					fnParamNameNegativePrompt: {
+						Type:        genai.TypeString,
+						Description: fnParamDescNegativePrompt,
+						Nullable:    true,
+					},
+				},
+				Required: []string{
+					fnParamNamePositivePrompt,
+					fnParamNameNegativePrompt,
+				},
+			},
+		},
+		{
+			Name:        fnNameImageGenerationFinished,
+			Description: fnDescImageGenerationFinished,
+			Parameters: &genai.Schema{
+				Type:     genai.TypeObject,
+				Nullable: false,
+				Properties: map[string]*genai.Schema{
+					fnParamNameGeneratedSuccessfully: {
+						Type:        genai.TypeBoolean,
+						Description: fnParamDescGeneratedSuccessfully,
+						Nullable:    false,
+					},
+					fnParamNameGeneratedSize: {
+						Type:        genai.TypeNumber,
+						Description: fnParamDescGeneratedSize,
+						Nullable:    true,
+					},
+					fnParamNameGeneratedResolution: {
+						Type:        genai.TypeString,
+						Description: fnParamDescGeneratedResolution,
+						Nullable:    true,
+					},
+					fnParamNameGeneratedFilepath: {
+						Type:        genai.TypeString,
+						Description: fnParamDescGeneratedFilepath,
+						Nullable:    true,
+					},
+				},
+				Required: []string{
+					fnParamNameGeneratedSuccessfully,
+					fnParamNameGeneratedSize,
+					fnParamNameGeneratedResolution,
+					fnParamNameGeneratedFilepath,
+				},
+			},
+		},
+	}
 
 	apiKey := mustHaveEnvVar(t, "API_KEY")
 
@@ -530,15 +611,17 @@ func TestGenerationWithFunctionCall(t *testing.T) {
 	gtc.Verbose = _isVerbose
 	defer gtc.Close()
 
+	const prompt = `Generate an image file which shows a man standing in front of a vast dessert. The man is watching an old pyramid completely destroyed by a giant sandstorm. The mood should be sad and gloomy.`
+
 	// prompt with function calls (streamed)
 	if err := gtc.GenerateStreamed(
 		context.TODO(),
 		[]Prompt{
-			PromptFromText(`Please generate an image which shows a man standing in front of a vast dessert. The man is watching an old pyramid completely destroyed by a giant sandstorm. The mood is sad and gloomy.`),
+			PromptFromText(prompt),
 		},
 		func(data StreamCallbackData) {
 			if data.FunctionCall != nil {
-				if data.FunctionCall.Name == fnNameGenerateImages {
+				if data.FunctionCall.Name == fnNameExtractPrompts {
 					positivePrompt, _ := FuncArg[string](data.FunctionCall.Args, fnParamNamePositivePrompt)
 					negativePrompt, _ := FuncArg[string](data.FunctionCall.Args, fnParamNameNegativePrompt)
 
@@ -548,11 +631,65 @@ func TestGenerationWithFunctionCall(t *testing.T) {
 						if negativePrompt != nil {
 							verbose(">>> negative prompt: %s", *negativePrompt)
 						}
+
+						pastGenerations := []genai.Content{
+							{
+								Parts: []*genai.Part{
+									genai.NewPartFromText(prompt),
+								},
+								Role: "user",
+							},
+							{
+								Parts: []*genai.Part{
+									genai.NewPartFromFunctionCall(data.FunctionCall.Name, map[string]any{
+										fnParamNamePositivePrompt: positivePrompt,
+										fnParamNameNegativePrompt: negativePrompt,
+									}),
+								},
+								Role: "model",
+							},
+							{
+								Parts: []*genai.Part{
+									// NOTE:
+									// run your own function with the parameters returned from function call,
+									// then send a function response built with the result of your function.
+									genai.NewPartFromFunctionResponse(fnNameImageGenerationFinished, map[string]any{
+										fnParamNameGeneratedSuccessfully: true,
+										fnParamNameGeneratedSize:         424242,
+										fnParamNameGeneratedResolution:   "800x800",
+										fnParamNameGeneratedFilepath:     "/home/marvin/generated.jpg",
+									}),
+								},
+								Role: "user",
+							},
+						}
+
+						// generate again with a function response
+						if err := gtc.GenerateStreamed(
+							context.TODO(),
+							[]Prompt{},
+							func(data StreamCallbackData) {
+								if data.TextDelta != nil {
+									verbose(">>> generated from function response: %s", *data.TextDelta)
+								}
+							},
+							&GenerationOptions{
+								Tools: []*genai.Tool{
+									{
+										FunctionDeclarations: fnDeclarations,
+									},
+								},
+
+								History: pastGenerations,
+							},
+						); err != nil {
+							t.Errorf("failed to generate with function response: %s", ErrToStr(err))
+						}
 					} else {
 						t.Errorf("failed to parse function args (%s)", prettify(data.FunctionCall.Args))
 					}
 				} else {
-					t.Errorf("function name does not match '%s': %s", fnNameGenerateImages, prettify(data.FunctionCall))
+					t.Errorf("function name does not match '%s': %s", fnNameExtractPrompts, prettify(data.FunctionCall))
 				}
 			} else if data.NumTokens != nil {
 				verbose(">>> input tokens: %d, output tokens: %d, cached tokens: %d", data.NumTokens.Input, data.NumTokens.Output, data.NumTokens.Cached)
@@ -567,36 +704,14 @@ func TestGenerationWithFunctionCall(t *testing.T) {
 		&GenerationOptions{
 			Tools: []*genai.Tool{
 				{
-					FunctionDeclarations: []*genai.FunctionDeclaration{
-						{
-							Name:        fnNameGenerateImages,
-							Description: fnDescGenerateImages,
-							Parameters: &genai.Schema{
-								Type:     genai.TypeObject,
-								Nullable: false,
-								Properties: map[string]*genai.Schema{
-									fnParamNamePositivePrompt: {
-										Type:        genai.TypeString,
-										Description: fnParamDescPositivePrompt,
-										Nullable:    false,
-									},
-									fnParamNameNegativePrompt: {
-										Type:        genai.TypeString,
-										Description: fnParamDescNegativePrompt,
-										Nullable:    true,
-									},
-								},
-								Required: []string{fnParamNamePositivePrompt, fnParamNameNegativePrompt},
-							},
-						},
-					},
+					FunctionDeclarations: fnDeclarations,
 				},
 			},
 			ToolConfig: &genai.ToolConfig{
 				FunctionCallingConfig: &genai.FunctionCallingConfig{
 					Mode: genai.FunctionCallingConfigModeAny,
 					AllowedFunctionNames: []string{
-						fnNameGenerateImages,
+						fnNameExtractPrompts,
 					},
 				},
 			},
@@ -617,6 +732,8 @@ func TestGenerationWithStructuredOutput(t *testing.T) {
 		paramDescNegativePrompt = `A text prompt for image generation models(eg. Stable Diffusion, or DALL-E) to define what not to be included in the resulting images. It should be in English and optimized following the image generation models' prompt guides.`
 	)
 
+	const prompt = `Extract and optimize positive and/or negative prompts from the following text for generating beautiful images: "Please generate an image which shows a man standing in front of a vast dessert. The man is watching an old pyramid completely destroyed by a giant sandstorm. The mood is sad and gloomy".`
+
 	apiKey := mustHaveEnvVar(t, "API_KEY")
 
 	gtc, err := NewClient(apiKey, modelForTextGeneration)
@@ -630,7 +747,7 @@ func TestGenerationWithStructuredOutput(t *testing.T) {
 	if generated, err := gtc.Generate(
 		context.TODO(),
 		[]Prompt{
-			PromptFromText(`Extract and optimize positive and/or negative prompts from the following text for generating beautiful images: "Please generate an image which shows a man standing in front of a vast dessert. The man is watching an old pyramid completely destroyed by a giant sandstorm. The mood is sad and gloomy".`),
+			PromptFromText(prompt),
 		},
 		&GenerationOptions{
 			Config: &genai.GenerationConfig{
@@ -768,7 +885,7 @@ func TestGenerationWithHistory(t *testing.T) {
 					Role: RoleUser,
 					Parts: []*genai.Part{
 						{
-							Text: "What is the answer to life, the universe, and everything?",
+							Text: `What is the answer to life, the universe, and everything?`,
 						},
 					},
 				},
@@ -776,7 +893,7 @@ func TestGenerationWithHistory(t *testing.T) {
 					Role: RoleModel,
 					Parts: []*genai.Part{
 						{
-							Text: "43.",
+							Text: `43.`,
 						},
 					},
 				},
@@ -798,7 +915,7 @@ func TestGenerationWithHistory(t *testing.T) {
 					Role: RoleUser,
 					Parts: []*genai.Part{
 						{
-							Text: "What is the answer to life, the universe, and everything?",
+							Text: `What is the answer to life, the universe, and everything?`,
 						},
 					},
 				},
@@ -806,7 +923,7 @@ func TestGenerationWithHistory(t *testing.T) {
 					Role: RoleModel,
 					Parts: []*genai.Part{
 						{
-							Text: "43.",
+							Text: `43.`,
 						},
 					},
 				},
@@ -854,7 +971,7 @@ func TestEmbeddings(t *testing.T) {
 	defer gtc.Close()
 
 	if v, err := gtc.GenerateEmbeddings(context.TODO(), "", []*genai.Content{
-		genai.NewUserContentFromText("The quick brown fox jumps over the lazy dog."),
+		genai.NewUserContentFromText(`The quick brown fox jumps over the lazy dog.`),
 	}); err != nil {
 		t.Errorf("generation of embeddings from text failed: %s", ErrToStr(err))
 	} else {
@@ -876,13 +993,13 @@ func TestImageGeneration(t *testing.T) {
 	gtc.Verbose = _isVerbose
 	defer gtc.Close()
 
-	imageGenerationPrompt := `Generate an image of a golden retriever puppy playing with a colorful ball in a grassy park`
+	const prompt = `Generate an image of a golden retriever puppy playing with a colorful ball in a grassy park`
 
 	// text-only prompt
 	if res, err := gtc.Generate(
 		context.TODO(),
 		[]Prompt{
-			PromptFromText(imageGenerationPrompt),
+			PromptFromText(prompt),
 		},
 		&GenerationOptions{
 			HarmBlockThreshold: ptr(genai.HarmBlockThresholdBlockOnlyHigh),
@@ -917,7 +1034,7 @@ func TestImageGeneration(t *testing.T) {
 		for it, err := range gtc.GenerateStreamIterated(
 			context.TODO(),
 			[]Prompt{
-				PromptFromText(imageGenerationPrompt),
+				PromptFromText(prompt),
 			},
 			&GenerationOptions{
 				HarmBlockThreshold: ptr(genai.HarmBlockThresholdBlockOnlyHigh),
@@ -948,7 +1065,7 @@ func TestImageGeneration(t *testing.T) {
 		if err := gtc.GenerateStreamed(
 			context.TODO(),
 			[]Prompt{
-				PromptFromText(imageGenerationPrompt),
+				PromptFromText(prompt),
 			},
 			func(callbackData StreamCallbackData) {
 				if callbackData.Error != nil {
@@ -980,7 +1097,7 @@ func TestImageGeneration(t *testing.T) {
 	// test `GenerateImages`
 	if res, err := gtc.GenerateImages(
 		context.TODO(),
-		imageGenerationPrompt,
+		prompt,
 	); err != nil {
 		t.Errorf("image generation with `GenerateImages` failed: %s", ErrToStr(err))
 	} else {
