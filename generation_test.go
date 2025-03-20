@@ -247,6 +247,21 @@ func TestGenerationIterated(t *testing.T) {
 		}
 	}
 
+	// prompt with uri (youtube)
+	for it, err := range gtc.GenerateStreamIterated(
+		context.TODO(),
+		[]Prompt{
+			PromptFromText(`Summarize this youtube video.`),
+			PromptFromURI(`https://www.youtube.com/watch?v=I44_zbEwz_w`),
+		},
+	) {
+		if err != nil {
+			t.Errorf("generation with uri prompt (youtube) failed: %s", ErrToStr(err))
+		} else {
+			verbose(">>> iterating response: %s", prettify(it.Candidates[0].Content.Parts[0]))
+		}
+	}
+
 	// NOTE: files will be deleted on close
 }
 
