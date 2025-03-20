@@ -1,3 +1,7 @@
+// utils_test.go
+//
+// test cases for utils
+
 package gt
 
 import (
@@ -5,7 +9,8 @@ import (
 	"testing"
 )
 
-func TestChunkingText(t *testing.T) {
+// TestChunkText tests chunking of texts.
+func TestChunkText(t *testing.T) {
 	const text = `동해물과 백두산이 마르고 닳도록
 하느님이 보우하사 우리나라 만세
 무궁화 삼천리 화려 강산
@@ -45,7 +50,7 @@ func TestChunkingText(t *testing.T) {
 		log.Printf("chunked texts: %s", prettify(chunks))
 	}
 
-	// should fail with wrong chunkin option
+	// should fail with wrong chunking option
 	if _, err := ChunkText(text, TextChunkOption{
 		ChunkSize:      40,
 		OverlappedSize: 50,

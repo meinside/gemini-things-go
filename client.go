@@ -1,3 +1,5 @@
+// client.go
+
 package gt
 
 import (
@@ -27,7 +29,6 @@ Respond to the user according to the following principles:
 `
 
 	maxRetryCount uint = 3 // NOTE: will retry on 5xx errors
-
 )
 
 const (
@@ -52,54 +53,6 @@ type Client struct {
 
 	oldClient *old.Client // FIXME: remove this after file APIs are implemented
 }
-
-// StreamCallbackData struct contains the data for stream callback function.
-type StreamCallbackData struct {
-	// when there is a text delta,
-	TextDelta *string
-
-	// when there is a file bytes array,
-	InlineData *genai.Blob
-
-	// thinking...?
-	Thought bool
-
-	// when there is a function call,
-	FunctionCall     *genai.FunctionCall
-	FunctionResponse *genai.FunctionResponse
-
-	// when there is a code execution result,
-	ExecutableCode      *genai.ExecutableCode
-	CodeExecutionResult *genai.CodeExecutionResult
-
-	// when the number of tokens are calculated, (after the stream is finished)
-	NumTokens *NumTokens
-
-	// when there is a finish reason,
-	FinishReason *genai.FinishReason
-
-	// when there is an error,
-	Error error
-
-	// NOTE: TODO: add more data here
-}
-
-// NumTokens struct for input/output token numbers
-type NumTokens struct {
-	Input  int32
-	Output int32
-	Cached int32
-}
-
-// function definitions
-type (
-	FnSystemInstruction func() string
-
-	// returns converted bytes, converted mime type, and/or error
-	FnConvertBytes func(bytes []byte) ([]byte, string, error)
-
-	FnStreamCallback func(callbackData StreamCallbackData)
-)
 
 // NewClient returns a new client with given values.
 func NewClient(apiKey, model string) (*Client, error) {
@@ -219,37 +172,6 @@ const (
 	ResponseModalityText  = "Text"
 	ResponseModalityImage = "Image"
 )
-
-// GenerationOptions struct for text generations
-type GenerationOptions struct {
-	// generation config
-	Config *genai.GenerationConfig
-
-	// tool config
-	Tools      []*genai.Tool
-	ToolConfig *genai.ToolConfig
-
-	// safety settings: harm block threshold
-	HarmBlockThreshold *genai.HarmBlockThreshold
-
-	// for reusing the cached content
-	CachedContent string
-
-	// for multimodal response
-	ResponseModalities []string
-	MediaResolution    genai.MediaResolution
-	SpeechConfig       *genai.SpeechConfig
-
-	// history (for session)
-	History []genai.Content
-}
-
-// NewGenerationOptions returns a new GenerationOptions with default values.
-func NewGenerationOptions() *GenerationOptions {
-	return &GenerationOptions{
-		HarmBlockThreshold: ptr(genai.HarmBlockThresholdBlockOnlyHigh),
-	}
-}
 
 // generate stream iterator with given values
 func (c *Client) generateStream(

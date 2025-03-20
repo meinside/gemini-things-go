@@ -1,3 +1,5 @@
+// utils.go
+
 package gt
 
 import (
@@ -189,126 +191,7 @@ func FuncArg[T any](from map[string]any, key string) (*T, error) {
 	return nil, nil // not found
 }
 
-// Prompt interface for prompts
-type Prompt interface {
-	ToPart() genai.Part
-	String() string
-}
-
-// TextPrompt struct
-type TextPrompt struct {
-	text string
-}
-
-// ToPart converts text prompt to genai.Part.
-func (p TextPrompt) ToPart() genai.Part {
-	return genai.Part{
-		Text: p.text,
-	}
-}
-
-// String returns the text prompt as a string.
-func (p TextPrompt) String() string {
-	return fmt.Sprintf("text='%s'", p.text)
-}
-
-// PromptFromText returns a Prompt with given text.
-func PromptFromText(text string) Prompt {
-	return TextPrompt{
-		text: text,
-	}
-}
-
-// FilePrompt struct
-type FilePrompt struct {
-	filename string
-	reader   io.Reader
-
-	data *old.FileData // FIXME: change to *genai.FileData when file APIs are implemented in `genai`
-}
-
-// ToPart converts file prompt to genai.Part.
-func (p FilePrompt) ToPart() genai.Part {
-	return genai.Part{
-		FileData: &genai.FileData{
-			FileURI:  p.data.URI,
-			MIMEType: p.data.MIMEType,
-		},
-	}
-}
-
-// String returns the file prompt as a string.
-func (p FilePrompt) String() string {
-	if p.data != nil {
-		return fmt.Sprintf("file='%s';uri='%s';mimeType=%s", p.filename, p.data.URI, p.data.MIMEType)
-	}
-	return fmt.Sprintf("file='%s'", p.filename)
-}
-
-// PromptFromFile returns a Prompt with given filename and reader.
-func PromptFromFile(filename string, reader io.Reader) Prompt {
-	return FilePrompt{
-		filename: filename,
-		reader:   reader,
-	}
-}
-
-// URIPrompt struct
-type URIPrompt struct {
-	uri string
-}
-
-// ToPart converts URI prompt to genai.Part.
-func (p URIPrompt) ToPart() genai.Part {
-	return genai.Part{
-		FileData: &genai.FileData{
-			FileURI: p.uri,
-		},
-	}
-}
-
-// String returns the URI prompt as a string.
-func (p URIPrompt) String() string {
-	return fmt.Sprintf("uri='%s'", p.uri)
-}
-
-// PromptFromURI returns a Prompt with given URI.
-func PromptFromURI(uri string) Prompt {
-	return URIPrompt{
-		uri: uri,
-	}
-}
-
-// BytesPrompt struct
-type BytesPrompt struct {
-	bytes    []byte
-	mimeType string
-}
-
-// ToPart converts bytes prompt to genai.Part.
-func (p BytesPrompt) ToPart() genai.Part {
-	return genai.Part{
-		InlineData: &genai.Blob{
-			Data:     p.bytes,
-			MIMEType: p.mimeType,
-		},
-	}
-}
-
-// String returns the inline file prompt as a string.
-func (p BytesPrompt) String() string {
-	return fmt.Sprintf("bytes[%d];mimeType=%s", len(p.bytes), p.mimeType)
-}
-
-// PromptFromBytes returns a Prompt with given bytes.
-func PromptFromBytes(bytes []byte) Prompt {
-	return BytesPrompt{
-		bytes:    bytes,
-		mimeType: mimetype.Detect(bytes).String(),
-	}
-}
-
-// build prompt contents for prompting
+// build prompt contents for generation
 func (c *Client) buildPromptContents(ctx context.Context, prompts []Prompt, histories []genai.Content) (contents []*genai.Content, err error) {
 	var processed []Prompt
 	processed, err = c.UploadFilesAndWait(ctx, prompts)
@@ -330,7 +213,7 @@ func (c *Client) buildPromptContents(ctx context.Context, prompts []Prompt, hist
 		contents = append(contents, &genai.Content{
 			Role: RoleUser,
 			Parts: []*genai.Part{
-				ptr(prompt.ToPart()),
+				ptr(prompt.toPart()),
 			},
 		})
 	}
