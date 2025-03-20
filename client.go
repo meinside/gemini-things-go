@@ -733,3 +733,19 @@ func (c *Client) GenerateEmbeddings(ctx context.Context, title string, contents 
 	}
 	return
 }
+
+// CountTokens counts tokens for given contents.
+//
+// https://ai.google.dev/gemini-api/docs/tokens?lang=go
+func (c *Client) CountTokens(ctx context.Context, contents []*genai.Content, config ...*genai.CountTokensConfig) (res *genai.CountTokensResponse, err error) {
+	if c.Verbose {
+		log.Printf("> counting tokens for contents: %s", prettify(contents))
+	}
+
+	var cfg *genai.CountTokensConfig = nil
+	if len(config) > 0 {
+		cfg = config[0]
+	}
+
+	return c.client.Models.CountTokens(ctx, c.model, contents, cfg)
+}
