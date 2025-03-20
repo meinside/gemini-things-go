@@ -456,7 +456,7 @@ func (c *Client) Generate(
 // ImageGenerationOptions struct for generating images
 type ImageGenerationOptions struct {
 	NegativePrompt           string                    `json:"negativePrompt,omitempty"`
-	NumberOfImages           *int32                    `json:"numberOfImages,omitempty"`
+	NumberOfImages           int32                     `json:"numberOfImages,omitempty"`
 	AspectRatio              string                    `json:"aspectRatio,omitempty"`
 	GuidanceScale            *float32                  `json:"guidanceScale,omitempty"`
 	Seed                     *int32                    `json:"seed,omitempty"`
@@ -662,7 +662,7 @@ func (c *Client) SetCachedContextExpireTime(
 	var cc *genai.CachedContent
 	if cc, err = c.client.Caches.Get(ctx, cachedContextName, &genai.GetCachedContentConfig{}); err == nil {
 		_, err = c.client.Caches.Update(ctx, cc.Name, &genai.UpdateCachedContentConfig{
-			ExpireTime: &expireTime,
+			ExpireTime: expireTime,
 		})
 	}
 	return err
