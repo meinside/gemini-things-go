@@ -167,6 +167,8 @@ func (c *Client) UploadFilesAndWait(ctx context.Context, files []Prompt) (proces
 			}
 
 			fileIndex++
+		} else if uri, ok := f.(URIPrompt); ok {
+			processed = append(processed, uri)
 		}
 	}
 
@@ -222,7 +224,7 @@ type FilePrompt struct {
 	filename string
 	reader   io.Reader
 
-	data *old.FileData // *genai.FileData
+	data *old.FileData // FIXME: change to *genai.FileData when file APIs are implemented in `genai`
 }
 
 // ToPart converts file prompt to genai.Part.
@@ -248,6 +250,32 @@ func PromptFromFile(filename string, reader io.Reader) Prompt {
 	return FilePrompt{
 		filename: filename,
 		reader:   reader,
+	}
+}
+
+// URIPrompt struct
+type URIPrompt struct {
+	uri string
+}
+
+// ToPart converts URI prompt to genai.Part.
+func (p URIPrompt) ToPart() genai.Part {
+	return genai.Part{
+		FileData: &genai.FileData{
+			FileURI: p.uri,
+		},
+	}
+}
+
+// String returns the URI prompt as a string.
+func (p URIPrompt) String() string {
+	return fmt.Sprintf("uri='%s'", p.uri)
+}
+
+// PromptFromURI returns a Prompt with given URI.
+func PromptFromURI(uri string) Prompt {
+	return URIPrompt{
+		uri: uri,
 	}
 }
 
