@@ -5,8 +5,8 @@ go 1.23.1
 require (
 	github.com/gabriel-vasile/mimetype v1.4.8
 	github.com/google/generative-ai-go v0.19.0
-	google.golang.org/api v0.226.0
-	google.golang.org/genai v0.5.0
+	google.golang.org/api v0.227.0
+	google.golang.org/genai v0.6.0
 )
 
 require (
