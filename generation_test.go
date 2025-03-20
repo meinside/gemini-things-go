@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"strings"
@@ -332,7 +333,7 @@ func TestGenerationIterated(t *testing.T) {
 			}
 		}
 	} else {
-		t.Errorf("failed to open file for test: %s", err)
+		t.Errorf("failed to open file for iterated generation: %s", err)
 	}
 
 	// prompt with bytes array
@@ -430,7 +431,7 @@ func TestGenerationStreamed(t *testing.T) {
 			t.Errorf("generation with text & file prompt failed: %s", ErrToStr(err))
 		}
 	} else {
-		t.Errorf("failed to open file for generation: %s", err)
+		t.Errorf("failed to open file for streamed generation: %s", err)
 	}
 
 	// prompt with bytes array (streamed)
@@ -1407,5 +1408,44 @@ func TestGoogleSearchRetrieval(t *testing.T) {
 		} else {
 			verbose(">>> iterating response: %s", prettify(it.Candidates[0].Content.Parts[0]))
 		}
+	}
+}
+
+// TestCountingTokens tests tokens counting.
+func TestCountingTokens(t *testing.T) {
+	sleepForNotBeingRateLimited()
+
+	apiKey := mustHaveEnvVar(t, "API_KEY")
+
+	gtc, err := NewClient(apiKey, modelForTextGeneration)
+	if err != nil {
+		t.Fatalf("failed to create client: %s", err)
+	}
+	gtc.Verbose = _isVerbose
+	defer gtc.Close()
+
+	// open a file for testing
+	file, err := os.Open("./client.go")
+	if err != nil {
+		t.Fatalf("failed to open file for counting tokens: %s", err)
+	}
+	defer file.Close()
+	bytes, err := io.ReadAll(file)
+	if err != nil {
+		t.Fatalf("failed to read file for counting tokens")
+	}
+
+	if res, err := gtc.CountTokens(
+		context.TODO(),
+		[]*genai.Content{
+			genai.NewUserContentFromText("Analyze this file."),
+			genai.NewModelContentFromText("Provide a file for analysis."),
+			genai.NewUserContentFromBytes(bytes, "text/plain"),
+		},
+		&genai.CountTokensConfig{},
+	); err != nil {
+		t.Errorf("counting tokens failed: %s", ErrToStr(err))
+	} else {
+		verbose(">>> counted tokens: %s", prettify(res))
 	}
 }
