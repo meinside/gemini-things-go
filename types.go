@@ -15,8 +15,7 @@ import (
 // Prompt interface for various types of prompt
 type Prompt interface {
 	String() string
-
-	toPart() genai.Part
+	ToPart() genai.Part
 }
 
 // TextPrompt struct
@@ -24,8 +23,8 @@ type TextPrompt struct {
 	text string
 }
 
-// convert TextPrompt to genai.Part.
-func (p TextPrompt) toPart() genai.Part {
+// ToPart converts TextPrompt to genai.Part.
+func (p TextPrompt) ToPart() genai.Part {
 	return genai.Part{
 		Text: p.text,
 	}
@@ -51,8 +50,8 @@ type FilePrompt struct {
 	data *old.FileData // FIXME: change to *genai.FileData when file APIs are implemented in `genai`
 }
 
-// convert FilePrompt to genai.Part.
-func (p FilePrompt) toPart() genai.Part {
+// ToPart converts FilePrompt to genai.Part.
+func (p FilePrompt) ToPart() genai.Part {
 	return genai.Part{
 		FileData: &genai.FileData{
 			FileURI:  p.data.URI,
@@ -82,8 +81,8 @@ type URIPrompt struct {
 	uri string
 }
 
-// convert URIPrompt to genai.Part.
-func (p URIPrompt) toPart() genai.Part {
+// ToPart converts URIPrompt to genai.Part.
+func (p URIPrompt) ToPart() genai.Part {
 	return genai.Part{
 		FileData: &genai.FileData{
 			FileURI: p.uri,
@@ -109,8 +108,8 @@ type BytesPrompt struct {
 	mimeType string
 }
 
-// convert BytesPrompt to genai.Part.
-func (p BytesPrompt) toPart() genai.Part {
+// ToPart converts BytesPrompt to genai.Part.
+func (p BytesPrompt) ToPart() genai.Part {
 	return genai.Part{
 		InlineData: &genai.Blob{
 			Data:     p.bytes,

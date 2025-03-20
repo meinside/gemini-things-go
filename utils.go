@@ -213,7 +213,7 @@ func (c *Client) buildPromptContents(ctx context.Context, prompts []Prompt, hist
 		contents = append(contents, &genai.Content{
 			Role: RoleUser,
 			Parts: []*genai.Part{
-				ptr(prompt.toPart()),
+				ptr(prompt.ToPart()),
 			},
 		})
 	}
