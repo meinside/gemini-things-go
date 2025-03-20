@@ -26,7 +26,7 @@ const (
 	modelForTextGenerationWithGrounding             = `gemini-2.0-flash-001`
 	modelForTextGenerationWithGoogleSearchRetrieval = `gemini-1.5-flash` // FIXME: Google Search retrieval is only compatible with Gemini 1.5 models
 
-	modelForEmbeddings = `text-embedding-004`
+	modelForEmbeddings = `gemini-embedding-exp-03-07`
 )
 
 // flag for verbose log
