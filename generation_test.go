@@ -23,7 +23,7 @@ const (
 	modelForContextCaching = `gemini-1.5-flash-002` // NOTE: context caching is only available for stable versions of the model
 
 	modelForTextGeneration                          = `gemini-2.0-flash-001`
-	modelForImageGeneration                         = `gemini-2.0-flash-exp` // `gemini-2.0-flash-exp-image-generation`
+	modelForImageGeneration                         = `gemini-2.0-flash-exp-image-generation`
 	modelForTextGenerationWithGrounding             = `gemini-2.0-flash-001`
 	modelForTextGenerationWithGoogleSearchRetrieval = `gemini-1.5-flash` // FIXME: Google Search retrieval is only compatible with Gemini 1.5 models
 
@@ -133,7 +133,9 @@ func TestContextCaching(t *testing.T) {
 				} else if data.NumTokens != nil {
 					verbose(">>> input tokens: %d, output tokens: %d, cached tokens: %d", data.NumTokens.Input, data.NumTokens.Output, data.NumTokens.Cached)
 				} else if data.FinishReason != nil {
-					t.Errorf("generation finished unexpectedly with reason: %s", *data.FinishReason)
+					if *data.FinishReason != genai.FinishReasonStop {
+						t.Errorf("generation finished unexpectedly with reason: %s", *data.FinishReason)
+					}
 				} else if data.Error != nil {
 					t.Errorf("error while processing generation with cached context: %s", data.Error)
 				}
@@ -397,7 +399,9 @@ func TestGenerationStreamed(t *testing.T) {
 			} else if data.NumTokens != nil {
 				verbose(">>> input tokens: %d, output tokens: %d, cached tokens: %d", data.NumTokens.Input, data.NumTokens.Output, data.NumTokens.Cached)
 			} else if data.FinishReason != nil {
-				t.Errorf("generation finished unexpectedly with reason: %s", *data.FinishReason)
+				if *data.FinishReason != genai.FinishReasonStop {
+					t.Errorf("generation finished unexpectedly with reason: %s", *data.FinishReason)
+				}
 			} else if data.Error != nil {
 				t.Errorf("error while processing text generation: %s", data.Error)
 			}
@@ -422,7 +426,9 @@ func TestGenerationStreamed(t *testing.T) {
 				} else if data.NumTokens != nil {
 					verbose(">>> input tokens: %d, output tokens: %d, cached tokens: %d", data.NumTokens.Input, data.NumTokens.Output, data.NumTokens.Cached)
 				} else if data.FinishReason != nil {
-					t.Errorf("generation finished unexpectedly with reason: %s", *data.FinishReason)
+					if *data.FinishReason != genai.FinishReasonStop {
+						t.Errorf("generation finished unexpectedly with reason: %s", *data.FinishReason)
+					}
 				} else if data.Error != nil {
 					t.Errorf("error while processing generation with files: %s", data.Error)
 				}
@@ -449,7 +455,9 @@ func TestGenerationStreamed(t *testing.T) {
 			} else if data.NumTokens != nil {
 				verbose(">>> input tokens: %d, output tokens: %d, cached tokens: %d", data.NumTokens.Input, data.NumTokens.Output, data.NumTokens.Cached)
 			} else if data.FinishReason != nil {
-				t.Errorf("generation finished unexpectedly with reason: %s", *data.FinishReason)
+				if *data.FinishReason != genai.FinishReasonStop {
+					t.Errorf("generation finished unexpectedly with reason: %s", *data.FinishReason)
+				}
 			} else if data.Error != nil {
 				t.Errorf("error while processing generation with bytes: %s", data.Error)
 			}
@@ -929,7 +937,9 @@ func TestGenerationWithHistory(t *testing.T) {
 			} else if data.NumTokens != nil {
 				verbose(">>> input tokens: %d, output tokens: %d, cached tokens: %d", data.NumTokens.Input, data.NumTokens.Output, data.NumTokens.Cached)
 			} else if data.FinishReason != nil {
-				t.Errorf("generation finished unexpectedly with reason: %s", *data.FinishReason)
+				if *data.FinishReason != genai.FinishReasonStop {
+					t.Errorf("generation finished unexpectedly with reason: %s", *data.FinishReason)
+				}
 			} else if data.Error != nil {
 				t.Errorf("error while processing text generation: %s", data.Error)
 			}
@@ -1025,10 +1035,20 @@ func TestEmbeddings(t *testing.T) {
 	gtc.Verbose = _isVerbose
 	defer gtc.Close()
 
+	// without title (task type: RETRIEVAL_QUERY)
 	if v, err := gtc.GenerateEmbeddings(context.TODO(), "", []*genai.Content{
 		genai.NewUserContentFromText(`The quick brown fox jumps over the lazy dog.`),
 	}); err != nil {
 		t.Errorf("generation of embeddings from text failed: %s", ErrToStr(err))
+	} else {
+		verbose(">>> embeddings: %+v", v)
+	}
+
+	// with title (task type: RETRIEVAL_DOCUMENT)
+	if v, err := gtc.GenerateEmbeddings(context.TODO(), "A short story", []*genai.Content{
+		genai.NewUserContentFromText(`The quick brown fox jumps over the lazy dog.`),
+	}); err != nil {
+		t.Errorf("generation of embeddings from title and text failed: %s", ErrToStr(err))
 	} else {
 		verbose(">>> embeddings: %+v", v)
 	}
@@ -1083,71 +1103,84 @@ func TestImageGeneration(t *testing.T) {
 		}
 	}
 
-	// FIXME: image generation not working with streaming (yet?)
-	/*
-		// text-only prompt (iterated)
-		for it, err := range gtc.GenerateStreamIterated(
-			context.TODO(),
-			[]Prompt{
-				PromptFromText(prompt),
+	// text-only prompt (iterated)
+	failed := true
+	for it, err := range gtc.GenerateStreamIterated(
+		context.TODO(),
+		[]Prompt{
+			PromptFromText(prompt),
+		},
+		&GenerationOptions{
+			HarmBlockThreshold: ptr(genai.HarmBlockThresholdBlockOnlyHigh),
+			ResponseModalities: []string{
+				ResponseModalityText,
+				ResponseModalityImage,
 			},
-			&GenerationOptions{
-				HarmBlockThreshold: ptr(genai.HarmBlockThresholdBlockOnlyHigh),
-				ResponseModalities: []string{
-					ResponseModalityText,
-					ResponseModalityImage,
-				},
-			},
-		) {
-			if err != nil {
-				t.Errorf("image generation with text prompt (iterated) failed: %s", ErrToStr(err))
-			} else {
-				if it.PromptFeedback != nil {
-					t.Errorf("image generation with text prompt (iterated) failed with finish reason: %s", it.PromptFeedback.BlockReasonMessage)
-				} else if it.Candidates != nil {
-					for _, part := range it.Candidates[0].Content.Parts {
+		},
+	) {
+		if err != nil {
+			t.Errorf("image generation with text prompt (iterated) failed: %s", ErrToStr(err))
+		} else {
+			if it.PromptFeedback != nil {
+				t.Errorf("image generation with text prompt (iterated) failed with finish reason: %s", it.PromptFeedback.BlockReasonMessage)
+			} else if it.Candidates != nil {
+				for i, cand := range it.Candidates {
+					for _, part := range cand.Content.Parts {
 						if part.InlineData != nil {
-							verbose(">>> iterating response image: %s (%d bytes)", part.InlineData.MIMEType, len(part.InlineData.Data))
+							verbose(">>> iterating response image from candidate[%d]: %s (%d bytes)", i, part.InlineData.MIMEType, len(part.InlineData.Data))
+
+							failed = false
 						} else if part.Text != "" {
-							verbose(">>> iterating response text: %s", part.Text)
+							verbose(">>> iterating response text from candidate[%d]: %s", i, part.Text)
 						}
 					}
 				}
 			}
 		}
+	}
+	if failed {
+		t.Errorf("iterated image generation with text prompt failed with no usable result")
+	}
 
-		// text-only prompt (streamed)
-		if err := gtc.GenerateStreamed(
-			context.TODO(),
-			[]Prompt{
-				PromptFromText(prompt),
-			},
-			func(callbackData StreamCallbackData) {
-				if callbackData.Error != nil {
-					t.Errorf("error while processing image generation with text prompt (streamed): %s", callbackData.Error)
-				} else if callbackData.FinishReason != nil {
-					t.Errorf("image generation with text prompt (streamed) failed with finish reason: %s", *callbackData.FinishReason)
-				} else if callbackData.TextDelta != nil {
-					if _isVerbose {
-						fmt.Print(*callbackData.TextDelta) // print text stream
-					}
-				} else if callbackData.InlineData != nil {
-					verbose(">>> response image: %s (%d bytes)", callbackData.InlineData.MIMEType, len(callbackData.InlineData.Data))
-				} else if callbackData.NumTokens != nil {
-					verbose(">>> input tokens: %d, output tokens: %d, cached tokens: %d", callbackData.NumTokens.Input, callbackData.NumTokens.Output, callbackData.NumTokens.Cached)
+	// text-only prompt (streamed)
+	failed = true
+	if err := gtc.GenerateStreamed(
+		context.TODO(),
+		[]Prompt{
+			PromptFromText(prompt),
+		},
+		func(data StreamCallbackData) {
+			if data.Error != nil {
+				t.Errorf("error while processing image generation with text prompt (streamed): %s", data.Error)
+			} else if data.FinishReason != nil {
+				if *data.FinishReason != genai.FinishReasonStop {
+					t.Errorf("image generation with text prompt (streamed) failed with finish reason: %s", *data.FinishReason)
 				}
+			} else if data.TextDelta != nil {
+				if _isVerbose {
+					fmt.Print(*data.TextDelta) // print text stream
+				}
+			} else if data.InlineData != nil {
+				verbose(">>> response image: %s (%d bytes)", data.InlineData.MIMEType, len(data.InlineData.Data))
+
+				failed = false
+			} else if data.NumTokens != nil {
+				verbose(">>> input tokens: %d, output tokens: %d, cached tokens: %d", data.NumTokens.Input, data.NumTokens.Output, data.NumTokens.Cached)
+			}
+		},
+		&GenerationOptions{
+			HarmBlockThreshold: ptr(genai.HarmBlockThresholdBlockOnlyHigh),
+			ResponseModalities: []string{
+				ResponseModalityText,
+				ResponseModalityImage,
 			},
-			&GenerationOptions{
-				HarmBlockThreshold: ptr(genai.HarmBlockThresholdBlockOnlyHigh),
-				ResponseModalities: []string{
-					ResponseModalityText,
-					ResponseModalityImage,
-				},
-			},
-		); err != nil {
-			t.Errorf("image generation with text prompt (iterated) failed: %s", ErrToStr(err))
-		}
-	*/
+		},
+	); err != nil {
+		t.Errorf("image generation with text prompt (iterated) failed: %s", ErrToStr(err))
+	}
+	if failed {
+		t.Errorf("streamed image generation with text prompt failed with no usable result")
+	}
 
 	// test `GenerateImages`
 	if res, err := gtc.GenerateImages(
@@ -1177,7 +1210,7 @@ func TestImageGeneration(t *testing.T) {
 		}
 	}
 
-	// TODO: prompt with an image file
+	// TODO: add tests for: prompt with an image file
 }
 
 // TestBlockedGenerations tests generations that will fail due to blocks.
@@ -1249,13 +1282,15 @@ func TestBlockedGenerations(t *testing.T) {
 		[]Prompt{
 			erroneousPrompt,
 		},
-		func(callbackData StreamCallbackData) {
-			if callbackData.Error != nil { // NOTE: case 2: or, fails while iterating the result
-				verbose(">>> expected generation error: %s", ErrToStr(callbackData.Error))
+		func(data StreamCallbackData) {
+			if data.Error != nil { // NOTE: case 2: or, fails while iterating the result
+				verbose(">>> expected generation error: %s", ErrToStr(data.Error))
 				failed = true
-			} else if callbackData.FinishReason != nil { // NOTE: case 3: or, finishes with some reason
-				verbose(">>> expected finish with reason: %s", *callbackData.FinishReason)
-				failed = true
+			} else if data.FinishReason != nil { // NOTE: case 3: or, finishes with some reason
+				if *data.FinishReason != genai.FinishReasonStop {
+					verbose(">>> expected finish with reason: %s", *data.FinishReason)
+					failed = true
+				}
 			}
 		},
 		opts,

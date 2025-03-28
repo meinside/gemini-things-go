@@ -358,13 +358,10 @@ func ptr[T any](v T) *T {
 //
 // FIXME: fix this function(remove `gerr`) after file APIs are implemented in `genai`
 func ErrToStr(err error) (str string) {
-	var ce *genai.ClientError
-	var se *genai.ServerError
+	var ae *genai.APIError
 	var gerr *googleapi.Error // FIXME: remove this after file APIs are implemented
-	if errors.As(err, &ce) {
-		return fmt.Sprintf("genai client error: %s", ce.Error())
-	} else if errors.As(err, &se) {
-		return fmt.Sprintf("genai server error: %s", se.Error())
+	if errors.As(err, &ae) {
+		return fmt.Sprintf("genai API error: %s", ae.Error())
 	} else if errors.As(err, &gerr) { // FIXME: remove this after file APIs are implemented
 		return fmt.Sprintf("googleapi error: %s", gerr.Body)
 	} else {
@@ -376,15 +373,10 @@ func ErrToStr(err error) (str string) {
 //
 // FIXME: fix this function(remove `gerr`) after file APIs are implemented in `genai`
 func IsQuotaExceeded(err error) bool {
-	var ce *genai.ClientError
-	var se *genai.ServerError
+	var ae *genai.APIError
 	var gerr *googleapi.Error // FIXME: remove this after file APIs are implemented
-	if errors.As(err, &ce) {
-		if ce.Code == 429 {
-			return true
-		}
-	} else if errors.As(err, &se) {
-		if se.Code == 429 {
+	if errors.As(err, &ae) {
+		if ae.Code == 429 {
 			return true
 		}
 	} else if errors.As(err, &gerr) { // FIXME: remove this after file APIs are implemented
@@ -399,15 +391,10 @@ func IsQuotaExceeded(err error) bool {
 //
 // FIXME: fix this function(remove `gerr`) after file APIs are implemented in `genai`
 func IsModelOverloaded(err error) bool {
-	var ce *genai.ClientError
-	var se *genai.ServerError
+	var ae *genai.APIError
 	var gerr *googleapi.Error // FIXME: remove this after file APIs are implemented
-	if errors.As(err, &ce) {
-		if ce.Code == 503 && ce.Message == `The model is overloaded. Please try again later.` {
-			return true
-		}
-	} else if errors.As(err, &se) {
-		if se.Code == 503 && se.Message == `The model is overloaded. Please try again later.` {
+	if errors.As(err, &ae) {
+		if ae.Code == 503 && ae.Message == `The model is overloaded. Please try again later.` {
 			return true
 		}
 	} else if errors.As(err, &gerr) { // FIXME: remove this after file APIs are implemented

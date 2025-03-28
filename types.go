@@ -153,6 +153,9 @@ type GenerationOptions struct {
 
 	// history (for session)
 	History []genai.Content
+
+	// whether to ignore unsupported type while streaming
+	IgnoreUnsupportedType bool
 }
 
 // NewGenerationOptions returns a new GenerationOptions with default values.
@@ -169,6 +172,9 @@ type StreamCallbackData struct {
 
 	// when there is a file bytes array,
 	InlineData *genai.Blob
+
+	// when there is a video metadata,
+	VideoMetadata *genai.VideoMetadata
 
 	// thinking...?
 	Thought bool
