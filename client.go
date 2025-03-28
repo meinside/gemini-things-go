@@ -169,8 +169,8 @@ func (c *Client) SetTimeout(seconds int) {
 
 // ResponseModality constants
 const (
-	ResponseModalityText  = "Text"
-	ResponseModalityImage = "Image"
+	ResponseModalityText  = "TEXT"
+	ResponseModalityImage = "IMAGE"
 )
 
 // generate stream iterator with given values
@@ -294,12 +294,18 @@ func (c *Client) GenerateStreamed(
 			if len(part.Text) > 0 { // (text)
 				fnStreamCallback(StreamCallbackData{
 					TextDelta: genai.Ptr(part.Text),
-					Thought:   part.Thought,
 				})
 			} else if part.InlineData != nil { // (file: image, ...)
 				fnStreamCallback(StreamCallbackData{
 					InlineData: part.InlineData,
-					Thought:    part.Thought,
+				})
+			} else if part.Thought {
+				fnStreamCallback(StreamCallbackData{
+					Thought: part.Thought,
+				})
+			} else if part.VideoMetadata != nil { // (video metadata)
+				fnStreamCallback(StreamCallbackData{
+					VideoMetadata: part.VideoMetadata,
 				})
 			} else if part.FunctionCall != nil { // (function call)
 				fnStreamCallback(StreamCallbackData{
@@ -318,9 +324,15 @@ func (c *Client) GenerateStreamed(
 					CodeExecutionResult: part.CodeExecutionResult,
 				})
 			} else { // NOTE: TODO: add more conditions here
-				fnStreamCallback(StreamCallbackData{
-					Error: fmt.Errorf("unsupported type of part for streaming: %s", prettify(part)),
-				})
+				// NOTE: unsupported type will reach here
+
+				if len(options) > 0 && options[0].IgnoreUnsupportedType {
+					// ignore unsupported type
+				} else {
+					fnStreamCallback(StreamCallbackData{
+						Error: fmt.Errorf("unsupported type of part for streaming: %s", prettify(part)),
+					})
+				}
 			}
 		}
 
@@ -462,7 +474,7 @@ func (c *Client) generate(
 		c.generateContentConfig(opts),
 	)
 	if err != nil {
-		var se *genai.ServerError
+		var se *genai.APIError
 		if errors.As(err, &se) && se.Code >= 500 { // retry on server errors (5xx)
 			if remainingRetryCount > 0 { // retriable,
 				// then retry
@@ -709,7 +721,11 @@ func (c *Client) DeleteAllFiles(ctx context.Context) (err error) {
 // `title` can be empty.
 //
 // https://ai.google.dev/gemini-api/docs/embeddings
-func (c *Client) GenerateEmbeddings(ctx context.Context, title string, contents []*genai.Content) (vectors [][]float32, err error) {
+func (c *Client) GenerateEmbeddings(
+	ctx context.Context,
+	title string,
+	contents []*genai.Content,
+) (vectors [][]float32, err error) {
 	if c.Verbose {
 		log.Printf("> generating embeddings......")
 	}
@@ -718,6 +734,8 @@ func (c *Client) GenerateEmbeddings(ctx context.Context, title string, contents 
 	if title != "" {
 		conf.TaskType = "RETRIEVAL_DOCUMENT"
 		conf.Title = title
+	} else {
+		conf.TaskType = "RETRIEVAL_QUERY"
 	}
 
 	var res *genai.EmbedContentResponse
@@ -737,7 +755,11 @@ func (c *Client) GenerateEmbeddings(ctx context.Context, title string, contents 
 // CountTokens counts tokens for given contents.
 //
 // https://ai.google.dev/gemini-api/docs/tokens?lang=go
-func (c *Client) CountTokens(ctx context.Context, contents []*genai.Content, config ...*genai.CountTokensConfig) (res *genai.CountTokensResponse, err error) {
+func (c *Client) CountTokens(
+	ctx context.Context,
+	contents []*genai.Content,
+	config ...*genai.CountTokensConfig,
+) (res *genai.CountTokensResponse, err error) {
 	if c.Verbose {
 		log.Printf("> counting tokens for contents: %s", prettify(contents))
 	}
