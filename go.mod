@@ -6,7 +6,7 @@ require (
 	github.com/gabriel-vasile/mimetype v1.4.8
 	github.com/google/generative-ai-go v0.19.0
 	google.golang.org/api v0.228.0
-	google.golang.org/genai v0.6.1-0.20250326173329-d75d5288435a
+	google.golang.org/genai v0.6.1-0.20250328234609-e8608b19f7be
 )
 
 require (

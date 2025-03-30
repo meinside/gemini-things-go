@@ -571,17 +571,17 @@ func TestGenerationWithFunctionCall(t *testing.T) {
 			Description: fnDescExtractPrompts,
 			Parameters: &genai.Schema{
 				Type:     genai.TypeObject,
-				Nullable: false,
+				Nullable: ptr(false),
 				Properties: map[string]*genai.Schema{
 					fnParamNamePositivePrompt: {
 						Type:        genai.TypeString,
 						Description: fnParamDescPositivePrompt,
-						Nullable:    false,
+						Nullable:    ptr(false),
 					},
 					fnParamNameNegativePrompt: {
 						Type:        genai.TypeString,
 						Description: fnParamDescNegativePrompt,
-						Nullable:    true,
+						Nullable:    ptr(true),
 					},
 				},
 				Required: []string{
@@ -595,27 +595,27 @@ func TestGenerationWithFunctionCall(t *testing.T) {
 			Description: fnDescImageGenerationFinished,
 			Parameters: &genai.Schema{
 				Type:     genai.TypeObject,
-				Nullable: false,
+				Nullable: ptr(false),
 				Properties: map[string]*genai.Schema{
 					fnParamNameGeneratedSuccessfully: {
 						Type:        genai.TypeBoolean,
 						Description: fnParamDescGeneratedSuccessfully,
-						Nullable:    false,
+						Nullable:    ptr(false),
 					},
 					fnParamNameGeneratedSize: {
 						Type:        genai.TypeNumber,
 						Description: fnParamDescGeneratedSize,
-						Nullable:    true,
+						Nullable:    ptr(true),
 					},
 					fnParamNameGeneratedResolution: {
 						Type:        genai.TypeString,
 						Description: fnParamDescGeneratedResolution,
-						Nullable:    true,
+						Nullable:    ptr(true),
 					},
 					fnParamNameGeneratedFilepath: {
 						Type:        genai.TypeString,
 						Description: fnParamDescGeneratedFilepath,
-						Nullable:    true,
+						Nullable:    ptr(true),
 					},
 				},
 				Required: []string{
@@ -780,17 +780,17 @@ func TestGenerationWithStructuredOutput(t *testing.T) {
 				ResponseMIMEType: "application/json",
 				ResponseSchema: &genai.Schema{
 					Type:     genai.TypeObject,
-					Nullable: false,
+					Nullable: ptr(false),
 					Properties: map[string]*genai.Schema{
 						paramNamePositivePrompt: {
 							Type:        genai.TypeString,
 							Description: paramDescPositivePrompt,
-							Nullable:    false,
+							Nullable:    ptr(false),
 						},
 						paramNameNegativePrompt: {
 							Type:        genai.TypeString,
 							Description: paramDescNegativePrompt,
-							Nullable:    true,
+							Nullable:    ptr(true),
 						},
 					},
 					Required: []string{paramNamePositivePrompt, paramNameNegativePrompt},
@@ -1037,7 +1037,7 @@ func TestEmbeddings(t *testing.T) {
 
 	// without title (task type: RETRIEVAL_QUERY)
 	if v, err := gtc.GenerateEmbeddings(context.TODO(), "", []*genai.Content{
-		genai.NewUserContentFromText(`The quick brown fox jumps over the lazy dog.`),
+		genai.NewContentFromText(`The quick brown fox jumps over the lazy dog.`, RoleUser),
 	}); err != nil {
 		t.Errorf("generation of embeddings from text failed: %s", ErrToStr(err))
 	} else {
@@ -1046,7 +1046,7 @@ func TestEmbeddings(t *testing.T) {
 
 	// with title (task type: RETRIEVAL_DOCUMENT)
 	if v, err := gtc.GenerateEmbeddings(context.TODO(), "A short story", []*genai.Content{
-		genai.NewUserContentFromText(`The quick brown fox jumps over the lazy dog.`),
+		genai.NewContentFromText(`The quick brown fox jumps over the lazy dog.`, RoleUser),
 	}); err != nil {
 		t.Errorf("generation of embeddings from title and text failed: %s", ErrToStr(err))
 	} else {
@@ -1473,9 +1473,9 @@ func TestCountingTokens(t *testing.T) {
 	if res, err := gtc.CountTokens(
 		context.TODO(),
 		[]*genai.Content{
-			genai.NewUserContentFromText("Analyze this file."),
-			genai.NewModelContentFromText("Provide a file for analysis."),
-			genai.NewUserContentFromBytes(bytes, "text/plain"),
+			genai.NewContentFromText("Analyze this file.", RoleUser),
+			genai.NewContentFromText("Provide a file for analysis.", RoleModel),
+			genai.NewContentFromBytes(bytes, "text/plain", RoleUser),
 		},
 		&genai.CountTokensConfig{},
 	); err != nil {
