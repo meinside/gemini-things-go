@@ -608,7 +608,7 @@ func (c *Client) SetCachedContextExpireTime(
 func (c *Client) SetCachedContextTTL(
 	ctx context.Context,
 	cachedContextName string,
-	ttl string,
+	ttl time.Duration,
 ) (err error) {
 	var cc *genai.CachedContent
 	if cc, err = c.client.Caches.Get(ctx, cachedContextName, &genai.GetCachedContentConfig{}); err == nil {
