@@ -722,7 +722,7 @@ func TestGenerationWithFunctionCall(t *testing.T) {
 			} else if data.Error != nil {
 				t.Errorf("generation with function calls failed: %s", data.Error)
 			} else {
-				if data.TextDelta == nil || len(*data.TextDelta) > 0 { // FIXME: sometimes only `data.TextDelta` is returned as ""
+				if data.FinishReason == nil {
 					t.Fatalf("should not reach here; data: %s", prettify(data))
 				}
 			}

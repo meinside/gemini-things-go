@@ -229,6 +229,11 @@ func (c *Client) GenerateStreamIterated(
 
 // GenerateStreamed generates with given values synchronously and calls back `fnStreamCallback`.
 //
+// NOTE: It is a convenience function for `GenerateStreamIterated`,
+// but it may hang on malformed or unexpected responses from the server,
+// so it is recommended to use `GenerateStreamIterated` instead.
+// It will take the first candidate only.
+//
 // It times out in `timeoutSeconds` seconds.
 func (c *Client) GenerateStreamed(
 	ctx context.Context,
@@ -256,40 +261,45 @@ func (c *Client) GenerateStreamed(
 			log.Printf("> iterating stream response: %s", prettify(it))
 		}
 
+		// update number of tokens
+		if it.UsageMetadata != nil {
+			if it.UsageMetadata.PromptTokenCount != nil && numTokensInput < *it.UsageMetadata.PromptTokenCount {
+				numTokensInput = *it.UsageMetadata.PromptTokenCount
+			}
+			if it.UsageMetadata.CandidatesTokenCount != nil && numTokensOutput < *it.UsageMetadata.CandidatesTokenCount {
+				numTokensOutput = *it.UsageMetadata.CandidatesTokenCount
+			}
+			if it.UsageMetadata.CachedContentTokenCount != nil && numTokensCached < *it.UsageMetadata.CachedContentTokenCount {
+				numTokensCached = *it.UsageMetadata.CachedContentTokenCount
+			}
+		}
+
 		var candidate *genai.Candidate
 		var content *genai.Content
 		var parts []*genai.Part
 
+		// FIXME: take the first candidate,
 		if len(it.Candidates) > 0 {
-			// update number of tokens
-			if it.UsageMetadata != nil {
-				if it.UsageMetadata.PromptTokenCount != nil && numTokensInput < *it.UsageMetadata.PromptTokenCount {
-					numTokensInput = *it.UsageMetadata.PromptTokenCount
-				}
-				if it.UsageMetadata.CandidatesTokenCount != nil && numTokensOutput < *it.UsageMetadata.CandidatesTokenCount {
-					numTokensOutput = *it.UsageMetadata.CandidatesTokenCount
-				}
-				if it.UsageMetadata.CachedContentTokenCount != nil && numTokensCached < *it.UsageMetadata.CachedContentTokenCount {
-					numTokensCached = *it.UsageMetadata.CachedContentTokenCount
-				}
-			}
-
 			candidate = it.Candidates[0]
 			content = candidate.Content
 
 			if content != nil && len(content.Parts) > 0 {
 				parts = content.Parts
-			} else if len(candidate.FinishReason) > 0 {
-				fnStreamCallback(StreamCallbackData{
-					FinishReason: &candidate.FinishReason,
-				})
-			} else {
+			} else if candidate.FinishReason == "" {
 				fnStreamCallback(StreamCallbackData{
 					Error: fmt.Errorf("no content in candidate: %s", prettify(candidate)),
 				})
 			}
+
+			// if there is a finish reason,
+			if candidate.FinishReason != "" {
+				fnStreamCallback(StreamCallbackData{
+					FinishReason: &candidate.FinishReason,
+				})
+			}
 		}
 
+		// iterate parts,
 		for _, part := range parts {
 			if len(part.Text) > 0 { // (text)
 				fnStreamCallback(StreamCallbackData{
@@ -326,7 +336,7 @@ func (c *Client) GenerateStreamed(
 			} else { // NOTE: TODO: add more conditions here
 				// NOTE: unsupported type will reach here
 
-				if len(options) > 0 && options[0].IgnoreUnsupportedType {
+				if (len(options) > 0 && options[0].IgnoreUnsupportedType) || candidate.FinishReason != "" {
 					// ignore unsupported type
 				} else {
 					fnStreamCallback(StreamCallbackData{
