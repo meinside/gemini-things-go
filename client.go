@@ -781,3 +781,40 @@ func (c *Client) CountTokens(
 
 	return c.client.Models.CountTokens(ctx, c.model, contents, cfg)
 }
+
+// ListModels returns all available models.
+func (c *Client) ListModels(ctx context.Context) (models []*genai.Model, err error) {
+	if c.Verbose {
+		log.Printf("> listing models...")
+	}
+
+	models = []*genai.Model{}
+
+	var page genai.Page[genai.Model]
+	pageToken := ""
+	for {
+		if page, err = c.client.Models.List(ctx, &genai.ListModelsConfig{
+			PageToken: pageToken,
+		}); err == nil {
+			if c.Verbose {
+				log.Printf("> fetched %d models", len(page.Items))
+			}
+
+			models = append(models, page.Items...)
+
+			if page.NextPageToken == "" {
+				break
+			}
+			pageToken = page.NextPageToken
+		} else {
+			if err == genai.ErrPageDone {
+				err = nil
+			} else {
+				err = fmt.Errorf("failed to list models: %w", err)
+			}
+			break
+		}
+	}
+
+	return models, err
+}

@@ -1484,3 +1484,23 @@ func TestCountingTokens(t *testing.T) {
 		verbose(">>> counted tokens: %s", prettify(res))
 	}
 }
+
+// TestListingModels tests models listing.
+func TestListingModels(t *testing.T) {
+	sleepForNotBeingRateLimited()
+
+	apiKey := mustHaveEnvVar(t, "API_KEY")
+
+	gtc, err := NewClient(apiKey, modelForTextGeneration)
+	if err != nil {
+		t.Fatalf("failed to create client: %s", err)
+	}
+	gtc.Verbose = _isVerbose
+	defer gtc.Close()
+
+	if models, err := gtc.ListModels(context.TODO()); err != nil {
+		t.Errorf("listing models failed: %s", ErrToStr(err))
+	} else {
+		verbose(">>> listed models: %s", prettify(models))
+	}
+}
