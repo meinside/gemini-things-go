@@ -32,8 +32,8 @@ Respond to the user according to the following principles:
 )
 
 const (
-	RoleUser  string = "user"
-	RoleModel string = "model"
+	RoleUser  genai.Role = genai.RoleUser
+	RoleModel genai.Role = genai.RoleModel
 )
 
 // Client struct
@@ -263,14 +263,14 @@ func (c *Client) GenerateStreamed(
 
 		// update number of tokens
 		if it.UsageMetadata != nil {
-			if it.UsageMetadata.PromptTokenCount != nil && numTokensInput < *it.UsageMetadata.PromptTokenCount {
-				numTokensInput = *it.UsageMetadata.PromptTokenCount
+			if it.UsageMetadata.PromptTokenCount != 0 && numTokensInput < it.UsageMetadata.PromptTokenCount {
+				numTokensInput = it.UsageMetadata.PromptTokenCount
 			}
-			if it.UsageMetadata.CandidatesTokenCount != nil && numTokensOutput < *it.UsageMetadata.CandidatesTokenCount {
-				numTokensOutput = *it.UsageMetadata.CandidatesTokenCount
+			if it.UsageMetadata.CandidatesTokenCount != 0 && numTokensOutput < it.UsageMetadata.CandidatesTokenCount {
+				numTokensOutput = it.UsageMetadata.CandidatesTokenCount
 			}
-			if it.UsageMetadata.CachedContentTokenCount != nil && numTokensCached < *it.UsageMetadata.CachedContentTokenCount {
-				numTokensCached = *it.UsageMetadata.CachedContentTokenCount
+			if it.UsageMetadata.CachedContentTokenCount != 0 && numTokensCached < it.UsageMetadata.CachedContentTokenCount {
+				numTokensCached = it.UsageMetadata.CachedContentTokenCount
 			}
 		}
 
@@ -503,7 +503,7 @@ func (c *Client) generateContentConfig(opts *GenerationOptions) (generated *gena
 
 	if c.systemInstructionFunc != nil {
 		generated.SystemInstruction = &genai.Content{
-			Role: RoleModel,
+			Role: string(RoleModel),
 			Parts: []*genai.Part{
 				{
 					Text: c.systemInstructionFunc(),
@@ -565,7 +565,7 @@ func (c *Client) CacheContext(
 	// system instruction
 	if systemInstruction != nil {
 		argcc.SystemInstruction = &genai.Content{
-			Role: RoleModel,
+			Role: string(RoleModel),
 			Parts: []*genai.Part{
 				genai.NewPartFromText(*systemInstruction),
 			},
