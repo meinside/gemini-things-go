@@ -162,11 +162,11 @@ func TestContextCaching(t *testing.T) {
 			var promptTokenCount int32 = 0
 			var cachedContentTokenCount int32 = 0
 			if generated.UsageMetadata != nil {
-				if generated.UsageMetadata.PromptTokenCount != nil {
-					promptTokenCount = *generated.UsageMetadata.PromptTokenCount
+				if generated.UsageMetadata.PromptTokenCount != 0 {
+					promptTokenCount = generated.UsageMetadata.PromptTokenCount
 				}
-				if generated.UsageMetadata.CachedContentTokenCount != nil {
-					cachedContentTokenCount = *generated.UsageMetadata.CachedContentTokenCount
+				if generated.UsageMetadata.CachedContentTokenCount != 0 {
+					cachedContentTokenCount = generated.UsageMetadata.CachedContentTokenCount
 				}
 			}
 
@@ -229,14 +229,14 @@ func TestGeneration(t *testing.T) {
 			var candidatesTokenCount int32 = 0
 			var cachedContentTokenCount int32 = 0
 			if generated.UsageMetadata != nil {
-				if generated.UsageMetadata.PromptTokenCount != nil {
-					promptTokenCount = *generated.UsageMetadata.PromptTokenCount
+				if generated.UsageMetadata.PromptTokenCount != 0 {
+					promptTokenCount = generated.UsageMetadata.PromptTokenCount
 				}
-				if generated.UsageMetadata.CandidatesTokenCount != nil {
-					candidatesTokenCount = *generated.UsageMetadata.CandidatesTokenCount
+				if generated.UsageMetadata.CandidatesTokenCount != 0 {
+					candidatesTokenCount = generated.UsageMetadata.CandidatesTokenCount
 				}
-				if generated.UsageMetadata.CachedContentTokenCount != nil {
-					cachedContentTokenCount = *generated.UsageMetadata.CachedContentTokenCount
+				if generated.UsageMetadata.CachedContentTokenCount != 0 {
+					cachedContentTokenCount = generated.UsageMetadata.CachedContentTokenCount
 				}
 			}
 
@@ -266,14 +266,14 @@ func TestGeneration(t *testing.T) {
 		var candidatesTokenCount int32 = 0
 		var cachedContentTokenCount int32 = 0
 		if generated.UsageMetadata != nil {
-			if generated.UsageMetadata.PromptTokenCount != nil {
-				promptTokenCount = *generated.UsageMetadata.PromptTokenCount
+			if generated.UsageMetadata.PromptTokenCount != 0 {
+				promptTokenCount = generated.UsageMetadata.PromptTokenCount
 			}
-			if generated.UsageMetadata.CandidatesTokenCount != nil {
-				candidatesTokenCount = *generated.UsageMetadata.CandidatesTokenCount
+			if generated.UsageMetadata.CandidatesTokenCount != 0 {
+				candidatesTokenCount = generated.UsageMetadata.CandidatesTokenCount
 			}
-			if generated.UsageMetadata.CachedContentTokenCount != nil {
-				cachedContentTokenCount = *generated.UsageMetadata.CachedContentTokenCount
+			if generated.UsageMetadata.CachedContentTokenCount != 0 {
+				cachedContentTokenCount = generated.UsageMetadata.CachedContentTokenCount
 			}
 		}
 
@@ -518,14 +518,14 @@ func TestGenerationWithFileConverter(t *testing.T) {
 		var candidatesTokenCount int32 = 0
 		var cachedContentTokenCount int32 = 0
 		if generated.UsageMetadata != nil {
-			if generated.UsageMetadata.PromptTokenCount != nil {
-				promptTokenCount = *generated.UsageMetadata.PromptTokenCount
+			if generated.UsageMetadata.PromptTokenCount != 0 {
+				promptTokenCount = generated.UsageMetadata.PromptTokenCount
 			}
-			if generated.UsageMetadata.CandidatesTokenCount != nil {
-				candidatesTokenCount = *generated.UsageMetadata.CandidatesTokenCount
+			if generated.UsageMetadata.CandidatesTokenCount != 0 {
+				candidatesTokenCount = generated.UsageMetadata.CandidatesTokenCount
 			}
-			if generated.UsageMetadata.CachedContentTokenCount != nil {
-				cachedContentTokenCount = *generated.UsageMetadata.CachedContentTokenCount
+			if generated.UsageMetadata.CachedContentTokenCount != 0 {
+				cachedContentTokenCount = generated.UsageMetadata.CachedContentTokenCount
 			}
 		}
 
@@ -663,7 +663,7 @@ func TestGenerationWithFunctionCall(t *testing.T) {
 								Parts: []*genai.Part{
 									genai.NewPartFromText(prompt),
 								},
-								Role: RoleUser,
+								Role: string(RoleUser),
 							},
 							{
 								Parts: []*genai.Part{
@@ -672,7 +672,7 @@ func TestGenerationWithFunctionCall(t *testing.T) {
 										fnParamNameNegativePrompt: negativePrompt,
 									}),
 								},
-								Role: RoleModel,
+								Role: string(RoleModel),
 							},
 							{
 								Parts: []*genai.Part{
@@ -686,7 +686,7 @@ func TestGenerationWithFunctionCall(t *testing.T) {
 										fnParamNameGeneratedFilepath:     `/home/marvin/generated.jpg`,
 									}),
 								},
-								Role: RoleUser,
+								Role: string(RoleUser),
 							},
 						}
 
@@ -947,7 +947,7 @@ func TestGenerationWithHistory(t *testing.T) {
 		&GenerationOptions{
 			History: []genai.Content{
 				{
-					Role: RoleUser,
+					Role: string(RoleUser),
 					Parts: []*genai.Part{
 						{
 							Text: `What is the answer to life, the universe, and everything?`,
@@ -955,7 +955,7 @@ func TestGenerationWithHistory(t *testing.T) {
 					},
 				},
 				{
-					Role: RoleModel,
+					Role: string(RoleModel),
 					Parts: []*genai.Part{
 						{
 							Text: `43.`,
@@ -977,7 +977,7 @@ func TestGenerationWithHistory(t *testing.T) {
 		&GenerationOptions{
 			History: []genai.Content{
 				{
-					Role: RoleUser,
+					Role: string(RoleUser),
 					Parts: []*genai.Part{
 						{
 							Text: `What is the answer to life, the universe, and everything?`,
@@ -985,7 +985,7 @@ func TestGenerationWithHistory(t *testing.T) {
 					},
 				},
 				{
-					Role: RoleModel,
+					Role: string(RoleModel),
 					Parts: []*genai.Part{
 						{
 							Text: `43.`,
@@ -1001,14 +1001,14 @@ func TestGenerationWithHistory(t *testing.T) {
 		var candidatesTokenCount int32 = 0
 		var cachedContentTokenCount int32 = 0
 		if generated.UsageMetadata != nil {
-			if generated.UsageMetadata.PromptTokenCount != nil {
-				promptTokenCount = *generated.UsageMetadata.PromptTokenCount
+			if generated.UsageMetadata.PromptTokenCount != 0 {
+				promptTokenCount = generated.UsageMetadata.PromptTokenCount
 			}
-			if generated.UsageMetadata.CandidatesTokenCount != nil {
-				candidatesTokenCount = *generated.UsageMetadata.CandidatesTokenCount
+			if generated.UsageMetadata.CandidatesTokenCount != 0 {
+				candidatesTokenCount = generated.UsageMetadata.CandidatesTokenCount
 			}
-			if generated.UsageMetadata.CachedContentTokenCount != nil {
-				cachedContentTokenCount = *generated.UsageMetadata.CachedContentTokenCount
+			if generated.UsageMetadata.CachedContentTokenCount != 0 {
+				cachedContentTokenCount = generated.UsageMetadata.CachedContentTokenCount
 			}
 		}
 
