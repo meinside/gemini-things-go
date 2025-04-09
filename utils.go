@@ -18,10 +18,7 @@ import (
 	"time"
 
 	"github.com/gabriel-vasile/mimetype"
-	"google.golang.org/api/googleapi"
 	"google.golang.org/genai"
-
-	old "github.com/google/generative-ai-go/genai" // FIXME: remove this after file APIs are implemented
 )
 
 const (
@@ -29,8 +26,6 @@ const (
 )
 
 // wait for all given uploaded files to be active.
-//
-// FIXME: fix this function(replace `c.oldClient`) after file APIs are implemented in `genai`
 func (c *Client) waitForFiles(ctx context.Context, fileNames []string) {
 	var wg sync.WaitGroup
 	for _, fileName := range fileNames {
@@ -38,8 +33,8 @@ func (c *Client) waitForFiles(ctx context.Context, fileNames []string) {
 
 		go func(name string) {
 			for {
-				if file, err := c.oldClient.GetFile(ctx, name); err == nil {
-					if file.State == old.FileStateActive {
+				if file, err := c.client.Files.Get(ctx, name, &genai.GetFileConfig{}); err == nil {
+					if file.State == genai.FileStateActive {
 						wg.Done()
 						break
 					} else {
@@ -55,8 +50,6 @@ func (c *Client) waitForFiles(ctx context.Context, fileNames []string) {
 }
 
 // UploadFilesAndWait uploads files and wait for them to be ready.
-//
-// FIXME: fix this function(replace `c.oldClient`) after file APIs are implemented in `genai`
 func (c *Client) UploadFilesAndWait(ctx context.Context, files []Prompt) (processed []Prompt, err error) {
 	processed = []Prompt{}
 	fileNames := []string{}
@@ -94,19 +87,18 @@ func (c *Client) UploadFilesAndWait(ctx context.Context, files []Prompt) (proces
 				}
 
 				// upload
-				if uploaded, err := c.oldClient.UploadFile(
+				if uploaded, err := c.client.Files.Upload(
 					ctx,
-					"",
 					reader,
-					&old.UploadFileOptions{ //&genai.UploadFileConfig{
+					&genai.UploadFileConfig{
 						MIMEType:    matchedMimeType,
 						DisplayName: file.filename,
 					},
 				); err == nil {
 					processed = append(processed, FilePrompt{
 						filename: uploaded.Name,
-						data: &old.FileData{
-							URI:      uploaded.URI,
+						data: &genai.FileData{
+							FileURI:  uploaded.URI,
 							MIMEType: uploaded.MIMEType,
 						},
 					})
@@ -146,19 +138,18 @@ func (c *Client) UploadFilesAndWait(ctx context.Context, files []Prompt) (proces
 			}
 
 			// upload
-			if uploaded, err := c.oldClient.UploadFile(
+			if uploaded, err := c.client.Files.Upload(
 				ctx,
-				"",
 				bytes.NewReader(fbytes.bytes),
-				&old.UploadFileOptions{ //&genai.UploadFileConfig{
+				&genai.UploadFileConfig{
 					MIMEType:    matchedMimeType,
 					DisplayName: fmt.Sprintf("%d bytes of file", len(fbytes.bytes)),
 				},
 			); err == nil {
 				processed = append(processed, FilePrompt{
 					filename: uploaded.Name,
-					data: &old.FileData{
-						URI:      uploaded.URI,
+					data: &genai.FileData{
+						FileURI:  uploaded.URI,
 						MIMEType: uploaded.MIMEType,
 					},
 				})
@@ -355,32 +346,20 @@ func ptr[T any](v T) *T {
 }
 
 // ErrToStr converts error (possibly genai error) to string.
-//
-// FIXME: fix this function(remove `gerr`) after file APIs are implemented in `genai`
 func ErrToStr(err error) (str string) {
 	var ae *genai.APIError
-	var gerr *googleapi.Error // FIXME: remove this after file APIs are implemented
 	if errors.As(err, &ae) {
 		return fmt.Sprintf("genai API error: %s", ae.Error())
-	} else if errors.As(err, &gerr) { // FIXME: remove this after file APIs are implemented
-		return fmt.Sprintf("googleapi error: %s", gerr.Body)
 	} else {
 		return err.Error()
 	}
 }
 
 // IsQuotaExceeded returns if given error is from execeeded API quota.
-//
-// FIXME: fix this function(remove `gerr`) after file APIs are implemented in `genai`
 func IsQuotaExceeded(err error) bool {
 	var ae *genai.APIError
-	var gerr *googleapi.Error // FIXME: remove this after file APIs are implemented
 	if errors.As(err, &ae) {
 		if ae.Code == 429 {
-			return true
-		}
-	} else if errors.As(err, &gerr) { // FIXME: remove this after file APIs are implemented
-		if gerr.Code == 429 {
 			return true
 		}
 	}
@@ -388,17 +367,10 @@ func IsQuotaExceeded(err error) bool {
 }
 
 // IsModelOverloaded returns if given error is from overloaded model.
-//
-// FIXME: fix this function(remove `gerr`) after file APIs are implemented in `genai`
 func IsModelOverloaded(err error) bool {
 	var ae *genai.APIError
-	var gerr *googleapi.Error // FIXME: remove this after file APIs are implemented
 	if errors.As(err, &ae) {
 		if ae.Code == 503 && ae.Message == `The model is overloaded. Please try again later.` {
-			return true
-		}
-	} else if errors.As(err, &gerr) { // FIXME: remove this after file APIs are implemented
-		if gerr.Code == 503 && gerr.Message == `The model is overloaded. Please try again later.` {
 			return true
 		}
 	}

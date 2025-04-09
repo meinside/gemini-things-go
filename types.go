@@ -8,8 +8,6 @@ import (
 
 	"github.com/gabriel-vasile/mimetype"
 	"google.golang.org/genai"
-
-	old "github.com/google/generative-ai-go/genai" // FIXME: remove this after file APIs are implemented
 )
 
 // Prompt interface for various types of prompt
@@ -47,14 +45,14 @@ type FilePrompt struct {
 	filename string
 	reader   io.Reader
 
-	data *old.FileData // FIXME: change to *genai.FileData when file APIs are implemented in `genai`
+	data *genai.FileData // NOTE: == nil unless uploaded successfully
 }
 
 // ToPart converts FilePrompt to genai.Part.
 func (p FilePrompt) ToPart() genai.Part {
 	return genai.Part{
 		FileData: &genai.FileData{
-			FileURI:  p.data.URI,
+			FileURI:  p.data.FileURI,
 			MIMEType: p.data.MIMEType,
 		},
 	}
@@ -63,7 +61,7 @@ func (p FilePrompt) ToPart() genai.Part {
 // String returns the file prompt as a string.
 func (p FilePrompt) String() string {
 	if p.data != nil {
-		return fmt.Sprintf("file='%s';uri='%s';mimeType=%s", p.filename, p.data.URI, p.data.MIMEType)
+		return fmt.Sprintf("file='%s';uri='%s';mimeType=%s", p.filename, p.data.FileURI, p.data.MIMEType)
 	}
 	return fmt.Sprintf("file='%s'", p.filename)
 }
