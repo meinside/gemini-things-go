@@ -2,6 +2,8 @@
 
 A helper library for generating things with [Gemini API](https://github.com/googleapis/go-genai).
 
+[![Go Reference](https://pkg.go.dev/badge/github.com/meinside/gemini-things-go.svg)](https://pkg.go.dev/github.com/meinside/gemini-things-go)
+
 ## Usage
 
 See the code examples in the [generation_test.go](https://github.com/meinside/gemini-things-go/blob/master/generation_test.go) file.

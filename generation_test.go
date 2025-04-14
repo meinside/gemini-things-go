@@ -25,7 +25,7 @@ const (
 	modelForTextGeneration                          = `gemini-2.0-flash-001`
 	modelForImageGeneration                         = `gemini-2.0-flash-exp-image-generation`
 	modelForTextGenerationWithGrounding             = `gemini-2.0-flash-001`
-	modelForTextGenerationWithGoogleSearchRetrieval = `gemini-1.5-flash` // FIXME: Google Search retrieval is only compatible with Gemini 1.5 models
+	modelForTextGenerationWithGoogleSearchRetrieval = `gemini-1.5-flash-002` // FIXME: Google Search retrieval is only compatible with Gemini 1.5 models
 
 	modelForEmbeddings = `gemini-embedding-exp-03-07`
 )

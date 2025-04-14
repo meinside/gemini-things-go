@@ -10,11 +10,7 @@ import (
 	"log"
 	"time"
 
-	"google.golang.org/api/iterator"
-	"google.golang.org/api/option"
 	"google.golang.org/genai"
-
-	old "github.com/google/generative-ai-go/genai" // FIXME: remove this after all APIs are implemented
 )
 
 const (
@@ -50,8 +46,6 @@ type Client struct {
 	DeleteFilesOnClose  bool
 	DeleteCachesOnClose bool
 	Verbose             bool
-
-	oldClient *old.Client // FIXME: remove this after file APIs are implemented
 }
 
 // NewClient returns a new client with given values.
@@ -66,13 +60,6 @@ func NewClient(apiKey, model string) (*Client, error) {
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create genai client: %w", err)
-	}
-
-	// FIXME: remove these lines after file APIs are implemented
-	var oldClient *old.Client
-	oldClient, err = old.NewClient(context.TODO(), option.WithAPIKey(apiKey))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create old genai client: %w", err)
 	}
 
 	return &Client{
@@ -90,8 +77,6 @@ func NewClient(apiKey, model string) (*Client, error) {
 		DeleteFilesOnClose:  false,
 		DeleteCachesOnClose: false,
 		Verbose:             false,
-
-		oldClient: oldClient, // FIXME: remove this line after file APIs are implemented
 	}, nil
 }
 
@@ -134,15 +119,6 @@ func (c *Client) Close(ctx ...context.Context) error {
 
 			errs = append(errs, err)
 		}
-	}
-
-	// FIXME: remove these lines after file APIs are implemented
-	if err := c.oldClient.Close(); err != nil {
-		if c.Verbose {
-			log.Printf("> failed to close old client: %s", err)
-		}
-
-		errs = append(errs, err)
 	}
 
 	return errors.Join(errs...)
@@ -694,20 +670,12 @@ func (c *Client) DeleteCachedContext(
 }
 
 // DeleteAllFiles deletes all uploaded files.
-//
-// FIXME: fix this function after file APIs are implemented
 func (c *Client) DeleteAllFiles(ctx context.Context) (err error) {
 	if c.Verbose {
 		log.Printf("> deleting all uploaded files...")
 	}
 
-	// FIXME: fix this line after file APIs are implemented
-	iter := c.oldClient.ListFiles(ctx)
-	for {
-		file, err := iter.Next()
-		if err == iterator.Done {
-			break
-		}
+	for it, err := range c.client.Files.All(ctx) {
 		if err != nil {
 			return fmt.Errorf("failed to iterate files while deleting: %w", err)
 		}
@@ -716,9 +684,7 @@ func (c *Client) DeleteAllFiles(ctx context.Context) (err error) {
 			fmt.Printf(".")
 		}
 
-		// FIXME: fix this line after file APIs are implemented
-		err = c.oldClient.DeleteFile(ctx, file.Name)
-		if err != nil {
+		if _, err := c.client.Files.Delete(ctx, it.Name, &genai.DeleteFileConfig{}); err != nil {
 			return fmt.Errorf("failed to delete file: %w", err)
 		}
 	}
