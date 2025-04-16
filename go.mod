@@ -4,7 +4,7 @@ go 1.23.1
 
 require (
 	github.com/gabriel-vasile/mimetype v1.4.8
-	google.golang.org/genai v1.0.1-0.20250414203924-5b1ba864bd93
+	google.golang.org/genai v1.1.0
 )
 
 require (
