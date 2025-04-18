@@ -3,7 +3,7 @@ module github.com/meinside/gemini-things-go
 go 1.23.1
 
 require (
-	github.com/gabriel-vasile/mimetype v1.4.8
+	github.com/gabriel-vasile/mimetype v1.4.9
 	google.golang.org/genai v1.1.0
 )
 

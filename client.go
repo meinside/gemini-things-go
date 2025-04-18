@@ -14,7 +14,10 @@ import (
 )
 
 const (
-	defaultTimeoutSeconds    = 30
+	// default timeout in seconds
+	defaultTimeoutSeconds = 30
+
+	// default system instruction
 	defaultSystemInstruction = `You are chat bot for helping the user.
 
 Respond to the user according to the following principles:
@@ -24,9 +27,11 @@ Respond to the user according to the following principles:
 - Be as comprehensive and informative as possible.
 `
 
-	maxRetryCount uint = 3 // NOTE: will retry on 5xx errors
+	// maximum retry count
+	maxRetryCount uint = 3 // NOTE: will retry only on `5xx` errors
 )
 
+// role constants for convenience
 const (
 	RoleUser  genai.Role = genai.RoleUser
 	RoleModel genai.Role = genai.RoleModel
@@ -43,9 +48,10 @@ type Client struct {
 
 	timeoutSeconds int
 
-	DeleteFilesOnClose  bool
-	DeleteCachesOnClose bool
-	Verbose             bool
+	DeleteFilesOnClose  bool // whether to delete uploaded files automatically when the client is closed
+	DeleteCachesOnClose bool // whether to delete cached contexts automatically when the client is closed
+
+	Verbose bool // verbose flag
 }
 
 // NewClient returns a new client with given values.
@@ -254,7 +260,7 @@ func (c *Client) GenerateStreamed(
 		var content *genai.Content
 		var parts []*genai.Part
 
-		// FIXME: take the first candidate,
+		// FIXME: (is it OK?) take the first candidate,
 		if len(it.Candidates) > 0 {
 			candidate = it.Candidates[0]
 			content = candidate.Content
@@ -341,7 +347,7 @@ func (c *Client) GenerateStreamed(
 //
 // It times out in `timeoutSeconds` seconds.
 //
-// It retries on 5xx errors for `maxRetryCount` times.
+// It retries on `5xx` errors for `maxRetryCount` times.
 func (c *Client) Generate(
 	ctx context.Context,
 	prompts []Prompt,
