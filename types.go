@@ -154,6 +154,9 @@ type GenerationOptions struct {
 
 	// whether to ignore unsupported type while streaming
 	IgnoreUnsupportedType bool
+
+	// whether to generate with thinking on
+	ThinkingOn bool
 }
 
 // NewGenerationOptions returns a new GenerationOptions with default values.
