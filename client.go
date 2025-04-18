@@ -518,6 +518,11 @@ func (c *Client) generateContentConfig(opts *GenerationOptions) (generated *gena
 		generated.ResponseModalities = opts.ResponseModalities
 		generated.MediaResolution = opts.MediaResolution
 		generated.SpeechConfig = opts.SpeechConfig
+		if opts.ThinkingOn {
+			generated.ThinkingConfig = &genai.ThinkingConfig{
+				IncludeThoughts: true,
+			}
+		}
 	}
 
 	return generated
