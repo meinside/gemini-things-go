@@ -156,7 +156,8 @@ type GenerationOptions struct {
 	IgnoreUnsupportedType bool
 
 	// whether to generate with thinking on
-	ThinkingOn bool
+	ThinkingOn     bool
+	ThinkingBudget int32
 }
 
 // NewGenerationOptions returns a new GenerationOptions with default values.

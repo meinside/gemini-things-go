@@ -27,6 +27,9 @@ Respond to the user according to the following principles:
 - Be as comprehensive and informative as possible.
 `
 
+	// default thinking budget
+	defaultThingkingBudget int32 = 1024
+
 	// maximum retry count
 	maxRetryCount uint = 3 // NOTE: will retry only on `5xx` errors
 )
@@ -519,8 +522,14 @@ func (c *Client) generateContentConfig(opts *GenerationOptions) (generated *gena
 		generated.MediaResolution = opts.MediaResolution
 		generated.SpeechConfig = opts.SpeechConfig
 		if opts.ThinkingOn {
+			thinkingBudget := defaultThingkingBudget
+			if opts.ThinkingBudget > 0 {
+				thinkingBudget = opts.ThinkingBudget
+			}
+
 			generated.ThinkingConfig = &genai.ThinkingConfig{
 				IncludeThoughts: true,
+				ThinkingBudget:  &thinkingBudget,
 			}
 		}
 	}
