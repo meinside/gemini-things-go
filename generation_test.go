@@ -19,12 +19,11 @@ import (
 )
 
 const (
-	// FIXME: context caching is not working for gemini-2.0 yet (will be available on 2025-03-31)
-	modelForContextCaching = `gemini-1.5-flash-002` // NOTE: context caching is only available for stable versions of the model
+	modelForContextCaching              = `gemini-2.0-flash-001`
+	modelForTextGeneration              = `gemini-2.0-flash-001`
+	modelForImageGeneration             = `gemini-2.0-flash-exp-image-generation`
+	modelForTextGenerationWithGrounding = `gemini-2.0-flash-001`
 
-	modelForTextGeneration                          = `gemini-2.0-flash-001`
-	modelForImageGeneration                         = `gemini-2.0-flash-exp-image-generation`
-	modelForTextGenerationWithGrounding             = `gemini-2.0-flash-001`
 	modelForTextGenerationWithGoogleSearchRetrieval = `gemini-1.5-flash-002` // FIXME: Google Search retrieval is only compatible with Gemini 1.5 models
 
 	modelForEmbeddings = `gemini-embedding-exp-03-07`
@@ -64,6 +63,10 @@ func mustHaveEnvVar(t *testing.T, key string) string {
 }
 
 // TestContextCaching tests context caching and generation with the cached context.
+//
+// NOTE: may fail with error:
+// `Error 429, Message: TotalCachedContentStorageTokensPerModelFreeTier limit exceeded for model XXXX: limit=0, requested=YYYY`
+// on free tier
 func TestContextCaching(t *testing.T) {
 	sleepForNotBeingRateLimited()
 
@@ -79,23 +82,46 @@ func TestContextCaching(t *testing.T) {
 	gtc.Verbose = _isVerbose
 	defer gtc.Close()
 
-	// open a file for testing
-	file, err := os.Open("./client.go")
-	if err != nil {
-		t.Fatalf("failed to open file for caching context: %s", err)
+	// open files for testing
+	//
+	// NOTE: will fail with error:
+	// `Error 400, Message: Cached content is too small. total_token_count=XXXX, min_total_token_count=32768`
+	// if the size of cached content is smaller than `min_total_token_count`
+	files := []*os.File{}
+	for _, fpath := range []string{
+		"./README.md",
+		"./LICENSE.md",
+		"./go.mod",
+		"./go.sum",
+		"./client.go",
+		"./types.go",
+		"./utils.go",
+		"./generation_test.go",
+		"./utils_test.go",
+	} {
+		if file, err := os.Open(fpath); err != nil {
+			t.Fatalf("failed to open file for caching context: %s", err)
+		} else {
+			files = append(files, file)
+
+			defer file.Close()
+		}
 	}
-	defer file.Close()
 
 	cachedSystemInstruction := `You are an arrogant and unhelpful chat bot who answers really shortly with a very sarcastic manner.`
 	cachedContextDisplayName := `cached-context-for-test`
+
+	// build prompts,
+	prompts := []Prompt{}
+	for _, file := range files {
+		prompts = append(prompts, PromptFromFile(file.Name(), file))
+	}
 
 	// cache context,
 	if cachedContextName, err := gtc.CacheContext(
 		context.TODO(),
 		&cachedSystemInstruction,
-		[]Prompt{
-			PromptFromFile("client.go", file),
-		},
+		prompts,
 		nil,
 		nil,
 		&cachedContextDisplayName,
@@ -106,7 +132,7 @@ func TestContextCaching(t *testing.T) {
 		for it, err := range gtc.GenerateStreamIterated(
 			context.TODO(),
 			[]Prompt{
-				PromptFromText("What is this file?"),
+				PromptFromText("What are these files?"),
 			},
 			&GenerationOptions{
 				CachedContent: cachedContextName,
@@ -123,7 +149,7 @@ func TestContextCaching(t *testing.T) {
 		if err := gtc.GenerateStreamed(
 			context.TODO(),
 			[]Prompt{
-				PromptFromText("Can you give me any insight about this file?"),
+				PromptFromText("Can you give me any insight about these files?"),
 			},
 			func(data StreamCallbackData) {
 				if data.TextDelta != nil {
@@ -151,7 +177,7 @@ func TestContextCaching(t *testing.T) {
 		if generated, err := gtc.Generate(
 			context.TODO(),
 			[]Prompt{
-				PromptFromText("How many standard golang libraries are used in this source code?"),
+				PromptFromText("How many standard golang libraries are used in these source codes?"),
 			},
 			&GenerationOptions{
 				CachedContent: cachedContextName,

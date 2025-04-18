@@ -5,9 +5,56 @@
 package gt
 
 import (
+	"io"
 	"log"
+	"os"
 	"testing"
 )
+
+// TestFuncArgs tests FuncArg function.
+func TestFuncArgs(t *testing.T) {
+	// key exists, and the type matches
+	if _, err := FuncArg[string](map[string]any{
+		"a": "a string",
+	}, "a"); err != nil {
+		t.Errorf("failed to get FuncArg: %s", err)
+	}
+	// key exists, but type doesn't match
+	if _, err := FuncArg[string](map[string]any{
+		"a": 1234,
+	}, "a"); err == nil {
+		t.Errorf("should have failed to get FuncArg with wrong type")
+	}
+	// key doesn't exist
+	if got, err := FuncArg[string](map[string]any{
+		"b": 1234,
+	}, "a"); err != nil {
+		t.Errorf("failed to get FuncArg with non-existing key: %s", err)
+	} else {
+		if got != nil {
+			t.Errorf("expected nil FuncArg for non-existing key, but got: %s", *got)
+		}
+	}
+}
+
+// TestMimeTypes tests functions for checking MIME types.
+func TestMimeTypes(t *testing.T) {
+	if file, err := os.Open("./README.md"); err == nil {
+		if bs, err := io.ReadAll(file); err == nil {
+			if matched, supported, err := SupportedMimeType(bs); err != nil {
+				t.Errorf("failed to check mime type support: %s", err)
+			} else {
+				if !supported {
+					t.Errorf("should support mime type: %s", matched)
+				}
+			}
+		} else {
+			t.Errorf("failed to read file for testing mime type: %s", err)
+		}
+	} else {
+		t.Errorf("failed to open file for testing mime type: %s", err)
+	}
+}
 
 // TestChunkText tests chunking of texts.
 func TestChunkText(t *testing.T) {
