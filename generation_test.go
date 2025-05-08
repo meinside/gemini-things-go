@@ -18,10 +18,13 @@ import (
 	"google.golang.org/genai"
 )
 
+// model names
+//
+// https://ai.google.dev/gemini-api/docs/models
 const (
 	modelForContextCaching              = `gemini-2.0-flash-001`
 	modelForTextGeneration              = `gemini-2.0-flash-001`
-	modelForImageGeneration             = `gemini-2.0-flash-exp-image-generation`
+	modelForImageGeneration             = `gemini-2.0-flash-preview-image-generation`
 	modelForTextGenerationWithGrounding = `gemini-2.0-flash-001`
 
 	modelForTextGenerationWithGoogleSearchRetrieval = `gemini-1.5-flash-002` // FIXME: Google Search retrieval is only compatible with Gemini 1.5 models
