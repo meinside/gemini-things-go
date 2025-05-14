@@ -175,6 +175,9 @@ type StreamCallbackData struct {
 	// when there is a file bytes array,
 	InlineData *genai.Blob
 
+	// when there is a uri based data,
+	FileData *genai.FileData
+
 	// when there is a video metadata,
 	VideoMetadata *genai.VideoMetadata
 
@@ -203,9 +206,12 @@ type StreamCallbackData struct {
 
 // NumTokens struct for input/output token numbers
 type NumTokens struct {
-	Input  int32
-	Output int32
-	Cached int32
+	Cached   int32
+	Output   int32
+	Input    int32
+	Thoughts int32
+	ToolUse  int32
+	Total    int32
 }
 
 // function definitions
