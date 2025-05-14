@@ -231,9 +231,12 @@ func (c *Client) GenerateStreamed(
 	defer cancel()
 
 	// number of tokens
-	var numTokensInput int32 = 0
-	var numTokensOutput int32 = 0
 	var numTokensCached int32 = 0
+	var numTokensOutput int32 = 0
+	var numTokensInput int32 = 0
+	var numTokensThoughts int32 = 0
+	var numTokensToolUse int32 = 0
+	var numTokensTotal int32 = 0
 
 	var it *genai.GenerateContentResponse
 	for it, err = range c.generateStream(ctx, prompts, options...) {
@@ -248,14 +251,23 @@ func (c *Client) GenerateStreamed(
 
 		// update number of tokens
 		if it.UsageMetadata != nil {
-			if it.UsageMetadata.PromptTokenCount != 0 && numTokensInput < it.UsageMetadata.PromptTokenCount {
-				numTokensInput = it.UsageMetadata.PromptTokenCount
+			if it.UsageMetadata.CachedContentTokenCount != 0 && numTokensCached < it.UsageMetadata.CachedContentTokenCount {
+				numTokensCached = it.UsageMetadata.CachedContentTokenCount
 			}
 			if it.UsageMetadata.CandidatesTokenCount != 0 && numTokensOutput < it.UsageMetadata.CandidatesTokenCount {
 				numTokensOutput = it.UsageMetadata.CandidatesTokenCount
 			}
-			if it.UsageMetadata.CachedContentTokenCount != 0 && numTokensCached < it.UsageMetadata.CachedContentTokenCount {
-				numTokensCached = it.UsageMetadata.CachedContentTokenCount
+			if it.UsageMetadata.PromptTokenCount != 0 && numTokensInput < it.UsageMetadata.PromptTokenCount {
+				numTokensInput = it.UsageMetadata.PromptTokenCount
+			}
+			if it.UsageMetadata.ThoughtsTokenCount != 0 && numTokensThoughts < it.UsageMetadata.ThoughtsTokenCount {
+				numTokensThoughts = it.UsageMetadata.ThoughtsTokenCount
+			}
+			if it.UsageMetadata.ToolUsePromptTokenCount != 0 && numTokensToolUse < it.UsageMetadata.ToolUsePromptTokenCount {
+				numTokensToolUse = it.UsageMetadata.ToolUsePromptTokenCount
+			}
+			if it.UsageMetadata.TotalTokenCount != 0 && numTokensTotal < it.UsageMetadata.TotalTokenCount {
+				numTokensTotal = it.UsageMetadata.TotalTokenCount
 			}
 		}
 
@@ -293,6 +305,10 @@ func (c *Client) GenerateStreamed(
 			} else if part.InlineData != nil { // (file: image, ...)
 				fnStreamCallback(StreamCallbackData{
 					InlineData: part.InlineData,
+				})
+			} else if part.FileData != nil { // URI based data
+				fnStreamCallback(StreamCallbackData{
+					FileData: part.FileData,
 				})
 			} else if part.Thought {
 				fnStreamCallback(StreamCallbackData{
@@ -332,12 +348,20 @@ func (c *Client) GenerateStreamed(
 		}
 
 		// pass the number of tokens
-		if numTokensInput > 0 {
+		if numTokensCached > 0 ||
+			numTokensOutput > 0 ||
+			numTokensInput > 0 ||
+			numTokensThoughts > 0 ||
+			numTokensToolUse > 0 ||
+			numTokensTotal > 0 {
 			fnStreamCallback(StreamCallbackData{
 				NumTokens: &NumTokens{
-					Input:  numTokensInput,
-					Output: numTokensOutput,
-					Cached: numTokensCached,
+					Cached:   numTokensCached,
+					Output:   numTokensOutput,
+					Input:    numTokensInput,
+					Thoughts: numTokensThoughts,
+					ToolUse:  numTokensToolUse,
+					Total:    numTokensTotal,
 				},
 			})
 		}
