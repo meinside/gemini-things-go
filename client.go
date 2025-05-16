@@ -58,7 +58,7 @@ type Client struct {
 }
 
 // NewClient returns a new client with given values.
-func NewClient(apiKey, model string) (*Client, error) {
+func NewClient(apiKey string, model ...string) (*Client, error) {
 	var err error
 
 	// genai client
@@ -71,11 +71,16 @@ func NewClient(apiKey, model string) (*Client, error) {
 		return nil, fmt.Errorf("failed to create genai client: %w", err)
 	}
 
+	var selectedModel string
+	if len(model) > 0 {
+		selectedModel = model[0]
+	}
+
 	return &Client{
 		apiKey: apiKey,
 		client: client,
 
-		model: model,
+		model: selectedModel,
 		systemInstructionFunc: func() string {
 			return defaultSystemInstruction
 		},
@@ -203,16 +208,33 @@ func (c *Client) generateStream(
 
 // GenerateStreamIterated generates stream iterator with given values.
 //
+// `model` is needed to be set in the client.
+//
 // It does not timeout itself, so set timeout with `ctx` when needed.
 func (c *Client) GenerateStreamIterated(
 	ctx context.Context,
 	prompts []Prompt,
 	options ...*GenerationOptions,
 ) iter.Seq2[*genai.GenerateContentResponse, error] {
+	yieldErrorAndEndIterator := func(err error) iter.Seq2[*genai.GenerateContentResponse, error] {
+		return func(yield func(*genai.GenerateContentResponse, error) bool) {
+			if !yield(nil, err) {
+				return
+			}
+		}
+	}
+
+	// check if model is set
+	if c.model == "" {
+		return yieldErrorAndEndIterator(fmt.Errorf("model is not set for generating iterated stream"))
+	}
+
 	return c.generateStream(ctx, prompts, options...)
 }
 
 // GenerateStreamed generates with given values synchronously and calls back `fnStreamCallback`.
+//
+// `model` is needed to be set in the client.
 //
 // NOTE: It is a convenience function for `GenerateStreamIterated`,
 // but it may hang on malformed or unexpected responses from the server,
@@ -226,6 +248,11 @@ func (c *Client) GenerateStreamed(
 	fnStreamCallback FnStreamCallback,
 	options ...*GenerationOptions,
 ) (err error) {
+	// check if model is set
+	if c.model == "" {
+		return fmt.Errorf("model is not set for generating stream")
+	}
+
 	// set timeout
 	ctx, cancel := context.WithTimeout(ctx, time.Duration(c.timeoutSeconds)*time.Second)
 	defer cancel()
@@ -375,11 +402,18 @@ func (c *Client) GenerateStreamed(
 // It times out in `timeoutSeconds` seconds.
 //
 // It retries on `5xx` errors for `maxRetryCount` times.
+//
+// `model` is needed to be set in the client.
 func (c *Client) Generate(
 	ctx context.Context,
 	prompts []Prompt,
 	options ...*GenerationOptions,
 ) (res *genai.GenerateContentResponse, err error) {
+	// check if model is set
+	if c.model == "" {
+		return nil, fmt.Errorf("model is not set for generation")
+	}
+
 	// set timeout
 	ctx, cancel := context.WithTimeout(ctx, time.Duration(c.timeoutSeconds)*time.Second)
 	defer cancel()
@@ -425,11 +459,18 @@ type ImageGenerationOptions struct {
 }
 
 // GenerateImages generates images with given prompt.
+//
+// `model` is needed to be set in the client.
 func (c *Client) GenerateImages(
 	ctx context.Context,
 	prompt string,
 	options ...*ImageGenerationOptions,
 ) (res *genai.GenerateImagesResponse, err error) {
+	// check if model is set
+	if c.model == "" {
+		return nil, fmt.Errorf("model is not set for generating images")
+	}
+
 	// set timeout
 	ctx, cancel := context.WithTimeout(ctx, time.Duration(c.timeoutSeconds)*time.Second)
 	defer cancel()
@@ -563,6 +604,8 @@ func (c *Client) generateContentConfig(opts *GenerationOptions) (generated *gena
 
 // CacheContext caches the context with given values and returns the name of the cached context.
 //
+// `model` is needed to be set in the client.
+//
 // `tools`, `toolConfig`, and `cachedContextDisplayName` are optional.
 func (c *Client) CacheContext(
 	ctx context.Context,
@@ -572,6 +615,11 @@ func (c *Client) CacheContext(
 	toolConfig *genai.ToolConfig,
 	cachedContextDisplayName *string,
 ) (cachedContextName string, err error) {
+	// check if model is set
+	if c.model == "" {
+		return "", fmt.Errorf("model is not set for caching context")
+	}
+
 	if c.Verbose {
 		log.Printf("> caching context with system prompt: %s, prompts: %v, tools: %s, and tool config: %s", prettify(systemInstruction), prompts, prettify(tools), prettify(toolConfig))
 	}
@@ -675,6 +723,8 @@ func (c *Client) ListAllCachedContexts(ctx context.Context) (listed map[string]*
 }
 
 // DeleteAllCachedContexts deletes all cached contexts.
+//
+// `model` is not needed to be set in the client.
 func (c *Client) DeleteAllCachedContexts(ctx context.Context) (err error) {
 	if c.Verbose {
 		log.Printf("> deleting all cached contexts...")
@@ -698,6 +748,8 @@ func (c *Client) DeleteAllCachedContexts(ctx context.Context) (err error) {
 }
 
 // DeleteCachedContext deletes a cached context.
+//
+// `model` is not needed to be set in the client.
 func (c *Client) DeleteCachedContext(
 	ctx context.Context,
 	cachedContextName string,
@@ -714,6 +766,8 @@ func (c *Client) DeleteCachedContext(
 }
 
 // DeleteAllFiles deletes all uploaded files.
+//
+// `model` is not needed to be set in the client.
 func (c *Client) DeleteAllFiles(ctx context.Context) (err error) {
 	if c.Verbose {
 		log.Printf("> deleting all uploaded files...")
@@ -738,6 +792,8 @@ func (c *Client) DeleteAllFiles(ctx context.Context) (err error) {
 
 // GenerateEmbeddings generates embeddings with given values.
 //
+// `model` is needed to be set in the client.
+//
 // `title` can be empty.
 //
 // https://ai.google.dev/gemini-api/docs/embeddings
@@ -746,6 +802,11 @@ func (c *Client) GenerateEmbeddings(
 	title string,
 	contents []*genai.Content,
 ) (vectors [][]float32, err error) {
+	// check if model is set
+	if c.model == "" {
+		return nil, fmt.Errorf("model is not set for generating embeddings")
+	}
+
 	if c.Verbose {
 		log.Printf("> generating embeddings......")
 	}
@@ -774,12 +835,19 @@ func (c *Client) GenerateEmbeddings(
 
 // CountTokens counts tokens for given contents.
 //
+// `model` is needed to be set in the client.
+//
 // https://ai.google.dev/gemini-api/docs/tokens?lang=go
 func (c *Client) CountTokens(
 	ctx context.Context,
 	contents []*genai.Content,
 	config ...*genai.CountTokensConfig,
 ) (res *genai.CountTokensResponse, err error) {
+	// check if model is set
+	if c.model == "" {
+		return nil, fmt.Errorf("model is not set for counting tokens")
+	}
+
 	if c.Verbose {
 		log.Printf("> counting tokens for contents: %s", prettify(contents))
 	}
