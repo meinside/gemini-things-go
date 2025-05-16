@@ -665,6 +665,8 @@ func (c *Client) CacheContext(
 
 // SetCachedContextExpireTime sets the expiration time of a cached context.
 //
+// `model` is not needed to be set in the client.
+//
 // (default: 1 hour later)
 func (c *Client) SetCachedContextExpireTime(
 	ctx context.Context,
@@ -681,6 +683,8 @@ func (c *Client) SetCachedContextExpireTime(
 }
 
 // SetCachedContextTTL sets the TTL of a cached context.
+//
+// `model` is not needed to be set in the client.
 //
 // (default: 1 hour)
 func (c *Client) SetCachedContextTTL(
@@ -699,7 +703,9 @@ func (c *Client) SetCachedContextTTL(
 
 // ListAllCachedContexts lists all cached contexts.
 //
-// `listed` is a map of cached context name and cached context.
+// `model` is not needed to be set in the client.
+//
+// Returns a map of cached context name and cached context.
 func (c *Client) ListAllCachedContexts(ctx context.Context) (listed map[string]*genai.CachedContent, err error) {
 	listed = make(map[string]*genai.CachedContent)
 
@@ -861,6 +867,8 @@ func (c *Client) CountTokens(
 }
 
 // ListModels returns all available models.
+//
+// `model` is not needed to be set in the client.
 func (c *Client) ListModels(ctx context.Context) (models []*genai.Model, err error) {
 	if c.Verbose {
 		log.Printf("> listing models...")
