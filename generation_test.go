@@ -1065,18 +1065,28 @@ func TestEmbeddings(t *testing.T) {
 	defer gtc.Close()
 
 	// without title (task type: RETRIEVAL_QUERY)
-	if v, err := gtc.GenerateEmbeddings(context.TODO(), "", []*genai.Content{
-		genai.NewContentFromText(`The quick brown fox jumps over the lazy dog.`, RoleUser),
-	}); err != nil {
+	if v, err := gtc.GenerateEmbeddings(
+		context.TODO(),
+		"",
+		[]*genai.Content{
+			genai.NewContentFromText(`The quick brown fox jumps over the lazy dog.`, RoleUser),
+		},
+		nil,
+	); err != nil {
 		t.Errorf("generation of embeddings from text failed: %s", ErrToStr(err))
 	} else {
 		verbose(">>> embeddings: %+v", v)
 	}
 
 	// with title (task type: RETRIEVAL_DOCUMENT)
-	if v, err := gtc.GenerateEmbeddings(context.TODO(), "A short story", []*genai.Content{
-		genai.NewContentFromText(`The quick brown fox jumps over the lazy dog.`, RoleUser),
-	}); err != nil {
+	if v, err := gtc.GenerateEmbeddings(
+		context.TODO(),
+		"A short story",
+		[]*genai.Content{
+			genai.NewContentFromText(`The quick brown fox jumps over the lazy dog.`, RoleUser),
+		},
+		nil,
+	); err != nil {
 		t.Errorf("generation of embeddings from title and text failed: %s", ErrToStr(err))
 	} else {
 		verbose(">>> embeddings: %+v", v)
