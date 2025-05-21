@@ -796,6 +796,22 @@ func (c *Client) DeleteAllFiles(ctx context.Context) (err error) {
 	return nil
 }
 
+// EmbeddingTaskType constants
+type EmbeddingTaskType string
+
+// https://ai.google.dev/api/embeddings#v1beta.TaskType
+const (
+	EmbeddingTaskUnspecified        EmbeddingTaskType = "TASK_TYPE_UNSPECIFIED"
+	EmbeddingTaskRetrievalQuery     EmbeddingTaskType = "RETRIEVAL_QUERY"
+	EmbeddingTaskRetrievalDocument  EmbeddingTaskType = "RETRIEVAL_DOCUMENT"
+	EmbeddingTaskSemanticSimilarity EmbeddingTaskType = "SEMANTIC_SIMILARITY"
+	EmbeddingTaskClassification     EmbeddingTaskType = "CLASSIFICATION"
+	EmbeddingTaskClustering         EmbeddingTaskType = "CLUSTERING"
+	EmbeddingTaskQuestionAnswering  EmbeddingTaskType = "QUESTION_ANSWERING"
+	EmbeddingTaskFactVerification   EmbeddingTaskType = "FACT_VERIFICATION"
+	EmbeddingTaskCodeRetrievalQuery EmbeddingTaskType = "CODE_RETRIEVAL_QUERY"
+)
+
 // GenerateEmbeddings generates embeddings with given values.
 //
 // `model` is needed to be set in the client.
@@ -807,6 +823,7 @@ func (c *Client) GenerateEmbeddings(
 	ctx context.Context,
 	title string,
 	contents []*genai.Content,
+	taskType ...EmbeddingTaskType,
 ) (vectors [][]float32, err error) {
 	// check if model is set
 	if c.model == "" {
@@ -817,13 +834,26 @@ func (c *Client) GenerateEmbeddings(
 		log.Printf("> generating embeddings......")
 	}
 
+	// embeddings configuration
 	conf := &genai.EmbedContentConfig{}
-	if title != "" {
-		conf.TaskType = "RETRIEVAL_DOCUMENT"
-		conf.Title = title
-	} else {
-		conf.TaskType = "RETRIEVAL_QUERY"
+
+	// task type
+	var selectedTaskType EmbeddingTaskType
+	if len(taskType) > 0 {
+		selectedTaskType = taskType[0]
 	}
+
+	// title
+	if title != "" {
+		conf.Title = title
+		if selectedTaskType == "" || selectedTaskType == EmbeddingTaskUnspecified {
+			selectedTaskType = EmbeddingTaskRetrievalDocument
+		}
+		if selectedTaskType != EmbeddingTaskRetrievalDocument {
+			return nil, fmt.Errorf("`title` is only applicable when `taskType` is '%s', but '%s' was given", EmbeddingTaskRetrievalDocument, selectedTaskType)
+		}
+	}
+	conf.TaskType = string(selectedTaskType)
 
 	var res *genai.EmbedContentResponse
 	if res, err = c.client.Models.EmbedContent(ctx, c.model, contents, conf); err == nil {
