@@ -823,7 +823,7 @@ func (c *Client) GenerateEmbeddings(
 	ctx context.Context,
 	title string,
 	contents []*genai.Content,
-	taskType ...EmbeddingTaskType,
+	taskType *EmbeddingTaskType,
 ) (vectors [][]float32, err error) {
 	// check if model is set
 	if c.model == "" {
@@ -839,8 +839,10 @@ func (c *Client) GenerateEmbeddings(
 
 	// task type
 	var selectedTaskType EmbeddingTaskType
-	if len(taskType) > 0 {
-		selectedTaskType = taskType[0]
+	if taskType == nil {
+		selectedTaskType = EmbeddingTaskUnspecified
+	} else {
+		selectedTaskType = *taskType
 	}
 
 	// title
