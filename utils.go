@@ -25,7 +25,9 @@ const (
 	uploadedFileStateCheckIntervalMilliseconds = 300 // 300 milliseconds
 )
 
-// wait for all given uploaded files to be active.
+// waitForFiles waits for all specified uploaded files to reach the "ACTIVE" state.
+// It uses a sync.WaitGroup to wait for all concurrent checks to complete.
+// This is an internal helper function.
 func (c *Client) waitForFiles(ctx context.Context, fileNames []string) {
 	var wg sync.WaitGroup
 	for _, fileName := range fileNames {
@@ -49,129 +51,206 @@ func (c *Client) waitForFiles(ctx context.Context, fileNames []string) {
 	wg.Wait()
 }
 
-// UploadFilesAndWait uploads files and wait for them to be ready.
-func (c *Client) UploadFilesAndWait(ctx context.Context, files []Prompt) (processed []Prompt, err error) {
-	processed = []Prompt{}
-	fileNames := []string{}
+// processPromptToPartAndInfo is an internal helper function that processes a single Prompt.
+// It handles potential file uploads for FilePrompt and BytesPrompt types.
+//   - For FilePrompt: it reads the content, detects/converts MIME type if necessary, uploads the file,
+//     and returns an updated FilePrompt with the server-assigned filename and FileData.
+//   - For BytesPrompt: it detects/converts MIME type, uploads the bytes as a file, and returns
+//     a new FilePrompt representing the uploaded file with its server-assigned filename and FileData.
+//   - For TextPrompt and URIPrompt: it converts them to their genai.Part representation directly.
+//
+// It returns:
+//   - *genai.Part: The genai.Part representation of the processed prompt.
+//   - Prompt: The updated prompt (e.g., FilePrompt with populated .data, or BytesPrompt converted to FilePrompt).
+//   - *string: The server-assigned filename if an upload occurred, used for waiting for the file to become active. nil otherwise.
+//   - error: Any error encountered during processing.
+func (c *Client) processPromptToPartAndInfo(
+	ctx context.Context,
+	p Prompt, // The prompt to process.
+	promptIndex int,
+) (part *genai.Part, updatedPrompt Prompt, filenameForWaiting *string, err error) {
+	switch prompt := p.(type) {
+	case TextPrompt:
+		return ptr(prompt.ToPart()), prompt, nil, nil
 
-	fileIndex := 0
-	for _, f := range files {
-		if text, ok := f.(TextPrompt); ok {
-			processed = append(processed, text)
-		} else if file, ok := f.(FilePrompt); ok {
-			// read mime type,
-			if mimeType, reader, err := readMimeAndRecycle(file.reader); err == nil {
-				// check mime type,
-				var matchedMimeType string
-				var supported bool
-				if matchedMimeType, supported = checkMimeType(mimeType); !supported {
-					// if it has a custom converter, convert it
-					if fn, exists := c.fileConvertFuncs[matchedMimeType]; !exists {
-						return nil, fmt.Errorf("MIME type of file[%d] (%s) not supported: %s", fileIndex, file.filename, mimeType.String())
-					} else {
-						if bs, err := io.ReadAll(reader); err == nil {
-							if c.Verbose {
-								log.Printf("> converting reader with custom file converter for %s...", matchedMimeType)
-							}
+	case URIPrompt:
+		return ptr(prompt.ToPart()), prompt, nil, nil
 
-							if converted, convertedMimeType, err := fn(bs); err == nil {
-								reader = bytes.NewBuffer(converted)
-								matchedMimeType = convertedMimeType
-							} else {
-								return nil, fmt.Errorf("converting %s failed: %w", matchedMimeType, err)
-							}
-						} else {
-							return nil, fmt.Errorf("read failed while converting %s: %w", matchedMimeType, err)
-						}
-					}
-				}
+	case FilePrompt:
+		currentReader := prompt.reader
+		if currentReader == nil {
+			return nil, prompt, nil, fmt.Errorf("prompts[%d] has a nil reader (%s)", promptIndex, prompt.filename)
+		}
 
-				// upload
-				if uploaded, err := c.client.Files.Upload(
-					ctx,
-					reader,
-					&genai.UploadFileConfig{
-						MIMEType:    matchedMimeType,
-						DisplayName: file.filename,
-					},
-				); err == nil {
-					processed = append(processed, FilePrompt{
-						filename: uploaded.Name,
-						data: &genai.FileData{
-							FileURI:  uploaded.URI,
-							MIMEType: uploaded.MIMEType,
-						},
-					})
+		mimeType, readerForUpload, err := readMimeAndRecycle(currentReader)
+		if err != nil {
+			return nil, prompt, nil, fmt.Errorf("failed to detect MIME type of prompts[%d] (%s): %w", promptIndex, prompt.filename, err)
+		}
+		currentReader = readerForUpload // Use the recycled reader
 
-					fileNames = append(fileNames, uploaded.Name)
-				} else {
-					return nil, fmt.Errorf("failed to upload file[%d] (%s) for prompt: %w", fileIndex, file.filename, err)
-				}
-			} else {
-				return nil, fmt.Errorf("failed to detect MIME type of file[%d] (%s): %w", fileIndex, file.filename, err)
+		matchedMimeType, supported := checkMimeType(mimeType)
+		if !supported {
+			fn, exists := c.fileConvertFuncs[matchedMimeType]
+			if !exists {
+				return nil, prompt, nil, fmt.Errorf("MIME type of prompts[%d] (%s) not supported: %s", promptIndex, prompt.filename, mimeType.String())
 			}
-
-			fileIndex++
-		} else if fbytes, ok := f.(BytesPrompt); ok {
-			// read mime type,
-			mimeType := mimetype.Detect(fbytes.bytes)
-
-			// check mime type,
-			var matchedMimeType string
-			var supported bool
-			if matchedMimeType, supported = checkMimeType(mimeType); !supported {
-				// if it has a custom converter, convert it
-				if fn, exists := c.fileConvertFuncs[matchedMimeType]; !exists {
-					return nil, fmt.Errorf("MIME type of file[%d] (%d bytes) not supported: %s", fileIndex, len(fbytes.bytes), mimeType.String())
-				} else {
-					if c.Verbose {
-						log.Printf("> converting bytes with custom file converter for %s...", matchedMimeType)
-					}
-
-					if converted, convertedMimeType, err := fn(fbytes.bytes); err == nil {
-						fbytes.bytes = converted
-						matchedMimeType = convertedMimeType
-					} else {
-						return nil, fmt.Errorf("converting %s failed: %w", matchedMimeType, err)
-					}
-				}
+			bs, readErr := io.ReadAll(currentReader)
+			if readErr != nil {
+				return nil, prompt, nil, fmt.Errorf("read failed while converting %s for prompts[%d] (%s): %w", matchedMimeType, promptIndex, prompt.filename, readErr)
 			}
-
-			// upload
-			if uploaded, err := c.client.Files.Upload(
-				ctx,
-				bytes.NewReader(fbytes.bytes),
-				&genai.UploadFileConfig{
-					MIMEType:    matchedMimeType,
-					DisplayName: fmt.Sprintf("%d bytes of file", len(fbytes.bytes)),
-				},
-			); err == nil {
-				processed = append(processed, FilePrompt{
-					filename: uploaded.Name,
-					data: &genai.FileData{
-						FileURI:  uploaded.URI,
-						MIMEType: uploaded.MIMEType,
-					},
-				})
-
-				fileNames = append(fileNames, uploaded.Name)
-			} else {
-				return nil, fmt.Errorf("failed to upload file[%d] (%d bytes) for prompt: %w", fileIndex, len(fbytes.bytes), err)
+			if c.Verbose {
+				log.Printf("> converting with custom file converter for %s for prompts[%d] (%s)...", matchedMimeType, promptIndex, prompt.filename)
 			}
+			converted, convertedMimeType, convErr := fn(bs)
+			if convErr != nil {
+				return nil, prompt, nil, fmt.Errorf("converting %s for prompts[%d] (%s) failed: %w", matchedMimeType, promptIndex, prompt.filename, convErr)
+			}
+			currentReader = bytes.NewBuffer(converted)
+			matchedMimeType = convertedMimeType
+		}
 
-			fileIndex++
-		} else if uri, ok := f.(URIPrompt); ok {
-			processed = append(processed, uri)
+		uploadedFile, uploadErr := c.client.Files.Upload(
+			ctx,
+			currentReader,
+			&genai.UploadFileConfig{
+				MIMEType:    matchedMimeType,
+				DisplayName: prompt.filename, // Use original filename for display
+			},
+		)
+		if uploadErr != nil {
+			return nil, prompt, nil, fmt.Errorf("failed to upload prompts[%d] (%s): %w", promptIndex, prompt.filename, uploadErr)
+		}
+
+		updatedFilePrompt := FilePrompt{
+			filename: uploadedFile.Name, // Store the server-generated unique name
+			data: &genai.FileData{
+				FileURI:  uploadedFile.URI,
+				MIMEType: uploadedFile.MIMEType,
+			},
+			// reader is not needed in the updated prompt as it's already uploaded
+		}
+		return ptr(updatedFilePrompt.ToPart()), updatedFilePrompt, ptr(uploadedFile.Name), nil
+
+	case BytesPrompt:
+		currentBytes := prompt.bytes
+		mimeType := mimetype.Detect(currentBytes)
+		matchedMimeType, supported := checkMimeType(mimeType)
+
+		if !supported {
+			fn, exists := c.fileConvertFuncs[matchedMimeType]
+			if !exists {
+				return nil, prompt, nil, fmt.Errorf("MIME type of prompts[%d] (%d bytes) not supported: %s", promptIndex, len(currentBytes), mimeType.String())
+			}
+			if c.Verbose {
+				log.Printf("> converting prompts[%d] (%d bytes) with custom file converter for %s...", promptIndex, len(currentBytes), matchedMimeType)
+			}
+			converted, convertedMimeType, convErr := fn(currentBytes)
+			if convErr != nil {
+				return nil, prompt, nil, fmt.Errorf("converting prompts[%d] (%d bytes) with MIME type %s failed: %w", promptIndex, len(currentBytes), matchedMimeType, convErr)
+			}
+			currentBytes = converted
+			matchedMimeType = convertedMimeType
+		}
+
+		displayName := prompt.filename
+		if displayName == "" {
+			displayName = fmt.Sprintf("prompts[%d] (%d bytes)", promptIndex, len(currentBytes))
+		}
+
+		uploadedFile, uploadErr := c.client.Files.Upload(
+			ctx,
+			bytes.NewReader(currentBytes),
+			&genai.UploadFileConfig{
+				MIMEType:    matchedMimeType,
+				DisplayName: displayName,
+			},
+		)
+		if uploadErr != nil {
+			return nil, prompt, nil, fmt.Errorf("failed to upload prompts[%d] (%d bytes) as file: %w", promptIndex, len(prompt.bytes), uploadErr)
+		}
+
+		// Convert BytesPrompt to FilePrompt after upload
+		fileDataPrompt := FilePrompt{
+			filename: uploadedFile.Name, // Store the server-generated unique name
+			data: &genai.FileData{
+				FileURI:  uploadedFile.URI,
+				MIMEType: uploadedFile.MIMEType,
+			},
+		}
+		return ptr(fileDataPrompt.ToPart()), fileDataPrompt, ptr(uploadedFile.Name), nil
+
+	default:
+		return nil, p, nil, fmt.Errorf("unknown or unsupported type of prompts[%d]: %T", promptIndex, p)
+	}
+}
+
+// UploadFilesAndWait processes a slice of Prompts,
+// handling file uploads for FilePrompt and BytesPrompt types.
+// It waits for all uploaded files to become "ACTIVE".
+//
+// For FilePrompt and BytesPrompt instances that require uploading:
+//   - FilePrompt instances will have their `data` field populated with the `*genai.FileData`
+//     (URI and MIME type) returned by the server after successful upload. Their `filename`
+//     field will be updated to the server-assigned unique name.
+//   - BytesPrompt instances are converted into FilePrompt instances after their content
+//     is uploaded as a file. The new FilePrompt will have its `filename` and `data`
+//     fields populated accordingly.
+//
+// TextPrompt and URIPrompt instances are returned as is.
+//
+// Parameters:
+//   - ctx: The context for the operation.
+//   - prompts: A slice of Prompt interfaces to process.
+//
+// Returns:
+//   - processedPrompts: A new slice of Prompt interfaces. For uploaded files,
+//     FilePrompt instances are updated with server data, and BytesPrompt instances
+//     are converted to FilePrompt instances. Other prompt types remain unchanged.
+//   - err: An error if any part of the processing (like file upload or waiting) fails.
+func (c *Client) UploadFilesAndWait(ctx context.Context, prompts []Prompt) (processedPrompts []Prompt, err error) {
+	processedPrompts = make([]Prompt, 0, len(prompts))
+	fileNamesToWaitFor := []string{}
+
+	for i, p := range prompts {
+		_, updatedPrompt, filenameForWaiting, processErr := c.processPromptToPartAndInfo(ctx, p, i)
+		if processErr != nil {
+			return nil, fmt.Errorf("error processing prompts[%d]: %w", i, processErr)
+		}
+		processedPrompts = append(processedPrompts, updatedPrompt)
+		if filenameForWaiting != nil {
+			fileNamesToWaitFor = append(fileNamesToWaitFor, *filenameForWaiting)
 		}
 	}
 
-	// NOTE: wait for all the uploaded files to be ready
-	c.waitForFiles(ctx, fileNames)
+	if len(fileNamesToWaitFor) > 0 {
+		if c.Verbose {
+			log.Printf("> waiting for %d file(s) to become active: %v", len(fileNamesToWaitFor), fileNamesToWaitFor)
+		}
+		c.waitForFiles(ctx, fileNamesToWaitFor)
+		if c.Verbose {
+			log.Printf("> all %d file(s) are active.", len(fileNamesToWaitFor))
+		}
+	}
 
-	return processed, nil
+	return processedPrompts, nil
 }
 
-// FuncArg searches for and returns a value with given `key` from the function call arguments `from`.
+// FuncArg is a generic helper function to safely extract and type-assert a value
+// from a map[string]any, which is commonly used for function call arguments
+// in `genai.FunctionCall.Args`.
+//
+// Parameters:
+//   - from: The map (typically `FunctionCall.Args`) to extract the value from.
+//   - key: The key of the desired argument.
+//
+// Type Parameter:
+//   - T: The expected type of the argument.
+//
+// Returns:
+//   - *T: A pointer to the extracted value of type T if found and type assertion is successful.
+//     Returns nil if the key is not found.
+//   - error: An error if the key is found but the value cannot be cast to type T.
+//     Returns nil if the key is not found or if extraction and casting are successful.
 func FuncArg[T any](from map[string]any, key string) (*T, error) {
 	if v, exists := from[key]; exists {
 		if cast, ok := v.(T); ok {
@@ -182,40 +261,50 @@ func FuncArg[T any](from map[string]any, key string) (*T, error) {
 	return nil, nil // not found
 }
 
-// build prompt contents for generation
+// buildPromptContents is an internal helper function that constructs the `[]*genai.Content` slice
+// required for generation API calls. It processes input prompts (including file uploads via UploadFilesAndWait),
+// and prepends any provided history.
 func (c *Client) buildPromptContents(ctx context.Context, prompts []Prompt, histories []genai.Content) (contents []*genai.Content, err error) {
-	var processed []Prompt
-	processed, err = c.UploadFilesAndWait(ctx, prompts)
+	// Process prompts (uploads files, etc.) and get updated prompts
+	// where FilePrompt.data is populated and BytesPrompt (if uploaded) is converted to FilePrompt.
+	processedPromptsAfterUpload, err := c.UploadFilesAndWait(ctx, prompts)
 	if err != nil {
-		return nil, fmt.Errorf("failed to upload files for prompt: %w", err)
+		return nil, fmt.Errorf("failed to upload files or process prompts: %w", err)
 	}
 
+	// Add history contents first
 	for _, history := range histories {
-		for _, part := range history.Parts {
-			contents = append(contents, &genai.Content{
-				Role: history.Role,
-				Parts: []*genai.Part{
-					part,
-				},
-			})
-		}
-	}
-	for _, prompt := range processed {
+		// It's safer to copy parts if h.Parts could be modified elsewhere,
+		// but typically history is immutable here.
 		contents = append(contents, &genai.Content{
-			Role: string(RoleUser),
-			Parts: []*genai.Part{
-				ptr(prompt.ToPart()),
-			},
+			Role:  history.Role,
+			Parts: history.Parts,
+		})
+	}
+
+	// Add user prompts
+	// Each prompt from processedPromptsAfterUpload should now directly yield its genai.Part
+	// via its ToPart() method, especially FilePrompt which now uses its populated .data field.
+	userPromptParts := []*genai.Part{}
+	for _, p := range processedPromptsAfterUpload {
+		part := p.ToPart()
+		userPromptParts = append(userPromptParts, &part)
+	}
+	if len(userPromptParts) > 0 {
+		contents = append(contents, &genai.Content{
+			Role:  string(RoleUser),
+			Parts: userPromptParts,
 		})
 	}
 
 	return contents, nil
 }
 
-// generate safety settings for all supported harm categories
+// safetySettings creates a slice of *genai.SafetySetting for all supported harm categories,
+// applying the given threshold. If threshold is nil, it defaults to HarmBlockThresholdOff.
+// This function is an internal helper.
 func safetySettings(threshold *genai.HarmBlockThreshold) (settings []*genai.SafetySetting) {
 	if threshold == nil {
-		// threshold = ptr(genai.HarmBlockThresholdBlockOnlyHigh)
 		threshold = ptr(genai.HarmBlockThresholdOff)
 	}
 
@@ -237,12 +326,19 @@ func safetySettings(threshold *genai.HarmBlockThreshold) (settings []*genai.Safe
 	return settings
 }
 
-// check if given file's mime type is matched and supported
+// checkMimeType is an internal helper function that checks if a given MIME type
+// (as detected by the mimetype library) is supported by the Gemini API.
+// It returns the matched MIME type string (which might be a more general type if an alias matches)
+// and a boolean indicating if it's supported.
 //
-// https://ai.google.dev/gemini-api/docs/file-prompting-strategies
+// See:
+//   - Images: https://ai.google.dev/gemini-api/docs/vision?lang=go#technical-details-image
+//   - Audios: https://ai.google.dev/gemini-api/docs/audio?lang=go#supported-formats
+//   - Videos: https://ai.google.dev/gemini-api/docs/vision?lang=go#technical-details-video
+//   - Documents: https://ai.google.dev/gemini-api/docs/document-processing?lang=go#technical-details
 func checkMimeType(mimeType *mimetype.MIME) (matched string, supported bool) {
 	return func(mimeType *mimetype.MIME) (matchedMimeType string, supportedMimeType bool) {
-		matchedMimeType = mimeType.String() // fallback
+		matchedMimeType = mimeType.String() // fallback, used if a more specific alias isn't found but it's still supported.
 
 		switch {
 		case slices.ContainsFunc([]string{
@@ -305,7 +401,17 @@ func checkMimeType(mimeType *mimetype.MIME) (matched string, supported bool) {
 	}(mimeType)
 }
 
-// SupportedMimeType detects and returns the matched mime type of given bytes data and whether it's supported or not.
+// SupportedMimeType detects the MIME type of the given byte data and checks if it's a supported
+// format for the Gemini API (as defined in `checkMimeType`).
+//
+// Parameters:
+//   - data: A byte slice containing the file data.
+//
+// Returns:
+//   - matchedMimeType: The string representation of the detected MIME type if successful,
+//     or the result of `http.DetectContentType` if `mimetype.DetectReader` fails.
+//   - supported: A boolean indicating true if the MIME type is supported, false otherwise.
+//   - err: An error if MIME type detection fails significantly (e.g., reader error, though less likely with bytes.Reader).
 func SupportedMimeType(data []byte) (matchedMimeType string, supported bool, err error) {
 	var mimeType *mimetype.MIME
 	if mimeType, err = mimetype.DetectReader(bytes.NewReader(data)); err == nil {
@@ -317,7 +423,16 @@ func SupportedMimeType(data []byte) (matchedMimeType string, supported bool, err
 	return http.DetectContentType(data), false, err
 }
 
-// SupportedMimeTypePath detects and returns the matched mime type of given path and whether it's supported or not.
+// SupportedMimeTypePath opens a file at the given path, detects its MIME type,
+// and checks if it's a supported format for the Gemini API (as defined in `checkMimeType`).
+//
+// Parameters:
+//   - filepath: The path to the file.
+//
+// Returns:
+//   - matchedMimeType: The string representation of the detected MIME type if successful.
+//   - supported: A boolean indicating true if the MIME type is supported, false otherwise.
+//   - err: An error if opening the file or detecting the MIME type fails.
 func SupportedMimeTypePath(filepath string) (matchedMimeType string, supported bool, err error) {
 	var f *os.File
 	if f, err = os.Open(filepath); err == nil {
@@ -345,41 +460,52 @@ func ptr[T any](v T) *T {
 	return &v
 }
 
-// ErrToStr converts error (possibly genai error) to string.
+// ErrToStr converts an error to a string.
+// If the error is a `*genai.APIError`, it formats it with a "genai API error: " prefix.
+// Otherwise, it calls the error's `Error()` method.
 func ErrToStr(err error) (str string) {
 	var ae *genai.APIError
 	if errors.As(err, &ae) {
 		return fmt.Sprintf("genai API error: %s", ae.Error())
-	} else {
+	}
+	// For non-API errors, or if ae is nil after errors.As (shouldn't happen if As returns true)
+	if err != nil {
 		return err.Error()
 	}
+	return "" // Should not happen if err was not nil
 }
 
-// IsQuotaExceeded returns if given error is from execeeded API quota.
+// IsQuotaExceeded checks if the provided error is a `*genai.APIError` with a status code
+// indicating that a quota limit has been exceeded (typically HTTP 429).
 func IsQuotaExceeded(err error) bool {
 	var ae *genai.APIError
 	if errors.As(err, &ae) {
-		if ae.Code == 429 {
+		// HTTP 429 Too Many Requests is commonly used for quota exceeded.
+		if ae.Code == 429 { //nolint:gomnd // Standard HTTP status code
 			return true
 		}
 	}
 	return false
 }
 
-// IsModelOverloaded returns if given error is from overloaded model.
+// IsModelOverloaded checks if the provided error is a `*genai.APIError` indicating
+// that the model is currently overloaded (typically HTTP 503 with a specific message).
 func IsModelOverloaded(err error) bool {
 	var ae *genai.APIError
 	if errors.As(err, &ae) {
-		if ae.Code == 503 && ae.Message == `The model is overloaded. Please try again later.` {
+		// HTTP 503 Service Unavailable, often with a specific message for model overload.
+		if ae.Code == 503 && strings.Contains(ae.Message, "model is overloaded") { //nolint:gomnd // Standard HTTP status code
 			return true
 		}
 	}
 	return false
 }
 
-// read mime type of given io.Reader
-//
-// https://pkg.go.dev/github.com/gabriel-vasile/mimetype#example-package-DetectReader
+// readMimeAndRecycle detects the MIME type from an io.Reader and returns the MIME type
+// along with a new io.Reader that contains the original full content (including the bytes read for detection).
+// This is crucial because mimetype.DetectReader consumes part of the reader.
+// This is an internal helper function.
+// See https://pkg.go.dev/github.com/gabriel-vasile/mimetype#example-package-DetectReader for the pattern.
 func readMimeAndRecycle(input io.Reader) (mimeType *mimetype.MIME, recycled io.Reader, err error) {
 	// header will store the bytes mimetype uses for detection.
 	header := bytes.NewBuffer(nil)
@@ -406,25 +532,38 @@ const (
 	defaultOverlappedTextLengthInBytes uint = defaultChunkedTextLengthInBytes / 200
 )
 
-// TextChunkOption contains options for chunking text.
+// TextChunkOption provides configuration for the ChunkText function.
 type TextChunkOption struct {
-	ChunkSize                uint
-	OverlappedSize           uint
-	KeepBrokenUTF8Characters bool
-	EllipsesText             string
+	ChunkSize                uint   // ChunkSize is the desired maximum size of each text chunk in bytes.
+	OverlappedSize           uint   // OverlappedSize specifies how many bytes from the end of the previous chunk should be included at the beginning of the next chunk.
+	KeepBrokenUTF8Characters bool   // KeepBrokenUTF8Characters, if true, preserves potentially broken UTF-8 characters at chunk boundaries. If false (default), ToValidUTF8 is used to replace them.
+	EllipsesText             string // EllipsesText is a string (e.g., "...") to append to the beginning of subsequent chunks and the end of chunks that are not the final part of the text.
 }
 
-// ChunkedText contains the original text and the chunks.
+// ChunkedText holds the original text and the generated chunks.
 type ChunkedText struct {
-	Original string
-	Chunks   []string
+	Original string   // Original is the input text that was chunked.
+	Chunks   []string // Chunks is a slice of strings, where each string is a chunk of the original text.
 }
 
-// ChunkText splits the given text into chunks of the specified size.
+// ChunkText splits a given text into smaller chunks based on the provided options.
+// This can be useful for processing large texts that might exceed model input limits.
+// It supports overlapping chunks and handling of UTF-8 characters at boundaries.
+//
+// Parameters:
+//   - text: The string to be chunked.
+//   - opts: Optional TextChunkOption to customize chunking behavior. If not provided,
+//     default chunk size, overlap size, and UTF-8 handling will be used.
+//
+// Returns:
+//   - ChunkedText: A struct containing the original text and a slice of its chunks.
+//   - error: An error if the configuration is invalid (e.g., overlappedSize >= chunkSize).
 func ChunkText(text string, opts ...TextChunkOption) (ChunkedText, error) {
 	opt := TextChunkOption{
-		ChunkSize:      defaultChunkedTextLengthInBytes,
-		OverlappedSize: defaultOverlappedTextLengthInBytes,
+		ChunkSize:      defaultChunkedTextLengthInBytes,    // Default chunk size.
+		OverlappedSize: defaultOverlappedTextLengthInBytes, // Default overlap size.
+		// KeepBrokenUTF8Characters defaults to false.
+		// EllipsesText defaults to empty.
 	}
 	if len(opts) > 0 {
 		opt = opts[0]

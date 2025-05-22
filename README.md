@@ -19,19 +19,24 @@ import (
 )
 
 const (
-	apiKey = `AIabcdefghijklmnopqrstuvwxyz_ABCDEFG-00000000-00`
+	apiKey = `AIabcdefghijklmnopqrstuvwxyz_ABCDEFG-00000000-00` // Your API key here
 	model  = "gemini-2.0-flash"
 )
 
 func main() {
-	if client, err := gt.NewClient(apiKey, model); err == nil {
-		// do something with `client`
+	if client, err := gt.NewClient(
+			apiKey,
+			gt.WithModel(model),        // Specify the model
+			gt.WithTimeoutSeconds(60),	// Set a 60-second timeout for operations
+			gt.WithMaxRetryCount(5),    // Configure a maximum of 5 retries on 5xx server errors
+	); err == nil {
 		if res, err := client.Generate(
 			context.TODO(),
 			[]gt.Prompt{
 				gt.PromptFromText(`What is the answer to life, the universe, and everything?`),
 			},
 		); err == nil {
+			// do something with `client`
 			fmt.Printf("response: %+v\n", res)
 		}
 	} else {

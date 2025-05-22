@@ -18,7 +18,7 @@ const (
 	defaultTimeoutSeconds = 30
 
 	// default system instruction
-	defaultSystemInstruction = `You are chat bot for helping the user.
+	defaultSystemInstruction = `You are a chat bot for helping the user.
 
 Respond to the user according to the following principles:
 - Do not repeat the user's request.
@@ -30,8 +30,8 @@ Respond to the user according to the following principles:
 	// default thinking budget
 	defaultThingkingBudget int32 = 1024
 
-	// maximum retry count
-	maxRetryCount uint = 3 // NOTE: will retry only on `5xx` errors
+	// default maximum retry count
+	defaultMaxRetryCount uint = 3 // NOTE: will retry only on `5xx` errors
 )
 
 // role constants for convenience
@@ -40,25 +40,66 @@ const (
 	RoleModel genai.Role = genai.RoleModel
 )
 
-// Client struct
+// Client provides methods for interacting with the Google Generative AI API.
+// It encapsulates a genai.Client and adds higher-level functionalities.
 type Client struct {
-	apiKey string
-	client *genai.Client
+	apiKey string        // API key for authentication.
+	client *genai.Client // Underlying Google Generative AI client.
 
-	model                 string
-	systemInstructionFunc FnSystemInstruction
-	fileConvertFuncs      map[string]FnConvertBytes
+	model                 string                    // model to be used for generation.
+	systemInstructionFunc FnSystemInstruction       // Function that returns the system instruction string.
+	fileConvertFuncs      map[string]FnConvertBytes // Map of MIME types to custom file conversion functions.
+	timeoutSeconds        int                       // timeout in seconds for API calls like Generate, GenerateStreamed.
+	maxRetryCount         uint                      // maximum retry count for retriable API errors (e.g., 5xx).
 
-	timeoutSeconds int
-
-	DeleteFilesOnClose  bool // whether to delete uploaded files automatically when the client is closed
-	DeleteCachesOnClose bool // whether to delete cached contexts automatically when the client is closed
-
-	Verbose bool // verbose flag
+	DeleteFilesOnClose  bool // If true, automatically deletes all uploaded files when Close is called.
+	DeleteCachesOnClose bool // If true, automatically deletes all cached contexts when Close is called.
+	Verbose             bool // If true, enables verbose logging for debugging.
 }
 
-// NewClient returns a new client with given values.
-func NewClient(apiKey string, model ...string) (*Client, error) {
+// ClientOption is a function type used to configure a new Client.
+// It follows the functional options pattern.
+type ClientOption func(*Client)
+
+// WithModel is a ClientOption that sets the default model for the client.
+// This model will be used for generation tasks unless overridden in specific function calls.
+func WithModel(model string) ClientOption {
+	return func(c *Client) {
+		c.model = model
+	}
+}
+
+// WithTimeoutSeconds is a ClientOption that sets the default timeout in seconds
+// for API calls that support it (e.g., Generate, GenerateStreamed, GenerateImages).
+func WithTimeoutSeconds(seconds int) ClientOption {
+	return func(c *Client) {
+		c.timeoutSeconds = seconds
+	}
+}
+
+// WithMaxRetryCount is a ClientOption that sets the default maximum retry count
+// for retriable API errors (typically 5xx server errors).
+func WithMaxRetryCount(count uint) ClientOption {
+	return func(c *Client) {
+		c.maxRetryCount = count
+	}
+}
+
+// NewClient creates and returns a new Client instance.
+// It requires an API key and accepts optional ClientOption functions to customize the client.
+//
+// Example:
+//
+//	client, err := gt.NewClient("YOUR_API_KEY",
+//	    gt.WithModel("gemini-2.0-flash"),
+//	    gt.WithTimeoutSeconds(60),
+//	    gt.WithMaxRetryCount(5),
+//	)
+//	if err != nil {
+//	    log.Fatal(err)
+//	}
+//	defer client.Close()
+func NewClient(apiKey string, opts ...ClientOption) (*Client, error) {
 	var err error
 
 	// genai client
@@ -71,30 +112,32 @@ func NewClient(apiKey string, model ...string) (*Client, error) {
 		return nil, fmt.Errorf("failed to create genai client: %w", err)
 	}
 
-	var selectedModel string
-	if len(model) > 0 {
-		selectedModel = model[0]
-	}
-
-	return &Client{
+	c := &Client{
 		apiKey: apiKey,
 		client: client,
-
-		model: selectedModel,
 		systemInstructionFunc: func() string {
 			return defaultSystemInstruction
 		},
-		fileConvertFuncs: make(map[string]FnConvertBytes),
-
-		timeoutSeconds: defaultTimeoutSeconds,
-
+		fileConvertFuncs:    make(map[string]FnConvertBytes),
+		timeoutSeconds:      defaultTimeoutSeconds,
+		maxRetryCount:       defaultMaxRetryCount,
 		DeleteFilesOnClose:  false,
 		DeleteCachesOnClose: false,
 		Verbose:             false,
-	}, nil
+	}
+
+	for _, opt := range opts {
+		opt(c)
+	}
+
+	return c, nil
 }
 
-// Close closes the client.
+// Close releases resources associated with the client.
+// It handles the deletion of uploaded files and cached contexts if configured to do so
+// via `deleteFilesOnClose` and `deleteCachesOnClose` respectively.
+// Any errors encountered during cleanup are collected and returned as a single joined error.
+// An optional context can be provided for the cleanup operations.
 func (c *Client) Close(ctx ...context.Context) error {
 	errs := []error{}
 
@@ -112,10 +155,6 @@ func (c *Client) Close(ctx ...context.Context) error {
 		}
 
 		if err := c.DeleteAllFiles(ctxx); err != nil {
-			if c.Verbose {
-				log.Printf("> failed to delete all files before close: %s", err)
-			}
-
 			errs = append(errs, err)
 		}
 	}
@@ -127,10 +166,6 @@ func (c *Client) Close(ctx ...context.Context) error {
 		}
 
 		if err := c.DeleteAllCachedContexts(ctxx); err != nil {
-			if c.Verbose {
-				log.Printf("> failed to delete all caches before close: %s", err)
-			}
-
 			errs = append(errs, err)
 		}
 	}
@@ -138,32 +173,45 @@ func (c *Client) Close(ctx ...context.Context) error {
 	return errors.Join(errs...)
 }
 
-// SetSystemInstructionFunc sets the system instruction function.
-//
-// NOTE: if a model or function does not support system instruction, set `nil` with this function.
+// SetSystemInstructionFunc sets a custom function that provides the system instruction string.
+// This instruction is used by the model to guide its behavior.
+// If a model or specific generation task does not support system instructions,
+// or to remove a previously set instruction, pass `nil`.
 func (c *Client) SetSystemInstructionFunc(fn FnSystemInstruction) {
 	c.systemInstructionFunc = fn
 }
 
-// SetFileConverter sets the file converter function which converts given bytes to another kind of bytes before uploading.
-//
-// NOTE: given function will be called only when the mime type is not supported defaultly (see function: `SupportedMimeType`)
+// SetFileConverter registers a custom function to convert files of a specific MIME type
+// before they are uploaded. This is useful for unsupported MIME types or for pre-processing.
+// The provided function `fn` will be called if the MIME type matches `mimeType` and
+// is not natively supported (see `SupportedMimeType`).
 func (c *Client) SetFileConverter(mimeType string, fn FnConvertBytes) {
 	c.fileConvertFuncs[mimeType] = fn
 }
 
-// SetTimeout sets the timeout in seconds.
-func (c *Client) SetTimeout(seconds int) {
+// SetTimeoutSeconds sets the default timeout in seconds for API calls like Generate,
+// GenerateStreamed, and GenerateImages. This timeout is applied to the context
+// used for these operations.
+func (c *Client) SetTimeoutSeconds(seconds int) {
 	c.timeoutSeconds = seconds
 }
 
-// ResponseModality constants
+// SetMaxRetryCount sets the default maximum number of retries for retriable API errors
+// (typically 5xx server errors) encountered during operations like Generate.
+func (c *Client) SetMaxRetryCount(count uint) {
+	c.maxRetryCount = count
+}
+
+// ResponseModality determines the type of response content expected.
+type ResponseModality string
+
+// ResponseModality constants define the types of modalities that can be requested.
 const (
-	ResponseModalityText  = "TEXT"
-	ResponseModalityImage = "IMAGE"
+	ResponseModalityText  ResponseModality = "TEXT"  // Indicates a text response.
+	ResponseModalityImage ResponseModality = "IMAGE" // Indicates an image response.
 )
 
-// generate stream iterator with given values
+// generateStream is an internal helper to create a stream iterator for content generation.
 func (c *Client) generateStream(
 	ctx context.Context,
 	prompts []Prompt,
@@ -206,11 +254,22 @@ func (c *Client) generateStream(
 	)
 }
 
-// GenerateStreamIterated generates stream iterator with given values.
+// GenerateStreamIterated returns an iterator (iter.Seq2) for streaming generated content.
+// This method allows for processing parts of the response as they arrive.
 //
-// `model` is needed to be set in the client.
+// A `model` must be set in the Client (e.g., via WithModel or by setting c.model directly)
+// before calling this function, otherwise an error will be yielded by the iterator.
 //
-// It does not timeout itself, so set timeout with `ctx` when needed.
+// This function itself does not implement a timeout. If a timeout is required,
+// it should be managed by passing a context with a deadline (`context.WithTimeout`).
+//
+// Example:
+//
+//	iter := client.GenerateStreamIterated(ctx, []gt.Prompt{gt.PromptFromText("Tell me a story.")})
+//	for resp, err := range iter {
+//	    if err != nil { /* handle error */ }
+//	    // process response part
+//	}
 func (c *Client) GenerateStreamIterated(
 	ctx context.Context,
 	prompts []Prompt,
@@ -232,20 +291,22 @@ func (c *Client) GenerateStreamIterated(
 	return c.generateStream(ctx, prompts, options...)
 }
 
-// GenerateStreamed generates with given values synchronously and calls back `fnStreamCallback`.
+// GenerateStreamed generates content and streams the response through a callback function.
+// It is a synchronous convenience wrapper around GenerateStreamIterated.
 //
-// `model` is needed to be set in the client.
+// A `model` must be set in the Client before calling.
 //
-// NOTE: It is a convenience function for `GenerateStreamIterated`,
-// but it may hang on malformed or unexpected responses from the server,
-// so it is recommended to use `GenerateStreamIterated` instead.
-// It will take the first candidate only.
+// The function processes the stream and invokes `fnStreamCallback` for each piece of data received.
+// It typically processes only the first candidate from the response.
 //
-// It times out in `timeoutSeconds` seconds.
+// This method includes a timeout mechanism based on `c.timeoutSeconds`.
+//
+// Note: For more granular control or to avoid potential hangs with malformed server responses,
+// using GenerateStreamIterated directly is recommended.
 func (c *Client) GenerateStreamed(
 	ctx context.Context,
 	prompts []Prompt,
-	fnStreamCallback FnStreamCallback,
+	fnStreamCallback FnStreamCallback, // fnStreamCallback is the function to call with each part of the streamed response.
 	options ...*GenerationOptions,
 ) (err error) {
 	// check if model is set
@@ -362,7 +423,7 @@ func (c *Client) GenerateStreamed(
 					CodeExecutionResult: part.CodeExecutionResult,
 				})
 			} else { // NOTE: TODO: add more conditions here
-				// NOTE: unsupported type will reach here
+				// NOTE: unsupported types will reach here
 
 				if (len(options) > 0 && options[0].IgnoreUnsupportedType) || candidate.FinishReason != "" {
 					// ignore unsupported type
@@ -397,17 +458,19 @@ func (c *Client) GenerateStreamed(
 	return err
 }
 
-// Generate generates with given values synchronously.
+// Generate performs a synchronous content generation request.
+// It builds the prompt from the provided `prompts`, sends it to the API, and returns the full response.
 //
-// It times out in `timeoutSeconds` seconds.
+// A `model` must be set in the Client before calling.
 //
-// It retries on `5xx` errors for `maxRetryCount` times.
-//
-// `model` is needed to be set in the client.
+// The function includes a timeout mechanism based on `c.timeoutSeconds`
+// (configurable via `WithTimeoutSeconds“ or `SetTimeoutSeconds`).
+// It also implements a retry mechanism for 5xx server errors, configured by `c.maxRetryCount`
+// (configurable via `WithMaxRetryCount` or `SetMaxRetryCount`).
 func (c *Client) Generate(
 	ctx context.Context,
-	prompts []Prompt,
-	options ...*GenerationOptions,
+	prompts []Prompt, // A slice of Prompt interfaces (e.g., TextPrompt, FilePrompt) to form the request.
+	options ...*GenerationOptions, // Optional GenerationOptions to customize the request.
 ) (res *genai.GenerateContentResponse, err error) {
 	// check if model is set
 	if c.model == "" {
@@ -437,34 +500,37 @@ func (c *Client) Generate(
 		return nil, fmt.Errorf("failed to build prompts: %w", err)
 	}
 
-	return c.generate(ctx, contents, maxRetryCount, opts)
+	return c.generate(ctx, contents, c.maxRetryCount, opts)
 }
 
-// ImageGenerationOptions struct for generating images
+// ImageGenerationOptions defines parameters for image generation requests.
+// These options correspond to the fields in `genai.GenerateImagesConfig`.
 type ImageGenerationOptions struct {
-	NegativePrompt           string                    `json:"negativePrompt,omitempty"`
-	NumberOfImages           int32                     `json:"numberOfImages,omitempty"`
-	AspectRatio              string                    `json:"aspectRatio,omitempty"`
-	GuidanceScale            *float32                  `json:"guidanceScale,omitempty"`
-	Seed                     *int32                    `json:"seed,omitempty"`
-	SafetyFilterLevel        genai.SafetyFilterLevel   `json:"safetyFilterLevel,omitempty"`
-	PersonGeneration         genai.PersonGeneration    `json:"personGeneration,omitempty"`
-	IncludeSafetyAttributes  bool                      `json:"includeSafetyAttributes,omitempty"`
-	IncludeRAIReason         bool                      `json:"includeRaiReason,omitempty"`
-	Language                 genai.ImagePromptLanguage `json:"language,omitempty"`
-	OutputMIMEType           string                    `json:"outputMimeType,omitempty"`
-	OutputCompressionQuality *int32                    `json:"outputCompressionQuality,omitempty"`
-	AddWatermark             bool                      `json:"addWatermark,omitempty"`
-	EnhancePrompt            bool                      `json:"enhancePrompt,omitempty"`
+	NegativePrompt           string                    `json:"negativePrompt,omitempty"`           // Specifies what not to include in the generated images.
+	NumberOfImages           int32                     `json:"numberOfImages,omitempty"`           // The number of images to generate.
+	AspectRatio              string                    `json:"aspectRatio,omitempty"`              // The desired aspect ratio for the generated images (e.g., "16:9", "1:1").
+	GuidanceScale            *float32                  `json:"guidanceScale,omitempty"`            // Controls how closely the image generation follows the prompt.
+	Seed                     *int32                    `json:"seed,omitempty"`                     // A seed for deterministic image generation.
+	SafetyFilterLevel        genai.SafetyFilterLevel   `json:"safetyFilterLevel,omitempty"`        // The safety filtering level to apply.
+	PersonGeneration         genai.PersonGeneration    `json:"personGeneration,omitempty"`         // Controls settings related to person generation.
+	IncludeSafetyAttributes  bool                      `json:"includeSafetyAttributes,omitempty"`  // Whether to include safety attributes in the response.
+	IncludeRAIReason         bool                      `json:"includeRaiReason,omitempty"`         // Whether to include RAI (Responsible AI) reasons in the response.
+	Language                 genai.ImagePromptLanguage `json:"language,omitempty"`                 // The language of the prompt.
+	OutputMIMEType           string                    `json:"outputMimeType,omitempty"`           // The desired MIME type for the output images.
+	OutputCompressionQuality *int32                    `json:"outputCompressionQuality,omitempty"` // The compression quality for the output images.
+	AddWatermark             bool                      `json:"addWatermark,omitempty"`             // Whether to add a watermark to the generated images.
+	EnhancePrompt            bool                      `json:"enhancePrompt,omitempty"`            // Whether to enhance the prompt for better image generation.
 }
 
-// GenerateImages generates images with given prompt.
+// GenerateImages generates images based on the provided text prompt and options.
 //
-// `model` is needed to be set in the client.
+// A `model` (specifically an image generation model) must be set in the Client before calling.
+//
+// This method includes a timeout mechanism based on `c.timeoutSeconds`.
 func (c *Client) GenerateImages(
 	ctx context.Context,
-	prompt string,
-	options ...*ImageGenerationOptions,
+	prompt string, // The text prompt describing the images to generate.
+	options ...*ImageGenerationOptions, // Optional ImageGenerationOptions to customize the request.
 ) (res *genai.GenerateImagesResponse, err error) {
 	// check if model is set
 	if c.model == "" {
@@ -502,23 +568,29 @@ func (c *Client) GenerateImages(
 		log.Printf("> generating images with prompt: '%s' (options: %s)", prompt, prettify(opts))
 	}
 
-	return c.client.Models.GenerateImages(
+	res, err = c.client.Models.GenerateImages(
 		ctx,
 		c.model,
 		prompt,
 		config,
 	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate images: %w", err)
+	}
+	return res, nil
 }
 
 // generate with retry count
 func (c *Client) generate(
 	ctx context.Context,
 	parts []*genai.Content,
-	remainingRetryCount uint,
+	initialRetryCount uint,
 	options ...*GenerationOptions,
 ) (res *genai.GenerateContentResponse, err error) {
-	if c.Verbose && remainingRetryCount < maxRetryCount {
-		log.Printf("> retrying generation with remaining retry count: %d", remainingRetryCount)
+	currentRetryBudget := initialRetryCount
+
+	if c.Verbose && currentRetryBudget < c.maxRetryCount { // Compare with the original maxRetryCount from client config
+		log.Printf("> retrying generation with remaining retry budget: %d (initial: %d)", currentRetryBudget, c.maxRetryCount)
 	}
 
 	// generation options
@@ -536,15 +608,17 @@ func (c *Client) generate(
 	if err != nil {
 		var se *genai.APIError
 		if errors.As(err, &se) && se.Code >= 500 { // retry on server errors (5xx)
-			if remainingRetryCount > 0 { // retriable,
+			if currentRetryBudget > 0 { // retriable,
 				// then retry
-				return c.generate(ctx, parts, remainingRetryCount-1)
+				return c.generate(ctx, parts, currentRetryBudget-1) // Pass decremented budget
 			} else { // all retries failed,
-				return nil, fmt.Errorf("all %d retries of generation failed with the latest error: %w", maxRetryCount, err)
+				return nil, fmt.Errorf("all %d retries of generation failed with the latest error: %w", c.maxRetryCount, err)
 			}
 		}
+		// Wrap non-retried errors
+		return nil, fmt.Errorf("generation failed: %w", err)
 	}
-	return res, err
+	return res, nil
 }
 
 // generate config for content generation
@@ -602,18 +676,21 @@ func (c *Client) generateContentConfig(opts *GenerationOptions) (generated *gena
 	return generated
 }
 
-// CacheContext caches the context with given values and returns the name of the cached context.
+// CacheContext creates a cached content entry on the server.
+// This can be used to reduce latency and token count for frequently used context.
 //
-// `model` is needed to be set in the client.
+// A `model` must be set in the Client before calling.
+// The `systemInstruction`, `prompts`, `tools`, `toolConfig`, and `cachedContextDisplayName`
+// are used to configure the cached content.
 //
-// `tools`, `toolConfig`, and `cachedContextDisplayName` are optional.
+// Returns the server-assigned name of the cached content and any error encountered.
 func (c *Client) CacheContext(
 	ctx context.Context,
-	systemInstruction *string,
-	prompts []Prompt,
-	tools []*genai.Tool,
-	toolConfig *genai.ToolConfig,
-	cachedContextDisplayName *string,
+	systemInstruction *string, // Optional system instruction for the cached context.
+	prompts []Prompt, // Prompts to include in the cached context.
+	tools []*genai.Tool, // Optional tools to be available with the cached context.
+	toolConfig *genai.ToolConfig, // Optional configuration for the tools.
+	cachedContextDisplayName *string, // Optional display name for the cached content.
 ) (cachedContextName string, err error) {
 	// check if model is set
 	if c.model == "" {
@@ -663,49 +740,58 @@ func (c *Client) CacheContext(
 	return cc.Name, nil
 }
 
-// SetCachedContextExpireTime sets the expiration time of a cached context.
-//
-// `model` is not needed to be set in the client.
-//
-// (default: 1 hour later)
+// SetCachedContextExpireTime updates the expiration time of an existing cached content.
+// The `model` does not need to be set in the client for this operation, as it uses the `cachedContextName`.
+// The `expireTime` specifies the new absolute time at which the cache should expire.
 func (c *Client) SetCachedContextExpireTime(
 	ctx context.Context,
-	cachedContextName string,
-	expireTime time.Time,
+	cachedContextName string, // The name of the cached content to update.
+	expireTime time.Time, // The new expiration time.
 ) (err error) {
 	var cc *genai.CachedContent
-	if cc, err = c.client.Caches.Get(ctx, cachedContextName, &genai.GetCachedContentConfig{}); err == nil {
-		_, err = c.client.Caches.Update(ctx, cc.Name, &genai.UpdateCachedContentConfig{
-			ExpireTime: expireTime,
-		})
+	cc, err = c.client.Caches.Get(ctx, cachedContextName, &genai.GetCachedContentConfig{})
+	if err != nil {
+		return fmt.Errorf("failed to get cached context %s: %w", cachedContextName, err)
 	}
-	return err
+
+	_, err = c.client.Caches.Update(ctx, cc.Name, &genai.UpdateCachedContentConfig{
+		ExpireTime: expireTime,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to update cached context %s: %w", cachedContextName, err)
+	}
+
+	return nil
 }
 
-// SetCachedContextTTL sets the TTL of a cached context.
-//
-// `model` is not needed to be set in the client.
-//
-// (default: 1 hour)
+// SetCachedContextTTL updates the Time-To-Live (TTL) of an existing cached content.
+// The `model` does not need to be set in the client for this operation.
+// The `ttl` specifies the new duration for which the cache should live from the time of the update.
+// A common default TTL (e.g., 1 hour) is often applied by the server if not specified.
 func (c *Client) SetCachedContextTTL(
 	ctx context.Context,
-	cachedContextName string,
-	ttl time.Duration,
+	cachedContextName string, // The name of the cached content to update.
+	ttl time.Duration, // The new TTL duration.
 ) (err error) {
 	var cc *genai.CachedContent
-	if cc, err = c.client.Caches.Get(ctx, cachedContextName, &genai.GetCachedContentConfig{}); err == nil {
-		_, err = c.client.Caches.Update(ctx, cc.Name, &genai.UpdateCachedContentConfig{
-			TTL: ttl,
-		})
+	cc, err = c.client.Caches.Get(ctx, cachedContextName, &genai.GetCachedContentConfig{})
+	if err != nil {
+		return fmt.Errorf("failed to get cached context %s: %w", cachedContextName, err)
 	}
-	return err
+
+	_, err = c.client.Caches.Update(ctx, cc.Name, &genai.UpdateCachedContentConfig{
+		TTL: ttl,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to update cached context %s: %w", cachedContextName, err)
+	}
+
+	return nil
 }
 
-// ListAllCachedContexts lists all cached contexts.
-//
-// `model` is not needed to be set in the client.
-//
-// Returns a map of cached context name and cached context.
+// ListAllCachedContexts retrieves a list of all cached content entries available.
+// The `model` does not need to be set in the client for this operation.
+// It returns a map where keys are cached content names and values are the corresponding `*genai.CachedContent` objects.
 func (c *Client) ListAllCachedContexts(ctx context.Context) (listed map[string]*genai.CachedContent, err error) {
 	listed = make(map[string]*genai.CachedContent)
 
@@ -728,9 +814,10 @@ func (c *Client) ListAllCachedContexts(ctx context.Context) (listed map[string]*
 	return listed, nil
 }
 
-// DeleteAllCachedContexts deletes all cached contexts.
-//
-// `model` is not needed to be set in the client.
+// DeleteAllCachedContexts iterates through all available cached content and deletes each one.
+// The `model` does not need to be set in the client for this operation.
+// Errors encountered during deletion of individual caches are aggregated.
+// Consider the rate limits if deleting a very large number of caches.
 func (c *Client) DeleteAllCachedContexts(ctx context.Context) (err error) {
 	if c.Verbose {
 		log.Printf("> deleting all cached contexts...")
@@ -746,19 +833,18 @@ func (c *Client) DeleteAllCachedContexts(ctx context.Context) (err error) {
 		}
 
 		if err = c.DeleteCachedContext(ctx, it.Name); err != nil {
-			return err
+			return fmt.Errorf("failed to delete cached context %s during DeleteAllCachedContexts: %w", it.Name, err)
 		}
 	}
 
 	return nil
 }
 
-// DeleteCachedContext deletes a cached context.
-//
-// `model` is not needed to be set in the client.
+// DeleteCachedContext deletes a specific cached content entry by its name.
+// The `model` does not need to be set in the client for this operation.
 func (c *Client) DeleteCachedContext(
 	ctx context.Context,
-	cachedContextName string,
+	cachedContextName string, // The name of the cached content to delete.
 ) (err error) {
 	if c.Verbose {
 		log.Printf("> deleting cached context: %s...", cachedContextName)
@@ -771,9 +857,10 @@ func (c *Client) DeleteCachedContext(
 	return nil
 }
 
-// DeleteAllFiles deletes all uploaded files.
-//
-// `model` is not needed to be set in the client.
+// DeleteAllFiles iterates through all uploaded files associated with the API key and deletes them.
+// The `model` does not need to be set in the client for this operation.
+// Errors during deletion of individual files are aggregated.
+// Consider rate limits if deleting a large number of files.
 func (c *Client) DeleteAllFiles(ctx context.Context) (err error) {
 	if c.Verbose {
 		log.Printf("> deleting all uploaded files...")
@@ -789,41 +876,44 @@ func (c *Client) DeleteAllFiles(ctx context.Context) (err error) {
 		}
 
 		if _, err := c.client.Files.Delete(ctx, it.Name, &genai.DeleteFileConfig{}); err != nil {
-			return fmt.Errorf("failed to delete file: %w", err)
+			return fmt.Errorf("failed to delete file %s: %w", it.Name, err)
 		}
 	}
 
 	return nil
 }
 
-// EmbeddingTaskType constants
+// EmbeddingTaskType defines the specific task for which embeddings are being generated.
+// This helps the model produce more relevant embeddings.
+// See https://ai.google.dev/api/embeddings#v1beta.TaskType for details.
 type EmbeddingTaskType string
 
-// https://ai.google.dev/api/embeddings#v1beta.TaskType
+// EmbeddingTaskType constants represent the various tasks for which embeddings can be optimized.
 const (
-	EmbeddingTaskUnspecified        EmbeddingTaskType = "TASK_TYPE_UNSPECIFIED"
-	EmbeddingTaskRetrievalQuery     EmbeddingTaskType = "RETRIEVAL_QUERY"
-	EmbeddingTaskRetrievalDocument  EmbeddingTaskType = "RETRIEVAL_DOCUMENT"
-	EmbeddingTaskSemanticSimilarity EmbeddingTaskType = "SEMANTIC_SIMILARITY"
-	EmbeddingTaskClassification     EmbeddingTaskType = "CLASSIFICATION"
-	EmbeddingTaskClustering         EmbeddingTaskType = "CLUSTERING"
-	EmbeddingTaskQuestionAnswering  EmbeddingTaskType = "QUESTION_ANSWERING"
-	EmbeddingTaskFactVerification   EmbeddingTaskType = "FACT_VERIFICATION"
-	EmbeddingTaskCodeRetrievalQuery EmbeddingTaskType = "CODE_RETRIEVAL_QUERY"
+	EmbeddingTaskUnspecified        EmbeddingTaskType = "TASK_TYPE_UNSPECIFIED" // Default, unspecified task type.
+	EmbeddingTaskRetrievalQuery     EmbeddingTaskType = "RETRIEVAL_QUERY"       // Embeddings for a query to be used in retrieval.
+	EmbeddingTaskRetrievalDocument  EmbeddingTaskType = "RETRIEVAL_DOCUMENT"    // Embeddings for a document to be indexed for retrieval.
+	EmbeddingTaskSemanticSimilarity EmbeddingTaskType = "SEMANTIC_SIMILARITY"   // Embeddings for semantic similarity tasks.
+	EmbeddingTaskClassification     EmbeddingTaskType = "CLASSIFICATION"        // Embeddings for classification tasks.
+	EmbeddingTaskClustering         EmbeddingTaskType = "CLUSTERING"            // Embeddings for clustering tasks.
+	EmbeddingTaskQuestionAnswering  EmbeddingTaskType = "QUESTION_ANSWERING"    // Embeddings for question answering.
+	EmbeddingTaskFactVerification   EmbeddingTaskType = "FACT_VERIFICATION"     // Embeddings for fact verification.
+	EmbeddingTaskCodeRetrievalQuery EmbeddingTaskType = "CODE_RETRIEVAL_QUERY"  // Embeddings for code retrieval query.
 )
 
-// GenerateEmbeddings generates embeddings with given values.
+// GenerateEmbeddings creates vector embeddings for the given content.
 //
-// `model` is needed to be set in the client.
+// A `model` (specifically an embedding model) must be set in the Client.
+// The `title` is optional but recommended if `taskType` is `EmbeddingTaskRetrievalDocument`.
+// `contents` are the actual pieces of text/data to embed.
+// `taskType` specifies the intended use of the embeddings, allowing the model to optimize them.
 //
-// `title` can be empty.
-//
-// https://ai.google.dev/gemini-api/docs/embeddings
+// Refer to https://ai.google.dev/gemini-api/docs/embeddings for more details.
 func (c *Client) GenerateEmbeddings(
 	ctx context.Context,
-	title string,
-	contents []*genai.Content,
-	taskType *EmbeddingTaskType,
+	title string, // Optional title for the content, relevant for RETRIEVAL_DOCUMENT task type.
+	contents []*genai.Content, // The content to generate embeddings for.
+	taskType *EmbeddingTaskType, // Optional task type to optimize embeddings.
 ) (vectors [][]float32, err error) {
 	// check if model is set
 	if c.model == "" {
@@ -871,15 +961,16 @@ func (c *Client) GenerateEmbeddings(
 	return
 }
 
-// CountTokens counts tokens for given contents.
+// CountTokens calculates the number of tokens that the provided content would consume.
+// This is useful for understanding and managing token usage.
 //
-// `model` is needed to be set in the client.
+// A `model` must be set in the Client.
 //
-// https://ai.google.dev/gemini-api/docs/tokens?lang=go
+// See https://ai.google.dev/gemini-api/docs/tokens?lang=go for more information.
 func (c *Client) CountTokens(
 	ctx context.Context,
-	contents []*genai.Content,
-	config ...*genai.CountTokensConfig,
+	contents []*genai.Content, // The content for which to count tokens.
+	config ...*genai.CountTokensConfig, // Optional configuration for token counting.
 ) (res *genai.CountTokensResponse, err error) {
 	// check if model is set
 	if c.model == "" {
@@ -895,12 +986,16 @@ func (c *Client) CountTokens(
 		cfg = config[0]
 	}
 
-	return c.client.Models.CountTokens(ctx, c.model, contents, cfg)
+	res, err = c.client.Models.CountTokens(ctx, c.model, contents, cfg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to count tokens: %w", err)
+	}
+	return res, nil
 }
 
-// ListModels returns all available models.
-//
-// `model` is not needed to be set in the client.
+// ListModels retrieves a list of all generative models available to the authenticated API key.
+// The `model` field in the Client does not need to be set for this operation.
+// The function handles pagination automatically and returns a consolidated list of models.
 func (c *Client) ListModels(ctx context.Context) (models []*genai.Model, err error) {
 	if c.Verbose {
 		log.Printf("> listing models...")
