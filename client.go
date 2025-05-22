@@ -46,15 +46,15 @@ type Client struct {
 	apiKey string        // API key for authentication.
 	client *genai.Client // Underlying Google Generative AI client.
 
-	model                 string                    // Default model to be used for generation tasks if not specified in options.
+	model                 string                    // model to be used for generation.
 	systemInstructionFunc FnSystemInstruction       // Function that returns the system instruction string.
 	fileConvertFuncs      map[string]FnConvertBytes // Map of MIME types to custom file conversion functions.
-	timeoutSeconds        int                       // Default timeout in seconds for API calls like Generate, GenerateStreamed.
-	maxRetryCount         uint                      // Default maximum retry count for retriable API errors (e.g., 5xx).
-	deleteFilesOnClose    bool                      // If true, automatically deletes all uploaded files when Close is called.
-	deleteCachesOnClose   bool                      // If true, automatically deletes all cached contexts when Close is called.
+	timeoutSeconds        int                       // timeout in seconds for API calls like Generate, GenerateStreamed.
+	maxRetryCount         uint                      // maximum retry count for retriable API errors (e.g., 5xx).
 
-	Verbose bool // If true, enables verbose logging for debugging.
+	DeleteFilesOnClose  bool // If true, automatically deletes all uploaded files when Close is called.
+	DeleteCachesOnClose bool // If true, automatically deletes all cached contexts when Close is called.
+	Verbose             bool // If true, enables verbose logging for debugging.
 }
 
 // ClientOption is a function type used to configure a new Client.
@@ -121,8 +121,8 @@ func NewClient(apiKey string, opts ...ClientOption) (*Client, error) {
 		fileConvertFuncs:    make(map[string]FnConvertBytes),
 		timeoutSeconds:      defaultTimeoutSeconds,
 		maxRetryCount:       defaultMaxRetryCount,
-		deleteFilesOnClose:  false,
-		deleteCachesOnClose: false,
+		DeleteFilesOnClose:  false,
+		DeleteCachesOnClose: false,
 		Verbose:             false,
 	}
 
@@ -149,7 +149,7 @@ func (c *Client) Close(ctx ...context.Context) error {
 	}
 
 	// delete all files before close
-	if c.deleteFilesOnClose {
+	if c.DeleteFilesOnClose {
 		if c.Verbose {
 			log.Printf("> deleting all files before close...")
 		}
@@ -160,7 +160,7 @@ func (c *Client) Close(ctx ...context.Context) error {
 	}
 
 	// delete all caches before close
-	if c.deleteCachesOnClose {
+	if c.DeleteCachesOnClose {
 		if c.Verbose {
 			log.Printf("> deleting all caches before close...")
 		}

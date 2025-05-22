@@ -87,8 +87,8 @@ func TestContextCaching(t *testing.T) {
 	// Setting the client's system instruction func to nil prevents the client from adding its default system instruction.
 	// Additionally, the GenerationOptions for the specific calls using CachedContent must not set these fields.
 	gtc.SetSystemInstructionFunc(nil)
-	gtc.deleteFilesOnClose = true
-	gtc.deleteCachesOnClose = true
+	gtc.DeleteFilesOnClose = true
+	gtc.DeleteCachesOnClose = true
 	gtc.Verbose = _isVerbose
 	defer gtc.Close()
 
@@ -237,7 +237,7 @@ func TestGeneration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create client: %s", err)
 	}
-	gtc.deleteFilesOnClose = true
+	gtc.DeleteFilesOnClose = true
 	gtc.Verbose = _isVerbose
 	defer gtc.Close()
 
@@ -342,7 +342,7 @@ func TestGenerationIterated(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create client: %s", err)
 	}
-	gtc.deleteFilesOnClose = true
+	gtc.DeleteFilesOnClose = true
 	gtc.Verbose = _isVerbose
 	defer gtc.Close()
 
@@ -427,7 +427,7 @@ func TestGenerationStreamed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create client: %s", err)
 	}
-	gtc.deleteFilesOnClose = true
+	gtc.DeleteFilesOnClose = true
 	gtc.Verbose = _isVerbose
 	defer gtc.Close()
 
@@ -625,7 +625,7 @@ func TestGenerationWithFileConverter(t *testing.T) {
 			return []byte(converted.String()), "text/csv", nil
 		},
 	)
-	gtc.deleteFilesOnClose = true
+	gtc.DeleteFilesOnClose = true
 	gtc.Verbose = _isVerbose
 	defer gtc.Close()
 
@@ -970,7 +970,7 @@ func TestGenerationWithCodeExecution(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create client: %s", err)
 	}
-	gtc.deleteFilesOnClose = true
+	gtc.DeleteFilesOnClose = true
 	gtc.Verbose = _isVerbose
 	defer gtc.Close()
 
