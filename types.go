@@ -10,45 +10,62 @@ import (
 	"google.golang.org/genai"
 )
 
-// Prompt interface for various types of prompt
+// Prompt is an interface representing different types of input that can be
+// converted into a `genai.Part` for use in generative AI model requests.
+// It standardizes how various input forms (text, file, URI, bytes) are processed.
 type Prompt interface {
+	// String returns a string representation of the prompt, useful for logging or debugging.
 	String() string
+	// ToPart converts the prompt into a `genai.Part`.
+	// The implementation determines how the specific prompt type is transformed
+	// (e.g., text to TextPart, file URI to FileDataPart).
 	ToPart() genai.Part
 }
 
-// TextPrompt struct
+// TextPrompt represents a simple text-based prompt.
 type TextPrompt struct {
-	text string
+	text string // The actual text content of the prompt.
 }
 
-// ToPart converts TextPrompt to genai.Part.
+// ToPart converts the TextPrompt into a `genai.Part` containing the text.
 func (p TextPrompt) ToPart() genai.Part {
 	return genai.Part{
 		Text: p.text,
 	}
 }
 
-// String returns the text prompt as a string.
+// String returns a string representation of the TextPrompt, showing the text content.
 func (p TextPrompt) String() string {
 	return fmt.Sprintf("text='%s'", p.text)
 }
 
-// PromptFromText returns a Prompt with given text.
+// PromptFromText creates a new TextPrompt from the given text string.
+// It implements the Prompt interface.
 func PromptFromText(text string) Prompt {
 	return TextPrompt{
 		text: text,
 	}
 }
 
-// FilePrompt struct
+// FilePrompt represents a prompt that involves a file to be uploaded.
+// The file content is provided via an io.Reader.
+// After processing (e.g., uploading via client.processPromptToPartAndInfo), the `data` field
+// will be populated with the URI and MIME type of the uploaded file from the server.
 type FilePrompt struct {
-	filename string
-	reader   io.Reader
+	filename string    // filename is the display name for the file, used during upload.
+	reader   io.Reader // reader provides the content of the file.
 
-	data *genai.FileData // NOTE: == nil unless uploaded successfully
+	// data holds the URI and MIME type of the file after it has been uploaded
+	// and the server has responded with the file's metadata.
+	// This field is populated by processing functions like `client.processPromptToPartAndInfo`.
+	// It is nil until the file is successfully processed and its URI obtained.
+	data *genai.FileData
 }
 
-// ToPart converts FilePrompt to genai.Part.
+// ToPart converts the FilePrompt into a `genai.Part` using the FileData (URI and MIME type).
+// This method relies on the `data` field being populated by a prior file upload step
+// (e.g., within `client.processPromptToPartAndInfo`). If `p.data` is nil,
+// it will result in a `genai.Part` with empty FileData, which may be invalid for API requests.
 func (p FilePrompt) ToPart() genai.Part {
 	return genai.Part{
 		FileData: &genai.FileData{
@@ -58,7 +75,8 @@ func (p FilePrompt) ToPart() genai.Part {
 	}
 }
 
-// String returns the file prompt as a string.
+// String returns a string representation of the FilePrompt.
+// If the file has been uploaded and `data` is populated, it includes the URI and MIME type.
 func (p FilePrompt) String() string {
 	if p.data != nil {
 		return fmt.Sprintf("file='%s';uri='%s';mimeType=%s", p.filename, p.data.FileURI, p.data.MIMEType)
@@ -66,7 +84,8 @@ func (p FilePrompt) String() string {
 	return fmt.Sprintf("file='%s'", p.filename)
 }
 
-// PromptFromFile returns a Prompt with given filename and reader.
+// PromptFromFile creates a new FilePrompt with the given display filename and an io.Reader for its content.
+// It implements the Prompt interface.
 func PromptFromFile(filename string, reader io.Reader) Prompt {
 	return FilePrompt{
 		filename: filename,
@@ -74,12 +93,14 @@ func PromptFromFile(filename string, reader io.Reader) Prompt {
 	}
 }
 
-// URIPrompt struct
+// URIPrompt represents a prompt that uses a URI to point to file data
+// (e.g., a gs:// URI for a file in Google Cloud Storage, or a publicly accessible HTTPS URI).
 type URIPrompt struct {
-	uri string
+	uri string // The URI of the file.
 }
 
-// ToPart converts URIPrompt to genai.Part.
+// ToPart converts the URIPrompt into a `genai.Part` using the FileData URI.
+// The MIME type is not explicitly set here as the server is expected to infer it or it's set by the URI itself.
 func (p URIPrompt) ToPart() genai.Part {
 	return genai.Part{
 		FileData: &genai.FileData{
@@ -88,25 +109,33 @@ func (p URIPrompt) ToPart() genai.Part {
 	}
 }
 
-// String returns the URI prompt as a string.
+// String returns a string representation of the URIPrompt.
 func (p URIPrompt) String() string {
 	return fmt.Sprintf("uri='%s'", p.uri)
 }
 
-// PromptFromURI returns a Prompt with given URI.
+// PromptFromURI creates a new URIPrompt from the given URI string.
+// It implements the Prompt interface.
 func PromptFromURI(uri string) Prompt {
 	return URIPrompt{
 		uri: uri,
 	}
 }
 
-// BytesPrompt struct
+// BytesPrompt represents a prompt where the file data is provided directly as a byte slice.
+// This is typically used for smaller files that can be inlined in the request if not uploaded,
+// or uploaded if they exceed size limits for inline data or if a file URI is preferred.
+// The `filename` field can be used to provide a display name if the bytes are uploaded.
 type BytesPrompt struct {
-	bytes    []byte
-	mimeType string
+	filename string // Optional display name for the byte data, used if uploaded.
+	bytes    []byte // The raw byte data of the file.
+	mimeType string // The MIME type of the byte data (e.g., "image/png"), typically auto-detected.
 }
 
-// ToPart converts BytesPrompt to genai.Part.
+// ToPart converts the BytesPrompt into a `genai.Part`.
+// If the BytesPrompt was processed by `client.processPromptToPartAndInfo` and uploaded,
+// it would have been converted to a FilePrompt, and that FilePrompt's ToPart would be used.
+// This ToPart method is for when BytesPrompt is used directly to form an InlineData part.
 func (p BytesPrompt) ToPart() genai.Part {
 	return genai.Part{
 		InlineData: &genai.Blob{
@@ -116,12 +145,18 @@ func (p BytesPrompt) ToPart() genai.Part {
 	}
 }
 
-// String returns the inline file prompt as a string.
+// String returns a string representation of the BytesPrompt, including its filename (if any), length, and MIME type.
 func (p BytesPrompt) String() string {
+	if p.filename != "" {
+		return fmt.Sprintf("bytes(file='%s')[%d];mimeType=%s", p.filename, len(p.bytes), p.mimeType)
+	}
 	return fmt.Sprintf("bytes[%d];mimeType=%s", len(p.bytes), p.mimeType)
 }
 
-// PromptFromBytes returns a Prompt with given bytes.
+// PromptFromBytes creates a new BytesPrompt from a byte slice.
+// The MIME type is automatically detected from the byte content.
+// It implements the Prompt interface.
+// This version does not include a filename.
 func PromptFromBytes(bytes []byte) Prompt {
 	return BytesPrompt{
 		bytes:    bytes,
@@ -129,97 +164,121 @@ func PromptFromBytes(bytes []byte) Prompt {
 	}
 }
 
-// GenerationOptions struct for text generations
+// PromptFromBytesWithName creates a new BytesPrompt from a byte slice with an associated filename.
+// The MIME type is automatically detected from the byte content.
+// It implements the Prompt interface.
+func PromptFromBytesWithName(bytes []byte, filename string) Prompt {
+	return BytesPrompt{
+		filename: filename,
+		bytes:    bytes,
+		mimeType: mimetype.Detect(bytes).String(),
+	}
+}
+
+// GenerationOptions defines various parameters to control the content generation process.
 type GenerationOptions struct {
-	// generation config
+	// Config specifies the core generation parameters like temperature, topK, topP, etc.
+	// See `google.golang.org/genai.GenerationConfig` for details.
 	Config *genai.GenerationConfig
 
-	// tool config
-	Tools      []*genai.Tool
+	// Tools is a list of `genai.Tool` instances that the model can use, such as function calling tools.
+	Tools []*genai.Tool
+	// ToolConfig provides configuration for how the model should use the provided Tools.
 	ToolConfig *genai.ToolConfig
 
-	// safety settings: harm block threshold
+	// HarmBlockThreshold specifies the minimum harm level at which content will be blocked.
+	// If nil, the API's default behavior is used.
 	HarmBlockThreshold *genai.HarmBlockThreshold
 
-	// for reusing the cached content
+	// CachedContent specifies the name of a previously cached content to reuse for this generation.
+	// Using cached content can reduce latency and token usage.
 	CachedContent string
 
-	// for multimodal response
+	// ResponseModalities specifies the expected types of content in the response,
+	// e.g., "TEXT", "IMAGE". See `gt.ResponseModalityText` and `gt.ResponseModalityImage`.
 	ResponseModalities []string
-	MediaResolution    genai.MediaResolution
-	SpeechConfig       *genai.SpeechConfig
+	// MediaResolution specifies the desired resolution for media output, if applicable.
+	MediaResolution genai.MediaResolution
+	// SpeechConfig provides configuration for speech synthesis, if applicable.
+	SpeechConfig *genai.SpeechConfig
 
-	// history (for session)
+	// History provides the preceding conversation messages to maintain context in a session.
+	// It's a slice of `genai.Content` structs, ordered from oldest to newest.
 	History []genai.Content
 
-	// whether to ignore unsupported type while streaming
+	// IgnoreUnsupportedType, if true, will cause the streaming callback to ignore
+	// parts of a type that it does not explicitly handle, rather than returning an error.
 	IgnoreUnsupportedType bool
 
-	// whether to generate with thinking on
-	ThinkingOn     bool
+	// ThinkingOn enables the model to output "thoughts" or intermediate steps during generation.
+	ThinkingOn bool
+	// ThinkingBudget specifies a budget for "thinking" steps if ThinkingOn is true.
 	ThinkingBudget int32
 }
 
-// NewGenerationOptions returns a new GenerationOptions with default values.
+// NewGenerationOptions creates a new GenerationOptions struct initialized with
+// a default HarmBlockThreshold of `HarmBlockThresholdBlockOnlyHigh`.
 func NewGenerationOptions() *GenerationOptions {
 	return &GenerationOptions{
 		HarmBlockThreshold: ptr(genai.HarmBlockThresholdBlockOnlyHigh),
 	}
 }
 
-// StreamCallbackData struct contains the data for stream callback function.
+// StreamCallbackData encapsulates the various types of data that can be received
+// during a streaming generation call. Each field is populated depending on the
+// type of content or event received from the stream.
 type StreamCallbackData struct {
-	// when there is a text delta,
+	// TextDelta contains a chunk of text if the current part of the stream is text.
 	TextDelta *string
-
-	// when there is a file bytes array,
+	// InlineData contains binary data (e.g., an image) if the stream provides inline data.
 	InlineData *genai.Blob
-
-	// when there is a uri based data,
+	// FileData contains URI-based data if the stream provides a file URI.
 	FileData *genai.FileData
-
-	// when there is a video metadata,
+	// VideoMetadata contains metadata for video content, if applicable.
 	VideoMetadata *genai.VideoMetadata
-
-	// thinking...?
+	// Thought indicates a thinking step from the model, if ThinkingOn is enabled in GenerationOptions.
 	Thought bool
-
-	// when there is a function call,
-	FunctionCall     *genai.FunctionCall
+	// FunctionCall contains a function call requested by the model, if tools are used.
+	FunctionCall *genai.FunctionCall
+	// FunctionResponse contains the result of a function call, used when providing results back to the model.
 	FunctionResponse *genai.FunctionResponse
-
-	// when there is a code execution result,
-	ExecutableCode      *genai.ExecutableCode
+	// ExecutableCode contains code that the model suggests for execution.
+	ExecutableCode *genai.ExecutableCode
+	// CodeExecutionResult contains the output from executing code.
 	CodeExecutionResult *genai.CodeExecutionResult
-
-	// when the number of tokens are calculated, (after the stream is finished)
+	// NumTokens provides token usage details, typically available at the end of the stream or in aggregate responses.
 	NumTokens *NumTokens
-
-	// when there is a finish reason,
+	// FinishReason indicates why the generation finished (e.g., "STOP", "MAX_TOKENS", "SAFETY").
 	FinishReason *genai.FinishReason
-
-	// when there is an error,
+	// Error contains any error encountered during stream processing or from the API.
 	Error error
 
-	// NOTE: TODO: add more data here
+	// NOTE: TODO: add more data here (This comment can be removed or updated if no more fields are immediately planned)
 }
 
-// NumTokens struct for input/output token numbers
+// NumTokens represents the breakdown of token usage for a generation request.
 type NumTokens struct {
-	Cached   int32
-	Output   int32
-	Input    int32
-	Thoughts int32
-	ToolUse  int32
-	Total    int32
+	Cached   int32 // Number of tokens from cached content.
+	Output   int32 // Number of tokens in the generated output (candidates).
+	Input    int32 // Number of tokens in the input prompt.
+	Thoughts int32 // Number of tokens used for model's internal "thoughts" (if applicable and requested).
+	ToolUse  int32 // Number of tokens used for tool interactions (function calls, etc.).
+	Total    int32 // Total number of tokens processed for the request.
 }
 
 // function definitions
 type (
+	// FnSystemInstruction is a function type that returns a string to be used as the system instruction.
+	// This allows for dynamic generation of system instructions if needed.
 	FnSystemInstruction func() string
 
-	// returns converted bytes, converted mime type, and/or error
+	// FnConvertBytes is a function type for converting file bytes.
+	// It takes a byte slice (original file content) and should return
+	// the converted byte slice, the new MIME type string, and an error if conversion fails.
+	// This is used by the Client's SetFileConverter method to handle custom file type conversions.
 	FnConvertBytes func(bytes []byte) ([]byte, string, error)
 
+	// FnStreamCallback is a function type used as a callback for processing streamed generation responses.
+	// It receives StreamCallbackData containing different parts of the response as they arrive from the model.
 	FnStreamCallback func(callbackData StreamCallbackData)
 )

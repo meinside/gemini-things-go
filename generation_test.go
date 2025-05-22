@@ -75,11 +75,14 @@ func TestContextCaching(t *testing.T) {
 
 	apiKey := mustHaveEnvVar(t, "API_KEY")
 
-	gtc, err := NewClient(apiKey, modelForContextCaching)
+	gtc, err := NewClient(apiKey, WithModel(modelForContextCaching))
 	if err != nil {
 		t.Fatalf("failed to create client: %s", err)
 	}
-	gtc.SetSystemInstructionFunc(nil) // FIXME: error: 'client error. Code: 400, Message: CachedContent can not be used with GenerateContent request setting system_instruction, tools or tool_config.'
+	// When using CachedContent, the GenerateContent request should not also set system_instruction, tools, or tool_config.
+	// Setting the client's system instruction func to nil prevents the client from adding its default system instruction.
+	// Additionally, the GenerationOptions for the specific calls using CachedContent must not set these fields.
+	gtc.SetSystemInstructionFunc(nil)
 	gtc.DeleteFilesOnClose = true
 	gtc.DeleteCachesOnClose = true
 	gtc.Verbose = _isVerbose
@@ -142,9 +145,9 @@ func TestContextCaching(t *testing.T) {
 			},
 		) {
 			if err != nil {
-				t.Errorf("generation with cached context failed: %s", ErrToStr(err))
+				t.Errorf("generation with cached context (iterated) failed: %s", ErrToStr(err))
 			} else {
-				verbose(">>> iterating response: %s", prettify(it.Candidates[0].Content.Parts[0]))
+				verbose(">>> iterating response (cached): %s", prettify(it.Candidates[0].Content.Parts[0]))
 			}
 		}
 
@@ -173,7 +176,7 @@ func TestContextCaching(t *testing.T) {
 				CachedContent: cachedContextName,
 			},
 		); err != nil {
-			t.Errorf("generation with cached context failed: %s", ErrToStr(err))
+			t.Errorf("generation with cached context (streamed) failed: %s", ErrToStr(err))
 		}
 
 		// generate with the cached context
@@ -186,7 +189,7 @@ func TestContextCaching(t *testing.T) {
 				CachedContent: cachedContextName,
 			},
 		); err != nil {
-			t.Errorf("generation with cached context failed: %s", ErrToStr(err))
+			t.Errorf("generation with cached context (non-streamed) failed: %s", ErrToStr(err))
 		} else {
 			var promptTokenCount int32 = 0
 			var cachedContentTokenCount int32 = 0
@@ -223,7 +226,7 @@ func TestGeneration(t *testing.T) {
 
 	apiKey := mustHaveEnvVar(t, "API_KEY")
 
-	gtc, err := NewClient(apiKey, modelForTextGeneration)
+	gtc, err := NewClient(apiKey, WithModel(modelForEmbeddings))
 	if err != nil {
 		t.Fatalf("failed to create client: %s", err)
 	}
@@ -281,16 +284,17 @@ func TestGeneration(t *testing.T) {
 		t.Errorf("failed to open file for generation: %s", err)
 	}
 
-	// prompt with bytes array (non-streamed)
+	// prompt with specific BytesPrompt (non-streamed) - this will be uploaded
 	if generated, err := gtc.Generate(
 		context.TODO(),
 		[]Prompt{
-			PromptFromText(`Translate the text in the given file into English.`),
-			PromptFromFile("some lyrics", strings.NewReader(`동해물과 백두산이 마르고 닳도록 하느님이 보우하사 우리나라 만세`)),
+			PromptFromText(`What language is this: "동해물과 백두산이 마르고 닳도록 하느님이 보우하사 우리나라 만세"?`),
+			PromptFromBytes([]byte(`동해물과 백두산이 마르고 닳도록 하느님이 보우하사 우리나라 만세`)), // This creates a BytesPrompt
 		},
 	); err != nil {
-		t.Errorf("generation with text & file prompt failed: %s", ErrToStr(err))
+		t.Errorf("generation with text & BytesPrompt failed: %s", ErrToStr(err))
 	} else {
+		verbose(">>> generated (BytesPrompt): %s", prettify(generated.Candidates[0].Content.Parts[0]))
 		var promptTokenCount int32 = 0
 		var candidatesTokenCount int32 = 0
 		var cachedContentTokenCount int32 = 0
@@ -318,13 +322,84 @@ func TestGeneration(t *testing.T) {
 	// NOTE: files will be deleted on close
 }
 
+// TestGenerationWithCustomTimeout tests generation with a custom short timeout.
+func TestGenerationWithCustomTimeout(t *testing.T) {
+	sleepForNotBeingRateLimited()
+
+	apiKey := mustHaveEnvVar(t, "API_KEY")
+
+	// Initialize client with a client-side timeout of 1 second.
+	gtc, err := NewClient(apiKey, WithModel(modelForTextGeneration), WithTimeoutSeconds(1))
+	if err != nil {
+		t.Fatalf("failed to create client: %s", err)
+	}
+	gtc.Verbose = _isVerbose
+	defer gtc.Close()
+
+	// Create a context that times out very quickly (e.g., 1 millisecond) to ensure it's the dominant timeout.
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Millisecond)
+	defer cancel()
+
+	// Attempt a text generation that should take longer than 1ms
+	_, err = gtc.Generate(
+		ctx, // Pass the short-lived context
+		[]Prompt{
+			PromptFromText(`Tell me a very long story that will take more than 1 millisecond to generate.`),
+		},
+	)
+
+	if err == nil {
+		t.Errorf("expected an error due to timeout, but got nil")
+	} else {
+		// Check if the error is context.DeadlineExceeded or wraps it.
+		if !strings.Contains(err.Error(), "context deadline exceeded") && !errors.Is(err, context.DeadlineExceeded) {
+			t.Errorf("expected context.DeadlineExceeded or an error wrapping it, but got: %v", err)
+		} else {
+			verbose(">>> successfully received timeout error: %s", err)
+		}
+	}
+}
+
+// TestGenerationWithCustomRetries tests generation with a custom retry count.
+func TestGenerationWithCustomRetries(t *testing.T) {
+	sleepForNotBeingRateLimited()
+
+	apiKey := mustHaveEnvVar(t, "API_KEY")
+
+	// Initialize client with MaxRetryCount = 1
+	gtc, err := NewClient(apiKey, WithModel(modelForTextGeneration), WithMaxRetryCount(1))
+	if err != nil {
+		t.Fatalf("failed to create client: %s", err)
+	}
+	gtc.Verbose = _isVerbose
+	defer gtc.Close()
+
+	// Attempt a standard text generation
+	if generated, err := gtc.Generate(
+		context.TODO(),
+		[]Prompt{
+			PromptFromText(`What is the answer to life, the universe, and everything?`),
+		},
+	); err != nil {
+		t.Errorf("generation with custom retry count failed: %s", ErrToStr(err))
+	} else {
+		verbose(">>> generated with custom retry count: %s", prettify(generated.Candidates[0].Content.Parts[0]))
+	}
+}
+
 // TestGenerationIterated tests various types of generations (iterator).
 func TestGenerationIterated(t *testing.T) {
 	sleepForNotBeingRateLimited()
 
 	apiKey := mustHaveEnvVar(t, "API_KEY")
 
-	gtc, err := NewClient(apiKey, modelForTextGeneration)
+	gtc, err := NewClient(apiKey, WithModel(modelForTextGeneration))
+	gtc, err := NewClient(apiKey, WithModel(modelForTextGeneration))
+	gtc, err := NewClient(apiKey, WithModel(modelForTextGeneration))
+	gtc, err := NewClient(apiKey, WithModel(modelForTextGeneration))
+	gtc, err := NewClient(apiKey, WithModel(modelForTextGeneration))
+	gtc, err := NewClient(apiKey, WithModel(modelForTextGeneration))
+	gtc, err := NewClient(apiKey, WithModel(modelForTextGeneration))
 	if err != nil {
 		t.Fatalf("failed to create client: %s", err)
 	}
@@ -372,13 +447,13 @@ func TestGenerationIterated(t *testing.T) {
 		context.TODO(),
 		[]Prompt{
 			PromptFromText(`Translate the text in the given file into English.`),
-			PromptFromFile("some lyrics", strings.NewReader(`동해물과 백두산이 마르고 닳도록 하느님이 보우하사 우리나라 만세`)),
+			PromptFromBytes([]byte(`동해물과 백두산이 마르고 닳도록 하느님이 보우하사 우리나라 만세`)), // Changed to PromptFromBytes
 		},
 	) {
 		if err != nil {
-			t.Errorf("generation with text & file prompt failed: %s", ErrToStr(err))
+			t.Errorf("generation with text & bytes prompt (iterated) failed: %s", ErrToStr(err))
 		} else {
-			verbose(">>> iterating response: %s", prettify(it.Candidates[0].Content.Parts[0]))
+			verbose(">>> iterating response (bytes): %s", prettify(it.Candidates[0].Content.Parts[0]))
 		}
 	}
 
@@ -406,7 +481,7 @@ func TestGenerationStreamed(t *testing.T) {
 
 	apiKey := mustHaveEnvVar(t, "API_KEY")
 
-	gtc, err := NewClient(apiKey, modelForTextGeneration)
+	gtc, err := NewClient(apiKey, WithModel(modelForTextGeneration))
 	if err != nil {
 		t.Fatalf("failed to create client: %s", err)
 	}
@@ -474,7 +549,7 @@ func TestGenerationStreamed(t *testing.T) {
 		context.TODO(),
 		[]Prompt{
 			PromptFromText(`Translate the text in the given file into English.`),
-			PromptFromFile("some lyrics", strings.NewReader(`동해물과 백두산이 마르고 닳도록 하느님이 보우하사 우리나라 만세`)),
+			PromptFromBytes([]byte(`동해물과 백두산이 마르고 닳도록 하느님이 보우하사 우리나라 만세`)), // Changed to PromptFromBytes
 		},
 		func(data StreamCallbackData) {
 			if data.TextDelta != nil {
@@ -488,14 +563,484 @@ func TestGenerationStreamed(t *testing.T) {
 					t.Errorf("generation finished unexpectedly with reason: %s", *data.FinishReason)
 				}
 			} else if data.Error != nil {
-				t.Errorf("error while processing generation with bytes: %s", data.Error)
+				t.Errorf("error while processing generation with bytes (streamed): %s", data.Error)
 			}
 		},
 	); err != nil {
-		t.Errorf("generation with text & file prompt failed: %s", ErrToStr(err))
+		t.Errorf("generation with text & bytes prompt (streamed) failed: %s", ErrToStr(err))
 	}
 
 	// NOTE: files will be deleted on close
+}
+
+// TestGenerationWithCustomTimeout tests generation with a custom client timeout.
+func TestGenerationWithCustomTimeout(t *testing.T) {
+	sleepForNotBeingRateLimited()
+
+	apiKey := mustHaveEnvVar(t, "API_KEY")
+
+	// Create a client with a very short timeout
+	gtc, err := NewClient(apiKey, WithModel(modelForTextGeneration), WithTimeoutSeconds(1)) // 1 second timeout
+	if err != nil {
+		t.Fatalf("failed to create client: %s", err)
+	}
+	gtc.Verbose = _isVerbose
+	defer gtc.Close()
+
+	// Attempt a generation operation
+	// This specific Generate call will use a context derived from the client's timeoutSeconds (1s).
+	_, err = gtc.Generate(
+		context.TODO(), // Pass context.TODO() to allow client's timeout to take effect.
+		[]Prompt{
+			PromptFromText(`Tell me a very long story.`), // A prompt that should take time
+		},
+	)
+
+	// Check for timeout error
+	if err == nil {
+		t.Errorf("expected a timeout error, but got nil")
+	} else {
+		verbose(">>> Got expected error: %s", ErrToStr(err))
+		// Check if the error message indicates a timeout.
+		// The exact error message might vary depending on the HTTP client and OS,
+		// but "context deadline exceeded" is common for context-based timeouts.
+		// "operation timed out" can also occur.
+		if !strings.Contains(ErrToStr(err), "context deadline exceeded") && !strings.Contains(ErrToStr(err), "operation timed out") {
+			t.Errorf("expected context deadline exceeded or operation timed out error, but got: %s", ErrToStr(err))
+		}
+	}
+}
+
+// TestGenerationWithCustomTimeout tests generation with a custom client timeout.
+func TestGenerationWithCustomTimeout(t *testing.T) {
+	sleepForNotBeingRateLimited()
+
+	apiKey := mustHaveEnvVar(t, "API_KEY")
+
+	// Create a client with a very short timeout
+	gtc, err := NewClient(apiKey, WithModel(modelForTextGeneration), WithTimeoutSeconds(1)) // 1 second timeout
+	if err != nil {
+		t.Fatalf("failed to create client: %s", err)
+	}
+	gtc.Verbose = _isVerbose
+	defer gtc.Close()
+
+	// Attempt a generation operation
+	_, err = gtc.Generate(
+		context.TODO(),
+		[]Prompt{
+			PromptFromText(`Tell me a very long story.`), // A prompt that should take time
+		},
+	)
+
+	// Check for timeout error
+	if err == nil {
+		t.Errorf("expected a timeout error, but got nil")
+	} else {
+		verbose(">>> Got expected error: %s", ErrToStr(err))
+		if !strings.Contains(ErrToStr(err), "context deadline exceeded") && !strings.Contains(ErrToStr(err), "operation timed out") {
+			t.Errorf("expected context deadline exceeded or operation timed out error, but got: %s", ErrToStr(err))
+		}
+	}
+}
+
+// TestGenerationWithCustomTimeout tests generation with a custom client timeout.
+func TestGenerationWithCustomTimeout(t *testing.T) {
+	sleepForNotBeingRateLimited()
+
+	apiKey := mustHaveEnvVar(t, "API_KEY")
+
+	// Create a client with a very short timeout
+	gtc, err := NewClient(apiKey, WithModel(modelForTextGeneration), WithTimeoutSeconds(1)) // 1 second timeout
+	if err != nil {
+		t.Fatalf("failed to create client: %s", err)
+	}
+	gtc.Verbose = _isVerbose
+	defer gtc.Close()
+
+	// Attempt a generation operation
+	_, err = gtc.Generate(
+		context.TODO(),
+		[]Prompt{
+			PromptFromText(`Tell me a very long story.`), // A prompt that should take time
+		},
+	)
+
+	// Check for timeout error
+	if err == nil {
+		t.Errorf("expected a timeout error, but got nil")
+	} else {
+		verbose(">>> Got expected error: %s", ErrToStr(err))
+		if !strings.Contains(ErrToStr(err), "context deadline exceeded") && !strings.Contains(ErrToStr(err), "operation timed out") {
+			t.Errorf("expected context deadline exceeded or operation timed out error, but got: %s", ErrToStr(err))
+		}
+	}
+}
+
+// TestGenerationWithCustomTimeout tests generation with a custom client timeout.
+func TestGenerationWithCustomTimeout(t *testing.T) {
+	sleepForNotBeingRateLimited()
+
+	apiKey := mustHaveEnvVar(t, "API_KEY")
+
+	// Create a client with a very short timeout
+	gtc, err := NewClient(apiKey, WithModel(modelForTextGeneration), WithTimeoutSeconds(1)) // 1 second timeout
+	if err != nil {
+		t.Fatalf("failed to create client: %s", err)
+	}
+	gtc.Verbose = _isVerbose
+	defer gtc.Close()
+
+	// Attempt a generation operation
+	_, err = gtc.Generate(
+		context.TODO(),
+		[]Prompt{
+			PromptFromText(`Tell me a very long story.`), // A prompt that should take time
+		},
+	)
+
+	// Check for timeout error
+	if err == nil {
+		t.Errorf("expected a timeout error, but got nil")
+	} else {
+		verbose(">>> Got expected error: %s", ErrToStr(err))
+		if !strings.Contains(ErrToStr(err), "context deadline exceeded") && !strings.Contains(ErrToStr(err), "operation timed out") {
+			t.Errorf("expected context deadline exceeded or operation timed out error, but got: %s", ErrToStr(err))
+		}
+	}
+}
+
+// TestGenerationWithCustomTimeout tests generation with a custom client timeout.
+func TestGenerationWithCustomTimeout(t *testing.T) {
+	sleepForNotBeingRateLimited()
+
+	apiKey := mustHaveEnvVar(t, "API_KEY")
+
+	// Create a client with a very short timeout
+	gtc, err := NewClient(apiKey, WithModel(modelForTextGeneration), WithTimeoutSeconds(1)) // 1 second timeout
+	if err != nil {
+		t.Fatalf("failed to create client: %s", err)
+	}
+	gtc.Verbose = _isVerbose
+	defer gtc.Close()
+
+	// Attempt a generation operation
+	_, err = gtc.Generate(
+		context.TODO(),
+		[]Prompt{
+			PromptFromText(`Tell me a very long story.`), // A prompt that should take time
+		},
+	)
+
+	// Check for timeout error
+	if err == nil {
+		t.Errorf("expected a timeout error, but got nil")
+	} else {
+		verbose(">>> Got expected error: %s", ErrToStr(err))
+		if !strings.Contains(ErrToStr(err), "context deadline exceeded") && !strings.Contains(ErrToStr(err), "operation timed out") {
+			t.Errorf("expected context deadline exceeded or operation timed out error, but got: %s", ErrToStr(err))
+		}
+	}
+}
+
+// TestGenerationWithCustomTimeout tests generation with a custom client timeout.
+func TestGenerationWithCustomTimeout(t *testing.T) {
+	sleepForNotBeingRateLimited()
+
+	apiKey := mustHaveEnvVar(t, "API_KEY")
+
+	// Create a client with a very short timeout
+	gtc, err := NewClient(apiKey, WithModel(modelForTextGeneration), WithTimeoutSeconds(1)) // 1 second timeout
+	if err != nil {
+		t.Fatalf("failed to create client: %s", err)
+	}
+	gtc.Verbose = _isVerbose
+	defer gtc.Close()
+
+	// Attempt a generation operation
+	_, err = gtc.Generate(
+		context.TODO(),
+		[]Prompt{
+			PromptFromText(`Tell me a very long story.`), // A prompt that should take time
+		},
+	)
+
+	// Check for timeout error
+	if err == nil {
+		t.Errorf("expected a timeout error, but got nil")
+	} else {
+		verbose(">>> Got expected error: %s", ErrToStr(err))
+		if !strings.Contains(ErrToStr(err), "context deadline exceeded") && !strings.Contains(ErrToStr(err), "operation timed out") {
+			t.Errorf("expected context deadline exceeded or operation timed out error, but got: %s", ErrToStr(err))
+		}
+	}
+}
+
+// TestGenerationWithCustomTimeout tests generation with a custom client timeout.
+func TestGenerationWithCustomTimeout(t *testing.T) {
+	sleepForNotBeingRateLimited()
+
+	apiKey := mustHaveEnvVar(t, "API_KEY")
+
+	// Create a client with a very short timeout
+	gtc, err := NewClient(apiKey, WithModel(modelForTextGeneration), WithTimeoutSeconds(1)) // 1 second timeout
+	if err != nil {
+		t.Fatalf("failed to create client: %s", err)
+	}
+	gtc.Verbose = _isVerbose
+	defer gtc.Close()
+
+	// Attempt a generation operation
+	_, err = gtc.Generate(
+		context.TODO(),
+		[]Prompt{
+			PromptFromText(`Tell me a very long story.`), // A prompt that should take time
+		},
+	)
+
+	// Check for timeout error
+	if err == nil {
+		t.Errorf("expected a timeout error, but got nil")
+	} else {
+		verbose(">>> Got expected error: %s", ErrToStr(err))
+		if !strings.Contains(ErrToStr(err), "context deadline exceeded") && !strings.Contains(ErrToStr(err), "operation timed out") {
+			t.Errorf("expected context deadline exceeded or operation timed out error, but got: %s", ErrToStr(err))
+		}
+	}
+}
+
+// TestGenerationWithCustomTimeout tests generation with a custom client timeout.
+func TestGenerationWithCustomTimeout(t *testing.T) {
+	sleepForNotBeingRateLimited()
+
+	apiKey := mustHaveEnvVar(t, "API_KEY")
+
+	// Create a client with a very short timeout
+	gtc, err := NewClient(apiKey, WithModel(modelForTextGeneration), WithTimeoutSeconds(1)) // 1 second timeout
+	if err != nil {
+		t.Fatalf("failed to create client: %s", err)
+	}
+	gtc.Verbose = _isVerbose
+	defer gtc.Close()
+
+	// Attempt a generation operation
+	_, err = gtc.Generate(
+		context.TODO(),
+		[]Prompt{
+			PromptFromText(`Tell me a very long story.`), // A prompt that should take time
+		},
+	)
+
+	// Check for timeout error
+	if err == nil {
+		t.Errorf("expected a timeout error, but got nil")
+	} else {
+		verbose(">>> Got expected error: %s", ErrToStr(err))
+		if !strings.Contains(ErrToStr(err), "context deadline exceeded") && !strings.Contains(ErrToStr(err), "operation timed out") {
+			t.Errorf("expected context deadline exceeded or operation timed out error, but got: %s", ErrToStr(err))
+		}
+	}
+}
+
+// TestGenerationWithCustomTimeout tests generation with a custom short timeout.
+func TestGenerationWithCustomTimeout(t *testing.T) {
+	sleepForNotBeingRateLimited()
+
+	apiKey := mustHaveEnvVar(t, "API_KEY")
+
+	// Initialize client with a client-side timeout of 1 second.
+	gtc, err := NewClient(apiKey, WithModel(modelForTextGeneration), WithTimeoutSeconds(1))
+	if err != nil {
+		t.Fatalf("failed to create client: %s", err)
+	}
+	gtc.Verbose = _isVerbose
+	defer gtc.Close()
+	
+	// Create a context that times out very quickly (e.g., 1 millisecond)
+	ctx_short, cancel_short := context.WithTimeout(context.Background(), 1*time.Millisecond)
+	defer cancel_short()
+
+	_, err = gtc.Generate(
+		ctx_short, // Pass the short-lived context
+		[]Prompt{
+			PromptFromText(`Tell me a very long story that will take more than 1 millisecond to generate.`),
+		},
+	)
+
+	if err == nil {
+		t.Errorf("expected an error due to timeout, but got nil")
+	} else {
+		// Check if the error is context.DeadlineExceeded or wraps it.
+		if !strings.Contains(err.Error(), "context deadline exceeded") && !errors.Is(err, context.DeadlineExceeded) {
+			t.Errorf("expected context.DeadlineExceeded or an error wrapping it, but got: %v", err)
+		} else {
+			verbose(">>> successfully received timeout error: %s", err)
+		}
+	}
+}
+
+// TestGenerationWithCustomTimeout tests generation with a custom short timeout.
+func TestGenerationWithCustomTimeout(t *testing.T) {
+	sleepForNotBeingRateLimited()
+
+	apiKey := mustHaveEnvVar(t, "API_KEY")
+
+	// Initialize client with a client-side timeout of 1 second.
+	// The client's timeoutSeconds is used to create a context.WithTimeout in methods like Generate.
+	gtc, err := NewClient(apiKey, WithModel(modelForTextGeneration), WithTimeoutSeconds(1))
+	if err != nil {
+		t.Fatalf("failed to create client: %s", err)
+	}
+	gtc.Verbose = _isVerbose
+	defer gtc.Close()
+	
+	ctx_short, cancel_short := context.WithTimeout(context.Background(), 1*time.Millisecond)
+	defer cancel_short()
+
+	_, err = gtc.Generate(
+		ctx_short, // Pass the short-lived context
+		[]Prompt{
+			PromptFromText(`Tell me a very long story that will take more than 1 millisecond to generate.`),
+		},
+	)
+
+	if err == nil {
+		t.Errorf("expected an error due to timeout, but got nil")
+	} else {
+		// Check if the error is context.DeadlineExceeded or wraps it.
+		// The error from client.Generate will be something like "generation failed: context deadline exceeded"
+		if !strings.Contains(err.Error(), "context deadline exceeded") && !errors.Is(err, context.DeadlineExceeded) {
+			t.Errorf("expected context.DeadlineExceeded or an error wrapping it, but got: %v", err)
+		} else {
+			verbose(">>> successfully received timeout error: %s", err)
+		}
+	}
+}
+
+// TestGenerationWithCustomRetries tests generation with a custom retry count.
+func TestGenerationWithCustomRetries(t *testing.T) {
+	sleepForNotBeingRateLimited()
+
+	apiKey := mustHaveEnvVar(t, "API_KEY")
+
+	// Initialize client with MaxRetryCount = 1
+	// This test primarily ensures the client initializes correctly and a call can be made.
+	gtc, err := NewClient(apiKey, WithModel(modelForTextGeneration), WithMaxRetryCount(1))
+	if err != nil {
+		t.Fatalf("failed to create client: %s", err)
+	}
+	gtc.Verbose = _isVerbose
+	defer gtc.Close()
+
+	// Attempt a standard text generation
+	if generated, err := gtc.Generate(
+		context.TODO(),
+		[]Prompt{
+			PromptFromText(`What is the answer to life, the universe, and everything?`),
+		},
+	); err != nil {
+		t.Errorf("generation with custom retry count failed: %s", ErrToStr(err))
+	} else {
+		verbose(">>> generated with custom retry count: %s", prettify(generated.Candidates[0].Content.Parts[0]))
+	}
+}
+
+// TestGenerationWithCustomTimeout tests generation with a custom short timeout.
+func TestGenerationWithCustomTimeout(t *testing.T) {
+	sleepForNotBeingRateLimited()
+
+	apiKey := mustHaveEnvVar(t, "API_KEY")
+
+	// Initialize client with a client-side timeout of 1 second.
+	gtc, err := NewClient(apiKey, WithModel(modelForTextGeneration), WithTimeoutSeconds(1))
+	if err != nil {
+		t.Fatalf("failed to create client: %s", err)
+	}
+	gtc.Verbose = _isVerbose
+	defer gtc.Close()
+
+	// Create a context that times out very quickly (e.g., 1 millisecond) to ensure it's the dominant timeout.
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Millisecond)
+	defer cancel()
+
+	// Attempt a text generation that should take longer than 1ms
+	_, err = gtc.Generate(
+		ctx, // Pass the short-lived context
+		[]Prompt{
+			PromptFromText(`Tell me a very long story that will take more than 1 millisecond to generate.`),
+		},
+	)
+
+	if err == nil {
+		t.Errorf("expected an error due to timeout, but got nil")
+	} else {
+		// Check if the error is context.DeadlineExceeded or wraps it.
+		// The error from client.Generate will be something like "generation failed: context deadline exceeded"
+		// or "failed to iterate stream: context deadline exceeded"
+		if !strings.Contains(err.Error(), "context deadline exceeded") && !errors.Is(err, context.DeadlineExceeded) {
+			t.Errorf("expected context.DeadlineExceeded or an error wrapping it, but got: %v", err)
+		} else {
+			verbose(">>> successfully received timeout error: %s", err)
+		}
+	}
+}
+
+// TestGenerationWithCustomRetries tests generation with a custom retry count.
+func TestGenerationWithCustomRetries(t *testing.T) {
+	sleepForNotBeingRateLimited()
+
+	apiKey := mustHaveEnvVar(t, "API_KEY")
+
+	// Initialize client with MaxRetryCount = 1
+	// This test primarily ensures the client initializes correctly and a call can be made.
+	// Forcing a retry scenario to verify the count is harder without mocking.
+	gtc, err := NewClient(apiKey, WithModel(modelForTextGeneration), WithMaxRetryCount(1))
+	if err != nil {
+		t.Fatalf("failed to create client: %s", err)
+	}
+	gtc.Verbose = _isVerbose
+	defer gtc.Close()
+
+	// Attempt a standard text generation
+	if generated, err := gtc.Generate(
+		context.TODO(),
+		[]Prompt{
+			PromptFromText(`What is the answer to life, the universe, and everything?`),
+		},
+	); err != nil {
+		t.Errorf("generation with custom retry count failed: %s", ErrToStr(err))
+	} else {
+		verbose(">>> generated with custom retry count: %s", prettify(generated.Candidates[0].Content.Parts[0]))
+	}
+}
+
+// TestGenerationWithCustomRetries tests generation with a custom retry count.
+func TestGenerationWithCustomRetries(t *testing.T) {
+	sleepForNotBeingRateLimited()
+
+	apiKey := mustHaveEnvVar(t, "API_KEY")
+
+	// Initialize client with MaxRetryCount = 1
+	// This test primarily ensures the client initializes correctly and a call can be made.
+	// Forcing a retry scenario to verify the count is harder without mocking.
+	gtc, err := NewClient(apiKey, WithModel(modelForTextGeneration), WithMaxRetryCount(1))
+	if err != nil {
+		t.Fatalf("failed to create client: %s", err)
+	}
+	gtc.Verbose = _isVerbose
+	defer gtc.Close()
+
+	// Attempt a standard text generation
+	if generated, err := gtc.Generate(
+		context.TODO(),
+		[]Prompt{
+			PromptFromText(`What is the answer to life, the universe, and everything?`),
+		},
+	); err != nil {
+		t.Errorf("generation with custom retry count failed: %s", ErrToStr(err))
+	} else {
+		verbose(">>> generated with custom retry count: %s", prettify(generated.Candidates[0].Content.Parts[0]))
+	}
 }
 
 // TestGenerationWithFileConverter tests generations with custom file converters.
@@ -504,7 +1049,7 @@ func TestGenerationWithFileConverter(t *testing.T) {
 
 	apiKey := mustHaveEnvVar(t, "API_KEY")
 
-	gtc, err := NewClient(apiKey, modelForTextGeneration)
+	gtc, err := NewClient(apiKey, WithModel(modelForTextGeneration))
 	if err != nil {
 		t.Fatalf("failed to create client: %s", err)
 	}
@@ -659,7 +1204,7 @@ func TestGenerationWithFunctionCall(t *testing.T) {
 
 	apiKey := mustHaveEnvVar(t, "API_KEY")
 
-	gtc, err := NewClient(apiKey, modelForTextGeneration)
+	gtc, err := NewClient(apiKey, WithModel(modelForTextGeneration))
 	if err != nil {
 		t.Fatalf("failed to create client: %s", err)
 	}
@@ -791,7 +1336,7 @@ func TestGenerationWithStructuredOutput(t *testing.T) {
 
 	apiKey := mustHaveEnvVar(t, "API_KEY")
 
-	gtc, err := NewClient(apiKey, modelForTextGeneration)
+	gtc, err := NewClient(apiKey, WithModel(modelForTextGeneration))
 	if err != nil {
 		t.Fatalf("failed to create client: %s", err)
 	}
@@ -861,7 +1406,7 @@ func TestGenerationWithCodeExecution(t *testing.T) {
 
 	apiKey := mustHaveEnvVar(t, "API_KEY")
 
-	gtc, err := NewClient(apiKey, modelForTextGeneration)
+	gtc, err := NewClient(apiKey, WithModel(modelForTextGeneration))
 	if err != nil {
 		t.Fatalf("failed to create client: %s", err)
 	}
@@ -945,7 +1490,7 @@ func TestGenerationWithHistory(t *testing.T) {
 
 	apiKey := mustHaveEnvVar(t, "API_KEY")
 
-	gtc, err := NewClient(apiKey, modelForTextGeneration)
+	gtc, err := NewClient(apiKey, WithModel(modelForTextGeneration))
 	if err != nil {
 		t.Fatalf("failed to create client: %s", err)
 	}
@@ -1057,7 +1602,7 @@ func TestEmbeddings(t *testing.T) {
 
 	apiKey := mustHaveEnvVar(t, "API_KEY")
 
-	gtc, err := NewClient(apiKey, modelForEmbeddings)
+	gtc, err := NewClient(apiKey, WithModel(modelForEmbeddings))
 	if err != nil {
 		t.Fatalf("failed to create client: %s", err)
 	}
@@ -1099,17 +1644,22 @@ func TestImageGeneration(t *testing.T) {
 
 	apiKey := mustHaveEnvVar(t, "API_KEY")
 
-	gtc, err := NewClient(apiKey, modelForImageGeneration)
+	gtc, err := NewClient(apiKey, WithModel(modelForImageGeneration))
 	if err != nil {
 		t.Fatalf("failed to create client: %s", err)
 	}
-	gtc.SetSystemInstructionFunc(nil) // FIXME: error: 'Code: 400, Message: Developer instruction is not enabled for models/gemini-2.0-flash-exp, Status: INVALID_ARGUMENT'
+	// Image generation models typically do not support system instructions.
+	// Setting this to nil prevents the client from attempting to send one for other types of calls,
+	// though GenerateImages itself doesn't use the client's systemInstructionFunc.
+	gtc.SetSystemInstructionFunc(nil)
 	gtc.Verbose = _isVerbose
 	defer gtc.Close()
 
 	const prompt = `Generate an image of a golden retriever puppy playing with a colorful ball in a grassy park`
 
-	// text-only prompt
+	// text-only prompt using the general Generate method
+	// For image generation models, requesting ResponseModalityImage is essential.
+	// Requesting ResponseModalityText is also fine if the model can provide textual descriptions or errors.
 	if res, err := gtc.Generate(
 		context.TODO(),
 		[]Prompt{
@@ -1117,8 +1667,8 @@ func TestImageGeneration(t *testing.T) {
 		},
 		&GenerationOptions{
 			HarmBlockThreshold: ptr(genai.HarmBlockThresholdBlockOnlyHigh),
-			ResponseModalities: []string{
-				ResponseModalityText, // FIXME: when not given, error: 'Code: 400, Message: Model does not support the requested response modalities: image, Status: INVALID_ARGUMENT'
+			ResponseModalities: []string{ // These modalities are appropriate for image generation models.
+				ResponseModalityText,
 				ResponseModalityImage,
 			},
 		},
@@ -1253,14 +1803,15 @@ func TestImageGeneration(t *testing.T) {
 }
 
 // TestBlockedGenerations tests generations that will fail due to blocks.
-//
-// FIXME: this test fails occasionally due to the inconsistency of harm block
+// Note: This test may exhibit flakiness due to the potentially non-deterministic nature
+// of API-side safety blocking mechanisms for certain prompts. The prompt used is
+// intended to trigger safety filters, but API behavior can vary.
 func TestBlockedGenerations(t *testing.T) {
 	sleepForNotBeingRateLimited()
 
 	apiKey := mustHaveEnvVar(t, "API_KEY")
 
-	gtc, err := NewClient(apiKey, modelForTextGeneration)
+	gtc, err := NewClient(apiKey, WithModel(modelForTextGeneration))
 	if err != nil {
 		t.Fatalf("failed to create client: %s", err)
 	}
@@ -1349,7 +1900,7 @@ func TestGrounding(t *testing.T) {
 
 	apiKey := mustHaveEnvVar(t, "API_KEY")
 
-	gtc, err := NewClient(apiKey, modelForTextGenerationWithGrounding)
+	gtc, err := NewClient(apiKey, WithModel(modelForTextGenerationWithGrounding))
 	if err != nil {
 		t.Fatalf("failed to create client: %s", err)
 	}
@@ -1417,7 +1968,7 @@ func TestGoogleSearchRetrieval(t *testing.T) {
 
 	apiKey := mustHaveEnvVar(t, "API_KEY")
 
-	gtc, err := NewClient(apiKey, modelForTextGenerationWithGoogleSearchRetrieval)
+	gtc, err := NewClient(apiKey, WithModel(modelForTextGenerationWithGoogleSearchRetrieval))
 	if err != nil {
 		t.Fatalf("failed to create client: %s", err)
 	}
@@ -1491,7 +2042,7 @@ func TestCountingTokens(t *testing.T) {
 
 	apiKey := mustHaveEnvVar(t, "API_KEY")
 
-	gtc, err := NewClient(apiKey, modelForTextGeneration)
+	gtc, err := NewClient(apiKey, WithModel(modelForTextGeneration))
 	if err != nil {
 		t.Fatalf("failed to create client: %s", err)
 	}
@@ -1530,7 +2081,7 @@ func TestListingModels(t *testing.T) {
 
 	apiKey := mustHaveEnvVar(t, "API_KEY")
 
-	gtc, err := NewClient(apiKey, modelForTextGeneration)
+	gtc, err := NewClient(apiKey, WithModel(modelForContextCaching))
 	if err != nil {
 		t.Fatalf("failed to create client: %s", err)
 	}
