@@ -53,37 +53,36 @@ func (c *Client) waitForFiles(ctx context.Context, fileNames []string) {
 
 // processPromptToPartAndInfo is an internal helper function that processes a single Prompt.
 // It handles potential file uploads for FilePrompt and BytesPrompt types.
-// - For FilePrompt: it reads the content, detects/converts MIME type if necessary, uploads the file,
-//   and returns an updated FilePrompt with the server-assigned filename and FileData.
-// - For BytesPrompt: it detects/converts MIME type, uploads the bytes as a file, and returns
-//   a new FilePrompt representing the uploaded file with its server-assigned filename and FileData.
-// - For TextPrompt and URIPrompt: it converts them to their genai.Part representation directly.
+//   - For FilePrompt: it reads the content, detects/converts MIME type if necessary, uploads the file,
+//     and returns an updated FilePrompt with the server-assigned filename and FileData.
+//   - For BytesPrompt: it detects/converts MIME type, uploads the bytes as a file, and returns
+//     a new FilePrompt representing the uploaded file with its server-assigned filename and FileData.
+//   - For TextPrompt and URIPrompt: it converts them to their genai.Part representation directly.
 //
 // It returns:
 //   - *genai.Part: The genai.Part representation of the processed prompt.
 //   - Prompt: The updated prompt (e.g., FilePrompt with populated .data, or BytesPrompt converted to FilePrompt).
-//   - string: The server-assigned filename if an upload occurred, used for waiting for the file to become active. Empty otherwise.
+//   - *string: The server-assigned filename if an upload occurred, used for waiting for the file to become active. nil otherwise.
 //   - error: Any error encountered during processing.
 func (c *Client) processPromptToPartAndInfo(
 	ctx context.Context,
 	p Prompt, // The prompt to process.
 	promptIndex int,
-) (part *genai.Part, updatedPrompt Prompt, filenameForWaiting string, err error) {
+) (part *genai.Part, updatedPrompt Prompt, filenameForWaiting *string, err error) {
 	switch prompt := p.(type) {
 	case TextPrompt:
-		return ptr(prompt.ToPart()), prompt, "", nil
+		return ptr(prompt.ToPart()), prompt, nil, nil
 	case URIPrompt:
-		return ptr(prompt.ToPart()), prompt, "", nil
+		return ptr(prompt.ToPart()), prompt, nil, nil
 	case FilePrompt:
-		var currentReader io.Reader = prompt.reader
-		// Ensure reader is not nil.
+		currentReader := prompt.reader
 		if currentReader == nil {
-			return nil, prompt, "", fmt.Errorf("FilePrompt at index %d has a nil reader for filename %s", promptIndex, prompt.filename)
+			return nil, prompt, nil, fmt.Errorf("prompts[%d] has a nil reader (%s)", promptIndex, prompt.filename)
 		}
 
 		mimeType, readerForUpload, err := readMimeAndRecycle(currentReader)
 		if err != nil {
-			return nil, prompt, "", fmt.Errorf("failed to detect MIME type of file[%d] (%s): %w", promptIndex, prompt.filename, err)
+			return nil, prompt, nil, fmt.Errorf("failed to detect MIME type of prompts[%d] (%s): %w", promptIndex, prompt.filename, err)
 		}
 		currentReader = readerForUpload // Use the recycled reader
 
@@ -91,18 +90,18 @@ func (c *Client) processPromptToPartAndInfo(
 		if !supported {
 			fn, exists := c.fileConvertFuncs[matchedMimeType]
 			if !exists {
-				return nil, prompt, "", fmt.Errorf("MIME type of file[%d] (%s) not supported: %s", promptIndex, prompt.filename, mimeType.String())
+				return nil, prompt, nil, fmt.Errorf("MIME type of prompts[%d] (%s) not supported: %s", promptIndex, prompt.filename, mimeType.String())
 			}
 			bs, readErr := io.ReadAll(currentReader)
 			if readErr != nil {
-				return nil, prompt, "", fmt.Errorf("read failed while converting %s for file[%d] (%s): %w", matchedMimeType, promptIndex, prompt.filename, readErr)
+				return nil, prompt, nil, fmt.Errorf("read failed while converting %s for prompts[%d] (%s): %w", matchedMimeType, promptIndex, prompt.filename, readErr)
 			}
 			if c.Verbose {
-				log.Printf("> converting reader with custom file converter for %s for file %s...", matchedMimeType, prompt.filename)
+				log.Printf("> converting with custom file converter for %s for prompts[%d] (%s)...", matchedMimeType, promptIndex, prompt.filename)
 			}
 			converted, convertedMimeType, convErr := fn(bs)
 			if convErr != nil {
-				return nil, prompt, "", fmt.Errorf("converting %s for file[%d] (%s) failed: %w", matchedMimeType, promptIndex, prompt.filename, convErr)
+				return nil, prompt, nil, fmt.Errorf("converting %s for prompts[%d] (%s) failed: %w", matchedMimeType, promptIndex, prompt.filename, convErr)
 			}
 			currentReader = bytes.NewBuffer(converted)
 			matchedMimeType = convertedMimeType
@@ -117,7 +116,7 @@ func (c *Client) processPromptToPartAndInfo(
 			},
 		)
 		if uploadErr != nil {
-			return nil, prompt, "", fmt.Errorf("failed to upload file[%d] (%s) for prompt: %w", promptIndex, prompt.filename, uploadErr)
+			return nil, prompt, nil, fmt.Errorf("failed to upload prompts[%d] (%s): %w", promptIndex, prompt.filename, uploadErr)
 		}
 
 		updatedFilePrompt := FilePrompt{
@@ -126,9 +125,9 @@ func (c *Client) processPromptToPartAndInfo(
 				FileURI:  uploadedFile.URI,
 				MIMEType: uploadedFile.MIMEType,
 			},
-			// reader is not needed in the updated prompt as it's uploaded
+			// reader is not needed in the updated prompt as it's already uploaded
 		}
-		return ptr(updatedFilePrompt.ToPart()), updatedFilePrompt, uploadedFile.Name, nil
+		return ptr(updatedFilePrompt.ToPart()), updatedFilePrompt, ptr(uploadedFile.Name), nil
 
 	case BytesPrompt:
 		currentBytes := prompt.bytes
@@ -138,22 +137,22 @@ func (c *Client) processPromptToPartAndInfo(
 		if !supported {
 			fn, exists := c.fileConvertFuncs[matchedMimeType]
 			if !exists {
-				return nil, prompt, "", fmt.Errorf("MIME type of bytes prompt[%d] (%d bytes) not supported: %s", promptIndex, len(currentBytes), mimeType.String())
+				return nil, prompt, nil, fmt.Errorf("MIME type of prompts[%d] (%d bytes) not supported: %s", promptIndex, len(currentBytes), mimeType.String())
 			}
 			if c.Verbose {
-				log.Printf("> converting bytes with custom file converter for %s for bytes prompt[%d]...", matchedMimeType, promptIndex)
+				log.Printf("> converting prompts[%d] (%d bytes) with custom file converter for %s...", promptIndex, len(currentBytes), matchedMimeType)
 			}
 			converted, convertedMimeType, convErr := fn(currentBytes)
 			if convErr != nil {
-				return nil, prompt, "", fmt.Errorf("converting %s for bytes prompt[%d] failed: %w", matchedMimeType, promptIndex, convErr)
+				return nil, prompt, nil, fmt.Errorf("converting prompts[%d] (%d bytes) with MIME type %s failed: %w", promptIndex, len(currentBytes), matchedMimeType, convErr)
 			}
 			currentBytes = converted
 			matchedMimeType = convertedMimeType
 		}
 
-		displayName := prompt.filename // Use BytesPrompt's filename if provided, else default
+		displayName := prompt.filename
 		if displayName == "" {
-			displayName = fmt.Sprintf("bytes_prompt_%d", promptIndex)
+			displayName = fmt.Sprintf("prompts[%d] (%d bytes)", promptIndex, len(currentBytes))
 		}
 
 		uploadedFile, uploadErr := c.client.Files.Upload(
@@ -165,7 +164,7 @@ func (c *Client) processPromptToPartAndInfo(
 			},
 		)
 		if uploadErr != nil {
-			return nil, prompt, "", fmt.Errorf("failed to upload bytes prompt[%d] (%d bytes) as file: %w", promptIndex, len(prompt.bytes), uploadErr)
+			return nil, prompt, nil, fmt.Errorf("failed to upload prompts[%d] (%d bytes) as file: %w", promptIndex, len(prompt.bytes), uploadErr)
 		}
 
 		// Convert BytesPrompt to FilePrompt after upload
@@ -176,15 +175,16 @@ func (c *Client) processPromptToPartAndInfo(
 				MIMEType: uploadedFile.MIMEType,
 			},
 		}
-		return ptr(fileDataPrompt.ToPart()), fileDataPrompt, uploadedFile.Name, nil
+		return ptr(fileDataPrompt.ToPart()), fileDataPrompt, ptr(uploadedFile.Name), nil
 
 	default:
-		return nil, p, "", fmt.Errorf("unknown prompt type at index %d: %T", promptIndex, p)
+		return nil, p, nil, fmt.Errorf("unknown or unsupported type of prompts[%d]: %T", promptIndex, p)
 	}
 }
 
-// UploadFilesAndWait processes a slice of Prompts, handling file uploads for
-// FilePrompt and BytesPrompt types. It waits for all uploaded files to become "ACTIVE".
+// UploadFilesAndWait processes a slice of Prompts,
+// handling file uploads for FilePrompt and BytesPrompt types.
+// It waits for all uploaded files to become "ACTIVE".
 //
 // For FilePrompt and BytesPrompt instances that require uploading:
 //   - FilePrompt instances will have their `data` field populated with the `*genai.FileData`
@@ -212,21 +212,21 @@ func (c *Client) UploadFilesAndWait(ctx context.Context, prompts []Prompt) (proc
 	for i, p := range prompts {
 		_, updatedPrompt, filenameForWaiting, processErr := c.processPromptToPartAndInfo(ctx, p, i)
 		if processErr != nil {
-			return nil, fmt.Errorf("error processing prompt at index %d: %w", i, processErr)
+			return nil, fmt.Errorf("error processing prompts[%d]: %w", i, processErr)
 		}
 		processedPrompts = append(processedPrompts, updatedPrompt)
-		if filenameForWaiting != "" {
-			fileNamesToWaitFor = append(fileNamesToWaitFor, filenameForWaiting)
+		if filenameForWaiting != nil {
+			fileNamesToWaitFor = append(fileNamesToWaitFor, *filenameForWaiting)
 		}
 	}
 
 	if len(fileNamesToWaitFor) > 0 {
 		if c.Verbose {
-			log.Printf("> waiting for %d files to become active: %v", len(fileNamesToWaitFor), fileNamesToWaitFor)
+			log.Printf("> waiting for %d file(s) to become active: %v", len(fileNamesToWaitFor), fileNamesToWaitFor)
 		}
 		c.waitForFiles(ctx, fileNamesToWaitFor)
 		if c.Verbose {
-			log.Printf("> all %d files are active.", len(fileNamesToWaitFor))
+			log.Printf("> all %d file(s) are active.", len(fileNamesToWaitFor))
 		}
 	}
 
@@ -271,12 +271,12 @@ func (c *Client) buildPromptContents(ctx context.Context, prompts []Prompt, hist
 	}
 
 	// Add history contents first
-	for _, h := range histories {
+	for _, history := range histories {
 		// It's safer to copy parts if h.Parts could be modified elsewhere,
 		// but typically history is immutable here.
 		contents = append(contents, &genai.Content{
-			Role:  h.Role,
-			Parts: h.Parts, // Assuming h.Parts is already a slice of *genai.Part
+			Role:  history.Role,
+			Parts: history.Parts,
 		})
 	}
 
@@ -285,10 +285,9 @@ func (c *Client) buildPromptContents(ctx context.Context, prompts []Prompt, hist
 	// via its ToPart() method, especially FilePrompt which now uses its populated .data field.
 	userPromptParts := []*genai.Part{}
 	for _, p := range processedPromptsAfterUpload {
-		part := p.ToPart() // This should be simpler now.
+		part := p.ToPart()
 		userPromptParts = append(userPromptParts, &part)
 	}
-
 	if len(userPromptParts) > 0 {
 		contents = append(contents, &genai.Content{
 			Role:  string(RoleUser),
@@ -413,8 +412,6 @@ func checkMimeType(mimeType *mimetype.MIME) (matched string, supported bool) {
 //   - err: An error if MIME type detection fails significantly (e.g., reader error, though less likely with bytes.Reader).
 func SupportedMimeType(data []byte) (matchedMimeType string, supported bool, err error) {
 	var mimeType *mimetype.MIME
-	// We use mimetype.DetectReader with a bytes.Reader as it's more comprehensive
-	// than mimetype.Detect (which only takes the first 3072 bytes).
 	if mimeType, err = mimetype.DetectReader(bytes.NewReader(data)); err == nil {
 		matchedMimeType, supported = checkMimeType(mimeType)
 
@@ -461,9 +458,9 @@ func ptr[T any](v T) *T {
 	return &v
 }
 
-// ErrToStr converts an error to a string. If the error is a `*genai.APIError`,
-// it formats it with a "genai API error: " prefix. Otherwise, it calls the error's
-// `Error()` method.
+// ErrToStr converts an error to a string.
+// If the error is a `*genai.APIError`, it formats it with a "genai API error: " prefix.
+// Otherwise, it calls the error's `Error()` method.
 func ErrToStr(err error) (str string) {
 	var ae *genai.APIError
 	if errors.As(err, &ae) {
@@ -509,7 +506,7 @@ func IsModelOverloaded(err error) bool {
 // See https://pkg.go.dev/github.com/gabriel-vasile/mimetype#example-package-DetectReader for the pattern.
 func readMimeAndRecycle(input io.Reader) (mimeType *mimetype.MIME, recycled io.Reader, err error) {
 	// header will store the bytes mimetype uses for detection.
-	var header bytes.Buffer // Use var to avoid shadowing if header was a package name or type
+	header := bytes.NewBuffer(nil)
 
 	// After DetectReader, the data read from input is copied into header.
 	mtype, err := mimetype.DetectReader(io.TeeReader(input, header))

@@ -253,7 +253,7 @@ type StreamCallbackData struct {
 	// Error contains any error encountered during stream processing or from the API.
 	Error error
 
-	// NOTE: TODO: add more data here (This comment can be removed or updated if no more fields are immediately planned)
+	// NOTE: TODO: add more data here
 }
 
 // NumTokens represents the breakdown of token usage for a generation request.

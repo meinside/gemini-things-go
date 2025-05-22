@@ -18,7 +18,7 @@ const (
 	defaultTimeoutSeconds = 30
 
 	// default system instruction
-	defaultSystemInstruction = `You are chat bot for helping the user.
+	defaultSystemInstruction = `You are a chat bot for helping the user.
 
 Respond to the user according to the following principles:
 - Do not repeat the user's request.
@@ -46,14 +46,15 @@ type Client struct {
 	apiKey string        // API key for authentication.
 	client *genai.Client // Underlying Google Generative AI client.
 
-	model                 string                               // Default model to be used for generation tasks if not specified in options.
-	systemInstructionFunc FnSystemInstruction                  // Function that returns the system instruction string.
-	fileConvertFuncs      map[string]FnConvertBytes            // Map of MIME types to custom file conversion functions.
-	timeoutSeconds        int                                  // Default timeout in seconds for API calls like Generate, GenerateStreamed.
-	MaxRetryCount         uint                                 // Default maximum retry count for retriable API errors (e.g., 5xx).
-	DeleteFilesOnClose    bool                                 // If true, automatically deletes all uploaded files when Close is called.
-	DeleteCachesOnClose bool                                 // If true, automatically deletes all cached contexts when Close is called.
-	Verbose               bool                                 // If true, enables verbose logging for debugging.
+	model                 string                    // Default model to be used for generation tasks if not specified in options.
+	systemInstructionFunc FnSystemInstruction       // Function that returns the system instruction string.
+	fileConvertFuncs      map[string]FnConvertBytes // Map of MIME types to custom file conversion functions.
+	timeoutSeconds        int                       // Default timeout in seconds for API calls like Generate, GenerateStreamed.
+	maxRetryCount         uint                      // Default maximum retry count for retriable API errors (e.g., 5xx).
+	deleteFilesOnClose    bool                      // If true, automatically deletes all uploaded files when Close is called.
+	deleteCachesOnClose   bool                      // If true, automatically deletes all cached contexts when Close is called.
+
+	Verbose bool // If true, enables verbose logging for debugging.
 }
 
 // ClientOption is a function type used to configure a new Client.
@@ -80,7 +81,7 @@ func WithTimeoutSeconds(seconds int) ClientOption {
 // for retriable API errors (typically 5xx server errors).
 func WithMaxRetryCount(count uint) ClientOption {
 	return func(c *Client) {
-		c.MaxRetryCount = count
+		c.maxRetryCount = count
 	}
 }
 
@@ -90,7 +91,7 @@ func WithMaxRetryCount(count uint) ClientOption {
 // Example:
 //
 //	client, err := gt.NewClient("YOUR_API_KEY",
-//	    gt.WithModel("gemini-1.5-flash-latest"),
+//	    gt.WithModel("gemini-2.0-flash"),
 //	    gt.WithTimeoutSeconds(60),
 //	    gt.WithMaxRetryCount(5),
 //	)
@@ -111,7 +112,7 @@ func NewClient(apiKey string, opts ...ClientOption) (*Client, error) {
 		return nil, fmt.Errorf("failed to create genai client: %w", err)
 	}
 
-	clientObj := &Client{
+	c := &Client{
 		apiKey: apiKey,
 		client: client,
 		systemInstructionFunc: func() string {
@@ -119,22 +120,22 @@ func NewClient(apiKey string, opts ...ClientOption) (*Client, error) {
 		},
 		fileConvertFuncs:    make(map[string]FnConvertBytes),
 		timeoutSeconds:      defaultTimeoutSeconds,
-		MaxRetryCount:       defaultMaxRetryCount,
-		DeleteFilesOnClose:  false,
-		DeleteCachesOnClose: false,
+		maxRetryCount:       defaultMaxRetryCount,
+		deleteFilesOnClose:  false,
+		deleteCachesOnClose: false,
 		Verbose:             false,
 	}
 
 	for _, opt := range opts {
-		opt(clientObj)
+		opt(c)
 	}
 
-	return clientObj, nil
+	return c, nil
 }
 
 // Close releases resources associated with the client.
 // It handles the deletion of uploaded files and cached contexts if configured to do so
-// via DeleteFilesOnClose and DeleteCachesOnClose respectively.
+// via `deleteFilesOnClose` and `deleteCachesOnClose` respectively.
 // Any errors encountered during cleanup are collected and returned as a single joined error.
 // An optional context can be provided for the cleanup operations.
 func (c *Client) Close(ctx ...context.Context) error {
@@ -148,7 +149,7 @@ func (c *Client) Close(ctx ...context.Context) error {
 	}
 
 	// delete all files before close
-	if c.DeleteFilesOnClose {
+	if c.deleteFilesOnClose {
 		if c.Verbose {
 			log.Printf("> deleting all files before close...")
 		}
@@ -159,7 +160,7 @@ func (c *Client) Close(ctx ...context.Context) error {
 	}
 
 	// delete all caches before close
-	if c.DeleteCachesOnClose {
+	if c.deleteCachesOnClose {
 		if c.Verbose {
 			log.Printf("> deleting all caches before close...")
 		}
@@ -188,12 +189,6 @@ func (c *Client) SetFileConverter(mimeType string, fn FnConvertBytes) {
 	c.fileConvertFuncs[mimeType] = fn
 }
 
-// SetTimeout sets the default timeout in seconds for API calls like Generate.
-// Deprecated: Use SetTimeoutSeconds or WithTimeoutSeconds for more clarity.
-func (c *Client) SetTimeout(seconds int) {
-	c.timeoutSeconds = seconds
-}
-
 // SetTimeoutSeconds sets the default timeout in seconds for API calls like Generate,
 // GenerateStreamed, and GenerateImages. This timeout is applied to the context
 // used for these operations.
@@ -204,7 +199,7 @@ func (c *Client) SetTimeoutSeconds(seconds int) {
 // SetMaxRetryCount sets the default maximum number of retries for retriable API errors
 // (typically 5xx server errors) encountered during operations like Generate.
 func (c *Client) SetMaxRetryCount(count uint) {
-	c.MaxRetryCount = count
+	c.maxRetryCount = count
 }
 
 // ResponseModality determines the type of response content expected.
@@ -428,7 +423,7 @@ func (c *Client) GenerateStreamed(
 					CodeExecutionResult: part.CodeExecutionResult,
 				})
 			} else { // NOTE: TODO: add more conditions here
-				// NOTE: unsupported type will reach here
+				// NOTE: unsupported types will reach here
 
 				if (len(options) > 0 && options[0].IgnoreUnsupportedType) || candidate.FinishReason != "" {
 					// ignore unsupported type
@@ -468,10 +463,10 @@ func (c *Client) GenerateStreamed(
 //
 // A `model` must be set in the Client before calling.
 //
-// The function includes a timeout mechanism based on `c.timeoutSeconds` (configurable via
-// WithTimeoutSeconds or SetTimeoutSeconds).
-// It also implements a retry mechanism for 5xx server errors, configured by `c.MaxRetryCount`
-// (configurable via WithMaxRetryCount or SetMaxRetryCount).
+// The function includes a timeout mechanism based on `c.timeoutSeconds`
+// (configurable via `WithTimeoutSeconds“ or `SetTimeoutSeconds`).
+// It also implements a retry mechanism for 5xx server errors, configured by `c.maxRetryCount`
+// (configurable via `WithMaxRetryCount` or `SetMaxRetryCount`).
 func (c *Client) Generate(
 	ctx context.Context,
 	prompts []Prompt, // A slice of Prompt interfaces (e.g., TextPrompt, FilePrompt) to form the request.
@@ -505,7 +500,7 @@ func (c *Client) Generate(
 		return nil, fmt.Errorf("failed to build prompts: %w", err)
 	}
 
-	return c.generate(ctx, contents, c.MaxRetryCount, opts)
+	return c.generate(ctx, contents, c.maxRetryCount, opts)
 }
 
 // ImageGenerationOptions defines parameters for image generation requests.
@@ -589,18 +584,13 @@ func (c *Client) GenerateImages(
 func (c *Client) generate(
 	ctx context.Context,
 	parts []*genai.Content,
-	initialRetryCount uint, // Renamed for clarity, this is c.MaxRetryCount initially
+	initialRetryCount uint,
 	options ...*GenerationOptions,
 ) (res *genai.GenerateContentResponse, err error) {
-	// To correctly log remaining retries and the "all retries failed" message,
-	// we need to know the initial configured retry count.
-	// The `initialRetryCount` parameter passed to the first call of `generate` is `c.MaxRetryCount`.
-	// For recursive calls, this value is decremented.
-	// Let's rename remainingRetryCount to currentRetryBudget for clarity in this scope.
 	currentRetryBudget := initialRetryCount
 
-	if c.Verbose && currentRetryBudget < c.MaxRetryCount { // Compare with the original MaxRetryCount from client config
-		log.Printf("> retrying generation with remaining retry budget: %d (initial: %d)", currentRetryBudget, c.MaxRetryCount)
+	if c.Verbose && currentRetryBudget < c.maxRetryCount { // Compare with the original maxRetryCount from client config
+		log.Printf("> retrying generation with remaining retry budget: %d (initial: %d)", currentRetryBudget, c.maxRetryCount)
 	}
 
 	// generation options
@@ -622,7 +612,7 @@ func (c *Client) generate(
 				// then retry
 				return c.generate(ctx, parts, currentRetryBudget-1) // Pass decremented budget
 			} else { // all retries failed,
-				return nil, fmt.Errorf("all %d retries of generation failed with the latest error: %w", c.MaxRetryCount, err) // Use c.MaxRetryCount for the message
+				return nil, fmt.Errorf("all %d retries of generation failed with the latest error: %w", c.maxRetryCount, err)
 			}
 		}
 		// Wrap non-retried errors
@@ -900,15 +890,15 @@ type EmbeddingTaskType string
 
 // EmbeddingTaskType constants represent the various tasks for which embeddings can be optimized.
 const (
-	EmbeddingTaskUnspecified        EmbeddingTaskType = "TASK_TYPE_UNSPECIFIED"        // Default, unspecified task type.
-	EmbeddingTaskRetrievalQuery     EmbeddingTaskType = "RETRIEVAL_QUERY"            // Embeddings for a query to be used in retrieval.
-	EmbeddingTaskRetrievalDocument  EmbeddingTaskType = "RETRIEVAL_DOCUMENT"         // Embeddings for a document to be indexed for retrieval.
-	EmbeddingTaskSemanticSimilarity EmbeddingTaskType = "SEMANTIC_SIMILARITY"        // Embeddings for semantic similarity tasks.
-	EmbeddingTaskClassification     EmbeddingTaskType = "CLASSIFICATION"             // Embeddings for classification tasks.
-	EmbeddingTaskClustering         EmbeddingTaskType = "CLUSTERING"                 // Embeddings for clustering tasks.
-	EmbeddingTaskQuestionAnswering  EmbeddingTaskType = "QUESTION_ANSWERING"         // Embeddings for question answering.
-	EmbeddingTaskFactVerification   EmbeddingTaskType = "FACT_VERIFICATION"          // Embeddings for fact verification.
-	EmbeddingTaskCodeRetrievalQuery EmbeddingTaskType = "CODE_RETRIEVAL_QUERY"       // Embeddings for code retrieval query.
+	EmbeddingTaskUnspecified        EmbeddingTaskType = "TASK_TYPE_UNSPECIFIED" // Default, unspecified task type.
+	EmbeddingTaskRetrievalQuery     EmbeddingTaskType = "RETRIEVAL_QUERY"       // Embeddings for a query to be used in retrieval.
+	EmbeddingTaskRetrievalDocument  EmbeddingTaskType = "RETRIEVAL_DOCUMENT"    // Embeddings for a document to be indexed for retrieval.
+	EmbeddingTaskSemanticSimilarity EmbeddingTaskType = "SEMANTIC_SIMILARITY"   // Embeddings for semantic similarity tasks.
+	EmbeddingTaskClassification     EmbeddingTaskType = "CLASSIFICATION"        // Embeddings for classification tasks.
+	EmbeddingTaskClustering         EmbeddingTaskType = "CLUSTERING"            // Embeddings for clustering tasks.
+	EmbeddingTaskQuestionAnswering  EmbeddingTaskType = "QUESTION_ANSWERING"    // Embeddings for question answering.
+	EmbeddingTaskFactVerification   EmbeddingTaskType = "FACT_VERIFICATION"     // Embeddings for fact verification.
+	EmbeddingTaskCodeRetrievalQuery EmbeddingTaskType = "CODE_RETRIEVAL_QUERY"  // Embeddings for code retrieval query.
 )
 
 // GenerateEmbeddings creates vector embeddings for the given content.
