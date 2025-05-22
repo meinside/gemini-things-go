@@ -72,8 +72,10 @@ func (c *Client) processPromptToPartAndInfo(
 	switch prompt := p.(type) {
 	case TextPrompt:
 		return ptr(prompt.ToPart()), prompt, nil, nil
+
 	case URIPrompt:
 		return ptr(prompt.ToPart()), prompt, nil, nil
+
 	case FilePrompt:
 		currentReader := prompt.reader
 		if currentReader == nil {

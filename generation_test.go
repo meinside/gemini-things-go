@@ -390,9 +390,9 @@ func TestGenerationIterated(t *testing.T) {
 		},
 	) {
 		if err != nil {
-			t.Errorf("generation with text & bytes prompt (iterated) failed: %s", ErrToStr(err))
+			t.Errorf("generation with text & file prompt (iterated) failed: %s", ErrToStr(err))
 		} else {
-			verbose(">>> iterating response (bytes): %s", prettify(it.Candidates[0].Content.Parts[0]))
+			verbose(">>> iterating response: %s", prettify(it.Candidates[0].Content.Parts[0]))
 		}
 	}
 
@@ -1664,7 +1664,7 @@ func TestListingModels(t *testing.T) {
 
 	gtc, err := NewClient(
 		apiKey,
-		WithModel(modelForContextCaching),
+		// WithModel(modelForTextGeneration), // NOTE: `model` is not needed for some tasks (eg. listing models)
 	)
 	if err != nil {
 		t.Fatalf("failed to create client: %s", err)
