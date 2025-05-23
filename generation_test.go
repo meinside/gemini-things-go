@@ -27,6 +27,7 @@ const (
 	modelForTextGeneration              = `gemini-2.0-flash-001`
 	modelForImageGeneration             = `gemini-2.0-flash-preview-image-generation`
 	modelForTextGenerationWithGrounding = `gemini-2.0-flash-001`
+	modelForSpeechGeneration            = `gemini-2.5-flash-preview-tts`
 
 	modelForTextGenerationWithGoogleSearchRetrieval = `gemini-1.5-flash-002` // FIXME: Google Search retrieval is only compatible with Gemini 1.5 models
 
@@ -1204,8 +1205,8 @@ func TestEmbeddings(t *testing.T) {
 	}
 }
 
-// TestImageGeneration tests image generations.
-func TestImageGeneration(t *testing.T) {
+// TestImageGenerations tests image generations.
+func TestImageGenerations(t *testing.T) {
 	sleepForNotBeingRateLimited()
 
 	apiKey := mustHaveEnvVar(t, "API_KEY")
@@ -1369,6 +1370,122 @@ func TestImageGeneration(t *testing.T) {
 	}
 
 	// TODO: add tests for: prompt with an image file
+}
+
+func TestSpeechGenerations(t *testing.T) {
+	sleepForNotBeingRateLimited()
+
+	apiKey := mustHaveEnvVar(t, "API_KEY")
+
+	gtc, err := NewClient(
+		apiKey,
+		WithModel(modelForSpeechGeneration),
+	)
+	if err != nil {
+		t.Fatalf("failed to create client: %s", err)
+	}
+	gtc.SetSystemInstructionFunc(nil)
+	gtc.Verbose = _isVerbose
+	defer gtc.Close()
+
+	prompt := `Say cheerfully: Have a wonderful day!`
+
+	if res, err := gtc.Generate(
+		context.TODO(),
+		[]Prompt{
+			PromptFromText(prompt),
+		},
+		&GenerationOptions{
+			HarmBlockThreshold: ptr(genai.HarmBlockThresholdBlockOnlyHigh),
+			ResponseModalities: []string{
+				string(ResponseModalityAudio),
+			},
+			SpeechConfig: &genai.SpeechConfig{
+				VoiceConfig: &genai.VoiceConfig{
+					PrebuiltVoiceConfig: &genai.PrebuiltVoiceConfig{
+						VoiceName: `Kore`,
+					},
+				},
+			},
+		},
+	); err != nil {
+		t.Errorf("speech generation with text prompt (non-streamed) failed: %s", ErrToStr(err))
+	} else {
+		if res.PromptFeedback != nil {
+			t.Errorf("speech generation with text prompt (non-streamed) failed with finish reason: %s", res.PromptFeedback.BlockReasonMessage)
+		} else if res.Candidates != nil {
+			for _, cand := range res.Candidates {
+				for _, part := range cand.Content.Parts {
+					if part.InlineData != nil {
+						verbose(">>> iterating response audio: %s (%d bytes)", part.InlineData.MIMEType, len(part.InlineData.Data))
+					}
+				}
+			}
+		} else {
+			t.Errorf("speech generation with text prompt failed with no usable result")
+		}
+	}
+
+	// multi-speaker speech from text-only prompt (iterated)
+	failed := true
+	prompt = `TTS the following conversation between Joe and Jane:
+Joe: How's it going today Jane?
+Jane: Not too bad, how about you?`
+	for it, err := range gtc.GenerateStreamIterated(
+		context.TODO(),
+		[]Prompt{
+			PromptFromText(prompt),
+		},
+		&GenerationOptions{
+			HarmBlockThreshold: ptr(genai.HarmBlockThresholdBlockOnlyHigh),
+			ResponseModalities: []string{
+				string(ResponseModalityAudio),
+			},
+			SpeechConfig: &genai.SpeechConfig{
+				MultiSpeakerVoiceConfig: &genai.MultiSpeakerVoiceConfig{
+					SpeakerVoiceConfigs: []*genai.SpeakerVoiceConfig{
+						{
+							Speaker: "Joe",
+							VoiceConfig: &genai.VoiceConfig{
+								PrebuiltVoiceConfig: &genai.PrebuiltVoiceConfig{
+									VoiceName: "Kore",
+								},
+							},
+						},
+						{
+							Speaker: "Jane",
+							VoiceConfig: &genai.VoiceConfig{
+								PrebuiltVoiceConfig: &genai.PrebuiltVoiceConfig{
+									VoiceName: "Puck",
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	) {
+		if err != nil {
+			t.Errorf("speech generation with text prompt (iterated) failed: %s", ErrToStr(err))
+		} else {
+			if it.PromptFeedback != nil {
+				t.Errorf("speech generation with text prompt (iterated) failed with finish reason: %s", it.PromptFeedback.BlockReasonMessage)
+			} else if it.Candidates != nil {
+				for i, cand := range it.Candidates {
+					for _, part := range cand.Content.Parts {
+						if part.InlineData != nil {
+							verbose(">>> iterating response audio from candidate[%d]: %s (%d bytes)", i, part.InlineData.MIMEType, len(part.InlineData.Data))
+
+							failed = false
+						}
+					}
+				}
+			}
+		}
+	}
+	if failed {
+		t.Errorf("iterated speech generation with text prompt failed with no usable result")
+	}
 }
 
 // TestBlockedGenerations tests generations that will fail due to blocks.
