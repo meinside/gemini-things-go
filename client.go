@@ -209,6 +209,7 @@ type ResponseModality string
 const (
 	ResponseModalityText  ResponseModality = "TEXT"  // Indicates a text response.
 	ResponseModalityImage ResponseModality = "IMAGE" // Indicates an image response.
+	ResponseModalityAudio ResponseModality = "AUDIO" // Indicates an audio response.
 )
 
 // generateStream is an internal helper to create a stream iterator for content generation.
