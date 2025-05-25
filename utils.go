@@ -12,6 +12,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -466,7 +467,13 @@ func ptr[T any](v T) *T {
 func ErrToStr(err error) (str string) {
 	var ae *genai.APIError
 	if errors.As(err, &ae) {
-		return fmt.Sprintf("genai API error: %s", ae.Error())
+		var errStr string
+		if bs, e := json.MarshalIndent(ae, "", "  "); e == nil {
+			errStr = string(bs)
+		} else {
+			errStr = ae.Error()
+		}
+		return fmt.Sprintf("genai API error: %s", errStr)
 	}
 	// For non-API errors, or if ae is nil after errors.As (shouldn't happen if As returns true)
 	if err != nil {
@@ -475,13 +482,35 @@ func ErrToStr(err error) (str string) {
 	return "" // Should not happen if err was not nil
 }
 
+// ErrDetails returns the `Details` of given `genai.APIError`.
+// Returns nil if it is not a `genai.APIError`, or something goes wrong with it.
+func ErrDetails(err error) []map[string]any {
+	var ae *genai.APIError
+	if errors.As(err, &ae) {
+		return ae.Details
+	}
+	return nil
+}
+
+// regular expressions for checking HTTP error strings
+var (
+	regexpHTTP429 = regexp.MustCompile(`[Ee]rror\s+429\s+`)    // Error 429
+	regexpHTTP503 = regexp.MustCompile(`[Ee]rror\s+503\s+`)    // Error 503
+	regexpHTTP5xx = regexp.MustCompile(`[Ee]rror\s+5\d{2}\s+`) // Error 5xx
+)
+
 // IsQuotaExceeded checks if the provided error is a `*genai.APIError` with a status code
 // indicating that a quota limit has been exceeded (typically HTTP 429).
 func IsQuotaExceeded(err error) bool {
 	var ae *genai.APIError
-	if errors.As(err, &ae) {
-		// HTTP 429 Too Many Requests is commonly used for quota exceeded.
-		if ae.Code == 429 { //nolint:gomnd // Standard HTTP status code
+	if errors.As(err, &ae) &&
+		ae.Code == 429 && //nolint:gomnd // Standard HTTP status code
+		strings.Contains(ae.Message, "exceeded your current quota") {
+		return true
+	} else {
+		errStr := err.Error()
+		if regexpHTTP429.MatchString(errStr) &&
+			strings.Contains(errStr, "exceeded your current quota") {
 			return true
 		}
 	}
@@ -492,9 +521,14 @@ func IsQuotaExceeded(err error) bool {
 // that the model is currently overloaded (typically HTTP 503 with a specific message).
 func IsModelOverloaded(err error) bool {
 	var ae *genai.APIError
-	if errors.As(err, &ae) {
-		// HTTP 503 Service Unavailable, often with a specific message for model overload.
-		if ae.Code == 503 && strings.Contains(ae.Message, "model is overloaded") { //nolint:gomnd // Standard HTTP status code
+	if errors.As(err, &ae) &&
+		ae.Code == 503 && //nolint:gomnd // Standard HTTP status code
+		strings.Contains(ae.Message, "model is overloaded") {
+		return true
+	} else {
+		errStr := err.Error()
+		if regexpHTTP503.MatchString(errStr) &&
+			strings.Contains(errStr, "model is overloaded") {
 			return true
 		}
 	}

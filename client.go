@@ -607,8 +607,16 @@ func (c *Client) generate(
 		c.generateContentConfig(opts),
 	)
 	if err != nil {
+		retriable := false
+
+		// retry on server errors (5xx)
 		var se *genai.APIError
-		if errors.As(err, &se) && se.Code >= 500 { // retry on server errors (5xx)
+		if errors.As(err, &se) && se.Code >= 500 ||
+			regexpHTTP5xx.MatchString(err.Error()) {
+			retriable = true
+		}
+
+		if retriable {
 			if currentRetryBudget > 0 { // retriable,
 				// then retry
 				return c.generate(ctx, parts, currentRetryBudget-1) // Pass decremented budget
@@ -616,9 +624,11 @@ func (c *Client) generate(
 				return nil, fmt.Errorf("all %d retries of generation failed with the latest error: %w", c.maxRetryCount, err)
 			}
 		}
+
 		// Wrap non-retried errors
 		return nil, fmt.Errorf("generation failed: %w", err)
 	}
+
 	return res, nil
 }
 
