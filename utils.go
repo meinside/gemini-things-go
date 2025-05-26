@@ -80,12 +80,21 @@ func (c *Client) processPromptToPartAndInfo(
 	case FilePrompt:
 		currentReader := prompt.reader
 		if currentReader == nil {
-			return nil, prompt, nil, fmt.Errorf("prompts[%d] has a nil reader (%s)", promptIndex, prompt.filename)
+			return nil, prompt, nil, fmt.Errorf(
+				"prompts[%d] has a nil reader (%s)",
+				promptIndex,
+				prompt.filename,
+			)
 		}
 
 		mimeType, readerForUpload, err := readMimeAndRecycle(currentReader)
 		if err != nil {
-			return nil, prompt, nil, fmt.Errorf("failed to detect MIME type of prompts[%d] (%s): %w", promptIndex, prompt.filename, err)
+			return nil, prompt, nil, fmt.Errorf(
+				"failed to detect MIME type of prompts[%d] (%s): %w",
+				promptIndex,
+				prompt.filename,
+				err,
+			)
 		}
 		currentReader = readerForUpload // Use the recycled reader
 
@@ -93,18 +102,40 @@ func (c *Client) processPromptToPartAndInfo(
 		if !supported {
 			fn, exists := c.fileConvertFuncs[matchedMimeType]
 			if !exists {
-				return nil, prompt, nil, fmt.Errorf("MIME type of prompts[%d] (%s) not supported: %s", promptIndex, prompt.filename, mimeType.String())
+				return nil, prompt, nil, fmt.Errorf(
+					"MIME type of prompts[%d] (%s) not supported: %s",
+					promptIndex,
+					prompt.filename,
+					mimeType.String(),
+				)
 			}
 			bs, readErr := io.ReadAll(currentReader)
 			if readErr != nil {
-				return nil, prompt, nil, fmt.Errorf("read failed while converting %s for prompts[%d] (%s): %w", matchedMimeType, promptIndex, prompt.filename, readErr)
+				return nil, prompt, nil, fmt.Errorf(
+					"read failed while converting %s for prompts[%d] (%s): %w",
+					matchedMimeType,
+					promptIndex,
+					prompt.filename,
+					readErr,
+				)
 			}
 			if c.Verbose {
-				log.Printf("> converting with custom file converter for %s for prompts[%d] (%s)...", matchedMimeType, promptIndex, prompt.filename)
+				log.Printf(
+					"> converting with custom file converter for %s for prompts[%d] (%s)...",
+					matchedMimeType,
+					promptIndex,
+					prompt.filename,
+				)
 			}
 			converted, convertedMimeType, convErr := fn(bs)
 			if convErr != nil {
-				return nil, prompt, nil, fmt.Errorf("converting %s for prompts[%d] (%s) failed: %w", matchedMimeType, promptIndex, prompt.filename, convErr)
+				return nil, prompt, nil, fmt.Errorf(
+					"converting %s for prompts[%d] (%s) failed: %w",
+					matchedMimeType,
+					promptIndex,
+					prompt.filename,
+					convErr,
+				)
 			}
 			currentReader = bytes.NewBuffer(converted)
 			matchedMimeType = convertedMimeType
@@ -119,7 +150,12 @@ func (c *Client) processPromptToPartAndInfo(
 			},
 		)
 		if uploadErr != nil {
-			return nil, prompt, nil, fmt.Errorf("failed to upload prompts[%d] (%s): %w", promptIndex, prompt.filename, uploadErr)
+			return nil, prompt, nil, fmt.Errorf(
+				"failed to upload prompts[%d] (%s): %w",
+				promptIndex,
+				prompt.filename,
+				uploadErr,
+			)
 		}
 
 		updatedFilePrompt := FilePrompt{
@@ -140,14 +176,30 @@ func (c *Client) processPromptToPartAndInfo(
 		if !supported {
 			fn, exists := c.fileConvertFuncs[matchedMimeType]
 			if !exists {
-				return nil, prompt, nil, fmt.Errorf("MIME type of prompts[%d] (%d bytes) not supported: %s", promptIndex, len(currentBytes), mimeType.String())
+				return nil, prompt, nil, fmt.Errorf(
+					"MIME type of prompts[%d] (%d bytes) not supported: %s",
+					promptIndex,
+					len(currentBytes),
+					mimeType.String(),
+				)
 			}
 			if c.Verbose {
-				log.Printf("> converting prompts[%d] (%d bytes) with custom file converter for %s...", promptIndex, len(currentBytes), matchedMimeType)
+				log.Printf(
+					"> converting prompts[%d] (%d bytes) with custom file converter for %s...",
+					promptIndex,
+					len(currentBytes),
+					matchedMimeType,
+				)
 			}
 			converted, convertedMimeType, convErr := fn(currentBytes)
 			if convErr != nil {
-				return nil, prompt, nil, fmt.Errorf("converting prompts[%d] (%d bytes) with MIME type %s failed: %w", promptIndex, len(currentBytes), matchedMimeType, convErr)
+				return nil, prompt, nil, fmt.Errorf(
+					"converting prompts[%d] (%d bytes) with MIME type %s failed: %w",
+					promptIndex,
+					len(currentBytes),
+					matchedMimeType,
+					convErr,
+				)
 			}
 			currentBytes = converted
 			matchedMimeType = convertedMimeType
@@ -167,7 +219,12 @@ func (c *Client) processPromptToPartAndInfo(
 			},
 		)
 		if uploadErr != nil {
-			return nil, prompt, nil, fmt.Errorf("failed to upload prompts[%d] (%d bytes) as file: %w", promptIndex, len(prompt.bytes), uploadErr)
+			return nil, prompt, nil, fmt.Errorf(
+				"failed to upload prompts[%d] (%d bytes) as file: %w",
+				promptIndex,
+				len(prompt.bytes),
+				uploadErr,
+			)
 		}
 
 		// Convert BytesPrompt to FilePrompt after upload
@@ -181,7 +238,11 @@ func (c *Client) processPromptToPartAndInfo(
 		return ptr(fileDataPrompt.ToPart()), fileDataPrompt, ptr(uploadedFile.Name), nil
 
 	default:
-		return nil, p, nil, fmt.Errorf("unknown or unsupported type of prompts[%d]: %T", promptIndex, p)
+		return nil, p, nil, fmt.Errorf(
+			"unknown or unsupported type of prompts[%d]: %T",
+			promptIndex,
+			p,
+		)
 	}
 }
 
@@ -215,7 +276,11 @@ func (c *Client) UploadFilesAndWait(ctx context.Context, prompts []Prompt) (proc
 	for i, p := range prompts {
 		_, updatedPrompt, filenameForWaiting, processErr := c.processPromptToPartAndInfo(ctx, p, i)
 		if processErr != nil {
-			return nil, fmt.Errorf("error processing prompts[%d]: %w", i, processErr)
+			return nil, fmt.Errorf(
+				"error processing prompts[%d]: %w",
+				i,
+				processErr,
+			)
 		}
 		processedPrompts = append(processedPrompts, updatedPrompt)
 		if filenameForWaiting != nil {
@@ -225,11 +290,18 @@ func (c *Client) UploadFilesAndWait(ctx context.Context, prompts []Prompt) (proc
 
 	if len(fileNamesToWaitFor) > 0 {
 		if c.Verbose {
-			log.Printf("> waiting for %d file(s) to become active: %v", len(fileNamesToWaitFor), fileNamesToWaitFor)
+			log.Printf(
+				"> waiting for %d file(s) to become active: %v",
+				len(fileNamesToWaitFor),
+				fileNamesToWaitFor,
+			)
 		}
 		c.waitForFiles(ctx, fileNamesToWaitFor)
 		if c.Verbose {
-			log.Printf("> all %d file(s) are active.", len(fileNamesToWaitFor))
+			log.Printf(
+				"> all %d file(s) are active.",
+				len(fileNamesToWaitFor),
+			)
 		}
 	}
 
@@ -257,7 +329,12 @@ func FuncArg[T any](from map[string]any, key string) (*T, error) {
 		if cast, ok := v.(T); ok {
 			return &cast, nil
 		}
-		return nil, fmt.Errorf("could not cast %[2]T '%[1]s' (%[2]v) to %[3]T", key, v, *new(T))
+		return nil, fmt.Errorf(
+			"could not cast %[2]T '%[1]s' (%[2]v) to %[3]T",
+			key,
+			v,
+			*new(T),
+		)
 	}
 	return nil, nil // not found
 }
@@ -270,7 +347,10 @@ func (c *Client) buildPromptContents(ctx context.Context, prompts []Prompt, hist
 	// where FilePrompt.data is populated and BytesPrompt (if uploaded) is converted to FilePrompt.
 	processedPromptsAfterUpload, err := c.UploadFilesAndWait(ctx, prompts)
 	if err != nil {
-		return nil, fmt.Errorf("failed to upload files or process prompts: %w", err)
+		return nil, fmt.Errorf(
+			"failed to upload files or process prompts: %w",
+			err,
+		)
 	}
 
 	// Add history contents first
@@ -492,11 +572,15 @@ func ErrDetails(err error) []map[string]any {
 	return nil
 }
 
-// regular expressions for checking HTTP error strings
 var (
+	// regular expressions for checking HTTP error strings
 	regexpHTTP429 = regexp.MustCompile(`[Ee]rror\s+429\s+`)    // Error 429
 	regexpHTTP503 = regexp.MustCompile(`[Ee]rror\s+503\s+`)    // Error 503
 	regexpHTTP5xx = regexp.MustCompile(`[Ee]rror\s+5\d{2}\s+`) // Error 5xx
+
+	// messages for checking genai errors
+	msgQuotaExceeded   = `exceeded your current quota`
+	msgModelOverloaded = `model is overloaded`
 )
 
 // IsQuotaExceeded checks if the provided error is a `*genai.APIError` with a status code
@@ -505,12 +589,12 @@ func IsQuotaExceeded(err error) bool {
 	var ae *genai.APIError
 	if errors.As(err, &ae) &&
 		ae.Code == 429 && //nolint:gomnd // Standard HTTP status code
-		strings.Contains(ae.Message, "exceeded your current quota") {
+		strings.Contains(ae.Message, msgQuotaExceeded) {
 		return true
 	} else {
 		errStr := err.Error()
 		if regexpHTTP429.MatchString(errStr) &&
-			strings.Contains(errStr, "exceeded your current quota") {
+			strings.Contains(errStr, msgQuotaExceeded) {
 			return true
 		}
 	}
@@ -523,12 +607,12 @@ func IsModelOverloaded(err error) bool {
 	var ae *genai.APIError
 	if errors.As(err, &ae) &&
 		ae.Code == 503 && //nolint:gomnd // Standard HTTP status code
-		strings.Contains(ae.Message, "model is overloaded") {
+		strings.Contains(ae.Message, msgModelOverloaded) {
 		return true
 	} else {
 		errStr := err.Error()
 		if regexpHTTP503.MatchString(errStr) &&
-			strings.Contains(errStr, "model is overloaded") {
+			strings.Contains(errStr, msgModelOverloaded) {
 			return true
 		}
 	}
@@ -610,7 +694,11 @@ func ChunkText(text string, opts ...TextChunkOption) (ChunkedText, error) {
 
 	// check `opt`
 	if overlappedSize >= chunkSize {
-		return ChunkedText{}, fmt.Errorf("overlapped size(= %d) must be less than chunk size(= %d)", overlappedSize, chunkSize)
+		return ChunkedText{}, fmt.Errorf(
+			"overlapped size(= %d) must be less than chunk size(= %d)",
+			overlappedSize,
+			chunkSize,
+		)
 	}
 
 	var chunk string
