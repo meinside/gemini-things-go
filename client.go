@@ -227,7 +227,11 @@ func (c *Client) generateStream(
 	}
 
 	if c.Verbose {
-		log.Printf("> generating streamed content with prompts: %v (options: %s)", prompts, prettify(opts))
+		log.Printf(
+			"> generating streamed content with prompts: %v (options: %s)",
+			prompts,
+			prettify(opts),
+		)
 	}
 
 	var err error
@@ -491,7 +495,11 @@ func (c *Client) Generate(
 	}
 
 	if c.Verbose {
-		log.Printf("> generating content with prompts: %v (options: %s)", prompts, prettify(opts))
+		log.Printf(
+			"> generating content with prompts: %v (options: %s)",
+			prompts,
+			prettify(opts),
+		)
 	}
 
 	// generate parts for prompting
@@ -566,7 +574,11 @@ func (c *Client) GenerateImages(
 	}
 
 	if c.Verbose {
-		log.Printf("> generating images with prompt: '%s' (options: %s)", prompt, prettify(opts))
+		log.Printf(
+			"> generating images with prompt: '%s' (options: %s)",
+			prompt,
+			prettify(opts),
+		)
 	}
 
 	res, err = c.client.Models.GenerateImages(
@@ -585,13 +597,15 @@ func (c *Client) GenerateImages(
 func (c *Client) generate(
 	ctx context.Context,
 	parts []*genai.Content,
-	initialRetryCount uint,
+	retryBudget uint,
 	options ...*GenerationOptions,
 ) (res *genai.GenerateContentResponse, err error) {
-	currentRetryBudget := initialRetryCount
-
-	if c.Verbose && currentRetryBudget < c.maxRetryCount { // Compare with the original maxRetryCount from client config
-		log.Printf("> retrying generation with remaining retry budget: %d (initial: %d)", currentRetryBudget, c.maxRetryCount)
+	if c.Verbose && retryBudget < c.maxRetryCount { // Compare with the original maxRetryCount from client config
+		log.Printf(
+			"> retrying generation with remaining retry budget: %d (initial: %d)",
+			retryBudget,
+			c.maxRetryCount,
+		)
 	}
 
 	// generation options
@@ -617,11 +631,15 @@ func (c *Client) generate(
 		}
 
 		if retriable {
-			if currentRetryBudget > 0 { // retriable,
-				// then retry
-				return c.generate(ctx, parts, currentRetryBudget-1) // Pass decremented budget
-			} else { // all retries failed,
-				return nil, fmt.Errorf("all %d retries of generation failed with the latest error: %w", c.maxRetryCount, err)
+			if retryBudget > 0 { // retriable,
+				// then retry with decremented budget
+				return c.generate(ctx, parts, retryBudget-1)
+			} else { // not retriable (all retries have failed),
+				return nil, fmt.Errorf(
+					"all %d retries of generation failed with the latest error: %w",
+					c.maxRetryCount,
+					err,
+				)
 			}
 		}
 
@@ -709,7 +727,13 @@ func (c *Client) CacheContext(
 	}
 
 	if c.Verbose {
-		log.Printf("> caching context with system prompt: %s, prompts: %v, tools: %s, and tool config: %s", prettify(systemInstruction), prompts, prettify(tools), prettify(toolConfig))
+		log.Printf(
+			"> caching context with system prompt: %s, prompts: %v, tools: %s, and tool config: %s",
+			prettify(systemInstruction),
+			prompts,
+			prettify(tools),
+			prettify(toolConfig),
+		)
 	}
 
 	// context to cache
@@ -762,14 +786,22 @@ func (c *Client) SetCachedContextExpireTime(
 	var cc *genai.CachedContent
 	cc, err = c.client.Caches.Get(ctx, cachedContextName, &genai.GetCachedContentConfig{})
 	if err != nil {
-		return fmt.Errorf("failed to get cached context %s: %w", cachedContextName, err)
+		return fmt.Errorf(
+			"failed to get cached context %s: %w",
+			cachedContextName,
+			err,
+		)
 	}
 
 	_, err = c.client.Caches.Update(ctx, cc.Name, &genai.UpdateCachedContentConfig{
 		ExpireTime: expireTime,
 	})
 	if err != nil {
-		return fmt.Errorf("failed to update cached context %s: %w", cachedContextName, err)
+		return fmt.Errorf(
+			"failed to update cached context %s: %w",
+			cachedContextName,
+			err,
+		)
 	}
 
 	return nil
@@ -787,14 +819,22 @@ func (c *Client) SetCachedContextTTL(
 	var cc *genai.CachedContent
 	cc, err = c.client.Caches.Get(ctx, cachedContextName, &genai.GetCachedContentConfig{})
 	if err != nil {
-		return fmt.Errorf("failed to get cached context %s: %w", cachedContextName, err)
+		return fmt.Errorf(
+			"failed to get cached context %s: %w",
+			cachedContextName,
+			err,
+		)
 	}
 
 	_, err = c.client.Caches.Update(ctx, cc.Name, &genai.UpdateCachedContentConfig{
 		TTL: ttl,
 	})
 	if err != nil {
-		return fmt.Errorf("failed to update cached context %s: %w", cachedContextName, err)
+		return fmt.Errorf(
+			"failed to update cached context %s: %w",
+			cachedContextName,
+			err,
+		)
 	}
 
 	return nil
@@ -844,7 +884,11 @@ func (c *Client) DeleteAllCachedContexts(ctx context.Context) (err error) {
 		}
 
 		if err = c.DeleteCachedContext(ctx, it.Name); err != nil {
-			return fmt.Errorf("failed to delete cached context %s during DeleteAllCachedContexts: %w", it.Name, err)
+			return fmt.Errorf(
+				"failed to delete cached context %s during DeleteAllCachedContexts: %w",
+				it.Name,
+				err,
+			)
 		}
 	}
 
@@ -861,7 +905,11 @@ func (c *Client) DeleteCachedContext(
 		log.Printf("> deleting cached context: %s...", cachedContextName)
 	}
 
-	if _, err = c.client.Caches.Delete(ctx, cachedContextName, &genai.DeleteCachedContentConfig{}); err != nil {
+	if _, err = c.client.Caches.Delete(
+		ctx,
+		cachedContextName,
+		&genai.DeleteCachedContentConfig{},
+	); err != nil {
 		return fmt.Errorf("failed to delete cached context: %w", err)
 	}
 
@@ -886,7 +934,11 @@ func (c *Client) DeleteAllFiles(ctx context.Context) (err error) {
 			fmt.Printf(".")
 		}
 
-		if _, err := c.client.Files.Delete(ctx, it.Name, &genai.DeleteFileConfig{}); err != nil {
+		if _, err := c.client.Files.Delete(
+			ctx,
+			it.Name,
+			&genai.DeleteFileConfig{},
+		); err != nil {
 			return fmt.Errorf("failed to delete file %s: %w", it.Name, err)
 		}
 	}
@@ -953,7 +1005,11 @@ func (c *Client) GenerateEmbeddings(
 			selectedTaskType = EmbeddingTaskRetrievalDocument
 		}
 		if selectedTaskType != EmbeddingTaskRetrievalDocument {
-			return nil, fmt.Errorf("`title` is only applicable when `taskType` is '%s', but '%s' was given", EmbeddingTaskRetrievalDocument, selectedTaskType)
+			return nil, fmt.Errorf(
+				"`title` is only applicable when `taskType` is '%s', but '%s' was given",
+				EmbeddingTaskRetrievalDocument,
+				selectedTaskType,
+			)
 		}
 	}
 	conf.TaskType = string(selectedTaskType)
