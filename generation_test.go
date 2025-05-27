@@ -1,6 +1,6 @@
 // generation_test.go
 //
-// test cases for testing generations
+// test cases for testing various types of generations
 
 package gt
 
@@ -1237,9 +1237,9 @@ func TestImageGenerations(t *testing.T) {
 		},
 		&GenerationOptions{
 			HarmBlockThreshold: ptr(genai.HarmBlockThresholdBlockOnlyHigh),
-			ResponseModalities: []string{
-				string(ResponseModalityText), // FIXME: when not given, error: 'Code: 400, Message: Model does not support the requested response modalities: image, Status: INVALID_ARGUMENT'
-				string(ResponseModalityImage),
+			ResponseModalities: []ResponseModality{
+				ResponseModalityText, // FIXME: when not given, error: 'Code: 400, Message: Model does not support the requested response modalities: image, Status: INVALID_ARGUMENT'
+				ResponseModalityImage,
 			},
 		},
 	); err != nil {
@@ -1271,9 +1271,9 @@ func TestImageGenerations(t *testing.T) {
 		},
 		&GenerationOptions{
 			HarmBlockThreshold: ptr(genai.HarmBlockThresholdBlockOnlyHigh),
-			ResponseModalities: []string{
-				string(ResponseModalityText), // FIXME: when not given, error: 'Code: 400, Message: Model does not support the requested response modalities: image, Status: INVALID_ARGUMENT'
-				string(ResponseModalityImage),
+			ResponseModalities: []ResponseModality{
+				ResponseModalityText, // FIXME: when not given, error: 'Code: 400, Message: Model does not support the requested response modalities: image, Status: INVALID_ARGUMENT'
+				ResponseModalityImage,
 			},
 		},
 	) {
@@ -1329,9 +1329,9 @@ func TestImageGenerations(t *testing.T) {
 		},
 		&GenerationOptions{
 			HarmBlockThreshold: ptr(genai.HarmBlockThresholdBlockOnlyHigh),
-			ResponseModalities: []string{
-				string(ResponseModalityText), // FIXME: when not given, error: 'Code: 400, Message: Model does not support the requested response modalities: image, Status: INVALID_ARGUMENT'
-				string(ResponseModalityImage),
+			ResponseModalities: []ResponseModality{
+				ResponseModalityText, // FIXME: when not given, error: 'Code: 400, Message: Model does not support the requested response modalities: image, Status: INVALID_ARGUMENT'
+				ResponseModalityImage,
 			},
 		},
 	); err != nil {
@@ -1397,8 +1397,8 @@ func TestSpeechGenerations(t *testing.T) {
 		},
 		&GenerationOptions{
 			HarmBlockThreshold: ptr(genai.HarmBlockThresholdBlockOnlyHigh),
-			ResponseModalities: []string{
-				string(ResponseModalityAudio),
+			ResponseModalities: []ResponseModality{
+				ResponseModalityAudio,
 			},
 			SpeechConfig: &genai.SpeechConfig{
 				VoiceConfig: &genai.VoiceConfig{
@@ -1438,8 +1438,8 @@ Jane: Not too bad, how about you?`
 		},
 		&GenerationOptions{
 			HarmBlockThreshold: ptr(genai.HarmBlockThresholdBlockOnlyHigh),
-			ResponseModalities: []string{
-				string(ResponseModalityAudio),
+			ResponseModalities: []ResponseModality{
+				ResponseModalityAudio,
 			},
 			SpeechConfig: &genai.SpeechConfig{
 				MultiSpeakerVoiceConfig: &genai.MultiSpeakerVoiceConfig{
@@ -1472,12 +1472,18 @@ Jane: Not too bad, how about you?`
 				t.Errorf("speech generation with text prompt (iterated) failed with finish reason: %s", it.PromptFeedback.BlockReasonMessage)
 			} else if it.Candidates != nil {
 				for i, cand := range it.Candidates {
-					for _, part := range cand.Content.Parts {
-						if part.InlineData != nil {
-							verbose(">>> iterating response audio from candidate[%d]: %s (%d bytes)", i, part.InlineData.MIMEType, len(part.InlineData.Data))
+					if cand.Content != nil {
+						for _, part := range cand.Content.Parts {
+							if part.InlineData != nil {
+								verbose(">>> iterating response audio from candidate[%d]: %s (%d bytes)", i, part.InlineData.MIMEType, len(part.InlineData.Data))
 
-							failed = false
+								failed = false
+							}
 						}
+					} else if cand.FinishReason != genai.FinishReasonStop {
+						t.Errorf("generation finished unexpectedly with reason: %s", cand.FinishReason)
+					} else {
+						t.Errorf("candidate has no usable content: %+v", cand)
 					}
 				}
 			}

@@ -34,12 +34,6 @@ Respond to the user according to the following principles:
 	defaultMaxRetryCount uint = 3 // NOTE: will retry only on `5xx` errors
 )
 
-// role constants for convenience
-const (
-	RoleUser  genai.Role = genai.RoleUser
-	RoleModel genai.Role = genai.RoleModel
-)
-
 // Client provides methods for interacting with the Google Generative AI API.
 // It encapsulates a genai.Client and adds higher-level functionalities.
 type Client struct {
@@ -202,16 +196,6 @@ func (c *Client) SetMaxRetryCount(count uint) {
 	c.maxRetryCount = count
 }
 
-// ResponseModality determines the type of response content expected.
-type ResponseModality string
-
-// ResponseModality constants define the types of modalities that can be requested.
-const (
-	ResponseModalityText  ResponseModality = "TEXT"  // Indicates a text response.
-	ResponseModalityImage ResponseModality = "IMAGE" // Indicates an image response.
-	ResponseModalityAudio ResponseModality = "AUDIO" // Indicates an audio response.
-)
-
 // generateStream is an internal helper to create a stream iterator for content generation.
 func (c *Client) generateStream(
 	ctx context.Context,
@@ -234,17 +218,9 @@ func (c *Client) generateStream(
 		)
 	}
 
-	var err error
-	yieldErrorAndEndIterator := func(err error) iter.Seq2[*genai.GenerateContentResponse, error] {
-		return func(yield func(*genai.GenerateContentResponse, error) bool) {
-			if !yield(nil, err) {
-				return
-			}
-		}
-	}
-
 	// generate parts for prompting
 	var contents []*genai.Content
+	var err error
 	contents, err = c.buildPromptContents(ctx, prompts, history)
 	if err != nil {
 		return yieldErrorAndEndIterator(fmt.Errorf("failed to build prompts: %w", err))
@@ -280,14 +256,6 @@ func (c *Client) GenerateStreamIterated(
 	prompts []Prompt,
 	options ...*GenerationOptions,
 ) iter.Seq2[*genai.GenerateContentResponse, error] {
-	yieldErrorAndEndIterator := func(err error) iter.Seq2[*genai.GenerateContentResponse, error] {
-		return func(yield func(*genai.GenerateContentResponse, error) bool) {
-			if !yield(nil, err) {
-				return
-			}
-		}
-	}
-
 	// check if model is set
 	if c.model == "" {
 		return yieldErrorAndEndIterator(fmt.Errorf("model is not set for generating iterated stream"))
@@ -686,7 +654,12 @@ func (c *Client) generateContentConfig(opts *GenerationOptions) (generated *gena
 		generated.Tools = opts.Tools
 		generated.ToolConfig = opts.ToolConfig
 		generated.CachedContent = opts.CachedContent
-		generated.ResponseModalities = opts.ResponseModalities
+		if opts.ResponseModalities != nil {
+			generated.ResponseModalities = []string{}
+			for _, modality := range opts.ResponseModalities {
+				generated.ResponseModalities = append(generated.ResponseModalities, string(modality))
+			}
+		}
 		generated.MediaResolution = opts.MediaResolution
 		generated.SpeechConfig = opts.SpeechConfig
 		if opts.ThinkingOn {

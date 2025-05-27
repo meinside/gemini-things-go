@@ -1,6 +1,6 @@
 // utils_test.go
 //
-// test cases for utils
+// test cases for utils.go
 
 package gt
 

@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"iter"
 	"log"
 	"net/http"
 	"os"
@@ -20,6 +21,10 @@ import (
 
 	"github.com/gabriel-vasile/mimetype"
 	"google.golang.org/genai"
+)
+
+const (
+	PrefixAPIError = "genai API error"
 )
 
 const (
@@ -541,32 +546,41 @@ func ptr[T any](v T) *T {
 	return &v
 }
 
-// ErrToStr converts an error to a string.
-// If the error is a `*genai.APIError`, it formats it with a "genai API error: " prefix.
+// APIError checks if the provided error is a `*genai.APIError`
+// and returns it if it is.
+func APIError(err error) (ae *genai.APIError, isAPIError bool) {
+	if errors.As(err, &ae) {
+		return ae, true
+	}
+	return nil, false
+}
+
+// ErrToStr converts an error into a string.
+// If the error is a `*genai.APIError`, it formats it with a prefix "genai API error: ".
 // Otherwise, it calls the error's `Error()` method.
 func ErrToStr(err error) (str string) {
-	var ae *genai.APIError
-	if errors.As(err, &ae) {
+	if ae, isAPIError := APIError(err); isAPIError {
 		var errStr string
 		if bs, e := json.MarshalIndent(ae, "", "  "); e == nil {
 			errStr = string(bs)
 		} else {
 			errStr = ae.Error()
 		}
-		return fmt.Sprintf("genai API error: %s", errStr)
+		return fmt.Sprintf("%s: %s", PrefixAPIError, errStr)
 	}
+
 	// For non-API errors, or if ae is nil after errors.As (shouldn't happen if As returns true)
 	if err != nil {
 		return err.Error()
 	}
+
 	return "" // Should not happen if err was not nil
 }
 
 // ErrDetails returns the `Details` of given `genai.APIError`.
 // Returns nil if it is not a `genai.APIError`, or something goes wrong with it.
 func ErrDetails(err error) []map[string]any {
-	var ae *genai.APIError
-	if errors.As(err, &ae) {
+	if ae, isAPIError := APIError(err); isAPIError {
 		return ae.Details
 	}
 	return nil
@@ -583,11 +597,11 @@ var (
 	msgModelOverloaded = `model is overloaded`
 )
 
-// IsQuotaExceeded checks if the provided error is a `*genai.APIError` with a status code
-// indicating that a quota limit has been exceeded (typically HTTP 429).
+// IsQuotaExceeded checks if the provided error is a `*genai.APIError`
+// with a status code 429 indicating that a quota limit has been exceeded.
 func IsQuotaExceeded(err error) bool {
-	var ae *genai.APIError
-	if errors.As(err, &ae) &&
+	ae, isAPIError := APIError(err)
+	if isAPIError &&
 		ae.Code == 429 && //nolint:gomnd // Standard HTTP status code
 		strings.Contains(ae.Message, msgQuotaExceeded) {
 		return true
@@ -601,11 +615,12 @@ func IsQuotaExceeded(err error) bool {
 	return false
 }
 
-// IsModelOverloaded checks if the provided error is a `*genai.APIError` indicating
-// that the model is currently overloaded (typically HTTP 503 with a specific message).
+// IsModelOverloaded checks if the provided error is a `*genai.APIError`
+// with a status code 503 and a message indicating that the model is currently
+// overloaded.
 func IsModelOverloaded(err error) bool {
-	var ae *genai.APIError
-	if errors.As(err, &ae) &&
+	ae, isAPIError := APIError(err)
+	if isAPIError &&
 		ae.Code == 503 && //nolint:gomnd // Standard HTTP status code
 		strings.Contains(ae.Message, msgModelOverloaded) {
 		return true
@@ -732,4 +747,13 @@ func ChunkText(text string, opts ...TextChunkOption) (ChunkedText, error) {
 		Original: text,
 		Chunks:   chunks,
 	}, nil
+}
+
+// for exiting an iterator with an error
+func yieldErrorAndEndIterator(err error) iter.Seq2[*genai.GenerateContentResponse, error] {
+	return func(yield func(*genai.GenerateContentResponse, error) bool) {
+		if !yield(nil, err) {
+			return
+		}
+	}
 }
