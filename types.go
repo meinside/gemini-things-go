@@ -10,6 +10,22 @@ import (
 	"google.golang.org/genai"
 )
 
+// ResponseModality determines the type of response content expected.
+type ResponseModality string
+
+// ResponseModality constants define the types of modalities that can be requested.
+const (
+	ResponseModalityText  ResponseModality = "TEXT"  // Indicates a text response.
+	ResponseModalityImage ResponseModality = "IMAGE" // Indicates an image response.
+	ResponseModalityAudio ResponseModality = "AUDIO" // Indicates an audio response.
+)
+
+// role constants for convenience
+const (
+	RoleUser  genai.Role = genai.RoleUser
+	RoleModel genai.Role = genai.RoleModel
+)
+
 // Prompt is an interface representing different types of input that can be
 // converted into a `genai.Part` for use in generative AI model requests.
 // It standardizes how various input forms (text, file, URI, bytes) are processed.
@@ -195,8 +211,7 @@ type GenerationOptions struct {
 	CachedContent string
 
 	// ResponseModalities specifies the expected types of content in the response,
-	// e.g., "TEXT", "IMAGE". See `gt.ResponseModalityText` and `gt.ResponseModalityImage`.
-	ResponseModalities []string
+	ResponseModalities []ResponseModality
 	// MediaResolution specifies the desired resolution for media output, if applicable.
 	MediaResolution genai.MediaResolution
 	// SpeechConfig provides configuration for speech synthesis, if applicable.
