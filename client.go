@@ -592,7 +592,7 @@ func (c *Client) generate(
 		retriable := false
 
 		// retry on server errors (5xx)
-		var se *genai.APIError
+		var se genai.APIError
 		if errors.As(err, &se) && se.Code >= 500 ||
 			regexpHTTP5xx.MatchString(err.Error()) {
 			retriable = true

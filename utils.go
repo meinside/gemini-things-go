@@ -548,11 +548,11 @@ func ptr[T any](v T) *T {
 
 // APIError checks if the provided error is a `*genai.APIError`
 // and returns it if it is.
-func APIError(err error) (ae *genai.APIError, isAPIError bool) {
+func APIError(err error) (ae genai.APIError, isAPIError bool) {
 	if errors.As(err, &ae) {
 		return ae, true
 	}
-	return nil, false
+	return genai.APIError{}, false
 }
 
 // ErrToStr converts an error into a string.

@@ -5,10 +5,14 @@
 package gt
 
 import (
+	"encoding/json"
 	"io"
 	"log"
 	"os"
+	"strings"
 	"testing"
+
+	"google.golang.org/genai"
 )
 
 // TestFuncArgs tests FuncArg function.
@@ -103,5 +107,39 @@ func TestChunkText(t *testing.T) {
 		OverlappedSize: 50,
 	}); err == nil {
 		t.Errorf("should fail with wrong chunking option")
+	}
+}
+
+// TestErrToStr tests converting error to string.
+func TestErrToStr(t *testing.T) {
+	if str := ErrToStr(nil); str != "" {
+		t.Errorf("nil error should be converted to an empty string")
+	}
+
+	const apiErrorCode = 500
+	const apiErrorMessage = `Error for testing`
+
+	if str := ErrToStr(genai.APIError{
+		Code:    apiErrorCode,
+		Message: apiErrorMessage,
+	}); !strings.HasPrefix(str, PrefixAPIError) {
+		t.Errorf("converted API error should be prefixed with '%s', but not: '%s'", PrefixAPIError, str)
+	} else {
+		if jsonStr, found := strings.CutPrefix(str, PrefixAPIError+":"); !found {
+			t.Errorf("something is wrong with the converted API error")
+		} else {
+			jsonStr = strings.TrimSpace(jsonStr)
+			var apiError genai.APIError
+			if err := json.Unmarshal([]byte(jsonStr), &apiError); err != nil {
+				t.Errorf("failed to unmarshal converted API error: %s", err)
+			} else {
+				if apiError.Code != apiErrorCode {
+					t.Errorf("unexpected code from converted API error (%d != %d)", apiError.Code, apiErrorCode)
+				}
+				if apiError.Message != apiErrorMessage {
+					t.Errorf("unexpected message from converted API error ('%s' != '%s')", apiError.Message, apiErrorMessage)
+				}
+			}
+		}
 	}
 }
