@@ -1237,9 +1237,9 @@ func TestImageGenerations(t *testing.T) {
 		},
 		&GenerationOptions{
 			HarmBlockThreshold: ptr(genai.HarmBlockThresholdBlockOnlyHigh),
-			ResponseModalities: []ResponseModality{
-				ResponseModalityText, // FIXME: when not given, error: 'Code: 400, Message: Model does not support the requested response modalities: image, Status: INVALID_ARGUMENT'
-				ResponseModalityImage,
+			ResponseModalities: []genai.Modality{
+				genai.ModalityText, // FIXME: when not given, error: 'Code: 400, Message: Model does not support the requested response modalities: image, Status: INVALID_ARGUMENT'
+				genai.ModalityImage,
 			},
 		},
 	); err != nil {
@@ -1271,9 +1271,9 @@ func TestImageGenerations(t *testing.T) {
 		},
 		&GenerationOptions{
 			HarmBlockThreshold: ptr(genai.HarmBlockThresholdBlockOnlyHigh),
-			ResponseModalities: []ResponseModality{
-				ResponseModalityText, // FIXME: when not given, error: 'Code: 400, Message: Model does not support the requested response modalities: image, Status: INVALID_ARGUMENT'
-				ResponseModalityImage,
+			ResponseModalities: []genai.Modality{
+				genai.ModalityText, // FIXME: when not given, error: 'Code: 400, Message: Model does not support the requested response modalities: image, Status: INVALID_ARGUMENT'
+				genai.ModalityImage,
 			},
 		},
 	) {
@@ -1329,9 +1329,9 @@ func TestImageGenerations(t *testing.T) {
 		},
 		&GenerationOptions{
 			HarmBlockThreshold: ptr(genai.HarmBlockThresholdBlockOnlyHigh),
-			ResponseModalities: []ResponseModality{
-				ResponseModalityText, // FIXME: when not given, error: 'Code: 400, Message: Model does not support the requested response modalities: image, Status: INVALID_ARGUMENT'
-				ResponseModalityImage,
+			ResponseModalities: []genai.Modality{
+				genai.ModalityText, // FIXME: when not given, error: 'Code: 400, Message: Model does not support the requested response modalities: image, Status: INVALID_ARGUMENT'
+				genai.ModalityImage,
 			},
 		},
 	); err != nil {
@@ -1397,8 +1397,8 @@ func TestSpeechGenerations(t *testing.T) {
 		},
 		&GenerationOptions{
 			HarmBlockThreshold: ptr(genai.HarmBlockThresholdBlockOnlyHigh),
-			ResponseModalities: []ResponseModality{
-				ResponseModalityAudio,
+			ResponseModalities: []genai.Modality{
+				genai.ModalityAudio,
 			},
 			SpeechConfig: &genai.SpeechConfig{
 				VoiceConfig: &genai.VoiceConfig{
@@ -1438,8 +1438,8 @@ Jane: Not too bad, how about you?`
 		},
 		&GenerationOptions{
 			HarmBlockThreshold: ptr(genai.HarmBlockThresholdBlockOnlyHigh),
-			ResponseModalities: []ResponseModality{
-				ResponseModalityAudio,
+			ResponseModalities: []genai.Modality{
+				genai.ModalityAudio,
 			},
 			SpeechConfig: &genai.SpeechConfig{
 				MultiSpeakerVoiceConfig: &genai.MultiSpeakerVoiceConfig{

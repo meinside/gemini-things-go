@@ -166,6 +166,7 @@ func (c *Client) processPromptToPartAndInfo(
 		updatedFilePrompt := FilePrompt{
 			filename: uploadedFile.Name, // Store the server-generated unique name
 			data: &genai.FileData{
+				// DisplayName: uploadedFile.Name, // uncomment this line when Gemini API supports it
 				FileURI:  uploadedFile.URI,
 				MIMEType: uploadedFile.MIMEType,
 			},

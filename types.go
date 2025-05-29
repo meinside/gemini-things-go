@@ -10,16 +10,6 @@ import (
 	"google.golang.org/genai"
 )
 
-// ResponseModality determines the type of response content expected.
-type ResponseModality string
-
-// ResponseModality constants define the types of modalities that can be requested.
-const (
-	ResponseModalityText  ResponseModality = "TEXT"  // Indicates a text response.
-	ResponseModalityImage ResponseModality = "IMAGE" // Indicates an image response.
-	ResponseModalityAudio ResponseModality = "AUDIO" // Indicates an audio response.
-)
-
 // role constants for convenience
 const (
 	RoleUser  genai.Role = genai.RoleUser
@@ -85,6 +75,7 @@ type FilePrompt struct {
 func (p FilePrompt) ToPart() genai.Part {
 	return genai.Part{
 		FileData: &genai.FileData{
+			// DisplayName: p.data.DisplayName, // TODO: uncomment this line when Gemini API supports it
 			FileURI:  p.data.FileURI,
 			MIMEType: p.data.MIMEType,
 		},
@@ -211,7 +202,7 @@ type GenerationOptions struct {
 	CachedContent string
 
 	// ResponseModalities specifies the expected types of content in the response,
-	ResponseModalities []ResponseModality
+	ResponseModalities []genai.Modality
 	// MediaResolution specifies the desired resolution for media output, if applicable.
 	MediaResolution genai.MediaResolution
 	// SpeechConfig provides configuration for speech synthesis, if applicable.
