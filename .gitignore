@@ -1,0 +1,5 @@
+# .gitignore
+
+# dotenv file for testing
+.env
+
