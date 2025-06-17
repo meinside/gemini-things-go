@@ -23,12 +23,13 @@ import (
 //
 // https://ai.google.dev/gemini-api/docs/models
 const (
-	modelForContextCaching              = `gemini-2.0-flash`
-	modelForTextGeneration              = `gemini-2.0-flash`
-	modelForImageGeneration             = `gemini-2.0-flash-preview-image-generation`
-	modelForTextGenerationWithGrounding = `gemini-2.0-flash`
-	modelForSpeechGeneration            = `gemini-2.5-flash-preview-tts`
-	modelForEmbeddings                  = `gemini-embedding-exp-03-07`
+	modelForContextCaching                       = `gemini-2.0-flash`
+	modelForTextGeneration                       = `gemini-2.0-flash`
+	modelForTextGenerationWithRecursiveToolCalls = `gemini-2.5-flash-preview-05-20`
+	modelForImageGeneration                      = `gemini-2.0-flash-preview-image-generation`
+	modelForTextGenerationWithGrounding          = `gemini-2.0-flash`
+	modelForSpeechGeneration                     = `gemini-2.5-flash-preview-tts`
+	modelForEmbeddings                           = `gemini-embedding-exp-03-07`
 )
 
 // flag for verbose log
@@ -1557,6 +1558,105 @@ func TestGrounding(t *testing.T) {
 		} else {
 			verbose(">>> iterating response: %s", prettify(it.Candidates[0].Content.Parts[0]))
 		}
+	}
+}
+
+// TestRecursiveToolCalls tests recursive tool calls.
+func TestRecursiveToolCalls(t *testing.T) {
+	sleepForNotBeingRateLimited()
+
+	apiKey := mustHaveEnvVar(t, "API_KEY")
+
+	gtc, err := NewClient(
+		apiKey,
+		WithModel(modelForTextGenerationWithRecursiveToolCalls),
+	)
+	if err != nil {
+		t.Fatalf("failed to create client: %s", err)
+	}
+	gtc.Verbose = _isVerbose
+	defer gtc.Close()
+
+	if res, err := gtc.GenerateWithRecursiveToolCalls(
+		context.TODO(),
+		map[string]FunctionCallHandler{
+			`list_files_info_in_dir`: func(args map[string]any) (string, error) {
+				dir, err := FuncArg[string](args, "directory")
+
+				verbose(">>> directory: %s", *dir)
+
+				if err == nil {
+					// FIXME: hard-coded
+					return `total 192
+drwxrwxr-x  4 ubuntu ubuntu  4096 Jun 16 16:53 ./
+drwxr-xr-x 28 ubuntu ubuntu  4096 Jun 17 15:42 ../
+-rwxrwxr-x  1 ubuntu ubuntu  1256 Jun  1 16:57 categorize_image.sh*
+-rwxrwxr-x  1 ubuntu ubuntu    72 May 30 15:28 list_files_info_in_dir.sh*
+-rw-r--r--  1 ubuntu ubuntu 66145 Jan 13 17:11 test1.jpg
+-rw-r--r--  1 ubuntu ubuntu 85336 Jan 13 17:11 test2.jpg
+`, nil
+				}
+				return "", fmt.Errorf("failed to get directory: %w", err)
+			},
+			`count_lines`: func(args map[string]any) (string, error) {
+				filepath, err := FuncArg[string](args, "filepath")
+
+				verbose(">>> filepath: %s", *filepath)
+
+				if err == nil {
+					// FIXME: hard-coded
+					return `55
+`, nil
+				}
+				return "", fmt.Errorf("failed to count lines: %w", err)
+			},
+		},
+		[]Prompt{
+			PromptFromText(`count the number of lines of the largest .sh file in /home/ubuntu/tmp/`),
+		},
+		&GenerationOptions{
+			Tools: []*genai.Tool{
+				{
+					FunctionDeclarations: []*genai.FunctionDeclaration{
+						{
+							Name:        `list_files_info_in_dir`,
+							Description: `this function lists files' info in the given directory`,
+							Parameters: &genai.Schema{
+								Type: genai.TypeObject,
+								Properties: map[string]*genai.Schema{
+									"directory": {
+										Type:        genai.TypeString,
+										Description: `the absolute path of a directory`,
+									},
+								},
+							},
+						},
+						{
+							Name:        `count_lines`,
+							Description: `this function counts the number of lines of given file`,
+							Parameters: &genai.Schema{
+								Type: genai.TypeObject,
+								Properties: map[string]*genai.Schema{
+									"filepath": {
+										Type:        genai.TypeString,
+										Description: `the absolute path of a file`,
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			ToolConfig: &genai.ToolConfig{
+				FunctionCallingConfig: &genai.FunctionCallingConfig{
+					Mode: genai.FunctionCallingConfigModeAuto,
+				},
+			},
+		},
+	); err != nil {
+		t.Errorf("failed to generate with recursive tool calls: %s", err)
+	} else {
+		verbose(">>> response: %s", prettify(res))
 	}
 }
 
