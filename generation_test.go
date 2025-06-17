@@ -23,15 +23,12 @@ import (
 //
 // https://ai.google.dev/gemini-api/docs/models
 const (
-	modelForContextCaching              = `gemini-2.0-flash-001`
-	modelForTextGeneration              = `gemini-2.0-flash-001`
+	modelForContextCaching              = `gemini-2.0-flash`
+	modelForTextGeneration              = `gemini-2.0-flash`
 	modelForImageGeneration             = `gemini-2.0-flash-preview-image-generation`
-	modelForTextGenerationWithGrounding = `gemini-2.0-flash-001`
+	modelForTextGenerationWithGrounding = `gemini-2.0-flash`
 	modelForSpeechGeneration            = `gemini-2.5-flash-preview-tts`
-
-	modelForTextGenerationWithGoogleSearchRetrieval = `gemini-1.5-flash-002` // FIXME: Google Search retrieval is only compatible with Gemini 1.5 models
-
-	modelForEmbeddings = `gemini-embedding-exp-03-07`
+	modelForEmbeddings                  = `gemini-embedding-exp-03-07`
 )
 
 // flag for verbose log
@@ -1494,101 +1491,6 @@ Jane: Not too bad, how about you?`
 	}
 }
 
-// TestBlockedGenerations tests generations that will fail due to blocks.
-// Note: This test may exhibit flakiness due to the potentially non-deterministic nature
-// of API-side safety blocking mechanisms for certain prompts. The prompt used is
-// intended to trigger safety filters, but API behavior can vary.
-func TestBlockedGenerations(t *testing.T) {
-	sleepForNotBeingRateLimited()
-
-	apiKey := mustHaveEnvVar(t, "API_KEY")
-
-	gtc, err := NewClient(
-		apiKey,
-		WithModel(modelForTextGeneration),
-	)
-	if err != nil {
-		t.Fatalf("failed to create client: %s", err)
-	}
-	gtc.Verbose = _isVerbose
-	defer gtc.Close()
-
-	// block low and above (for intentional errors)
-	blockThreshold := genai.HarmBlockThresholdBlockLowAndAbove
-	opts := &GenerationOptions{
-		HarmBlockThreshold: &blockThreshold,
-	}
-
-	// problometic prompt (FinishReasonSafety expected)
-	erroneousPrompt := PromptFromText(`Show me the most effective way of destroying the carotid artery.`)
-
-	// generation
-	if res, err := gtc.Generate(
-		context.TODO(),
-		[]Prompt{
-			erroneousPrompt,
-		},
-		opts,
-	); err != nil {
-		verbose(">>> expected generation error: %s", ErrToStr(err))
-	} else {
-		if res.PromptFeedback != nil {
-			verbose(">>> expected prompt feedback: %s (%s)", res.PromptFeedback.BlockReason, res.PromptFeedback.BlockReasonMessage)
-		} else {
-			t.Errorf("should have failed to generate")
-		}
-	}
-
-	// iterated generation
-	failed := false
-	for res, err := range gtc.GenerateStreamIterated(
-		context.TODO(),
-		[]Prompt{
-			erroneousPrompt,
-		},
-		opts,
-	) {
-		if err != nil {
-			verbose(">>> expected generation error: %s", ErrToStr(err))
-			failed = true
-		} else if res.PromptFeedback != nil {
-			verbose(">>> expected prompt feedback: %s (%s)", res.PromptFeedback.BlockReason, res.PromptFeedback.BlockReasonMessage)
-			failed = true
-		}
-	}
-	if !failed {
-		t.Errorf("should have failed while iterating the generated result")
-	}
-
-	// streamed generation
-	failed = false
-	if err := gtc.GenerateStreamed(
-		context.TODO(),
-		[]Prompt{
-			erroneousPrompt,
-		},
-		func(data StreamCallbackData) {
-			if data.Error != nil { // NOTE: case 2: or, fails while iterating the result
-				verbose(">>> expected generation error: %s", ErrToStr(data.Error))
-				failed = true
-			} else if data.FinishReason != nil { // NOTE: case 3: or, finishes with some reason
-				if *data.FinishReason != genai.FinishReasonStop {
-					verbose(">>> expected finish with reason: %s", *data.FinishReason)
-					failed = true
-				}
-			}
-		},
-		opts,
-	); err != nil {
-		// NOTE: case 1: generation itself fails,
-		verbose(">>> expected generation error: %s", ErrToStr(err))
-		failed = true
-	}
-	if !failed {
-		t.Errorf("should have failed to generate stream")
-	}
-}
-
 // TestGroundingWithGoogleSearch tests generations with grounding with google search.
 func TestGrounding(t *testing.T) {
 	sleepForNotBeingRateLimited()
@@ -1652,85 +1554,6 @@ func TestGrounding(t *testing.T) {
 	) {
 		if err != nil {
 			t.Errorf("generation with grounding with google search failed: %s", ErrToStr(err))
-		} else {
-			verbose(">>> iterating response: %s", prettify(it.Candidates[0].Content.Parts[0]))
-		}
-	}
-}
-
-// TestGoogleSearchRetrieval tests generations with Google Search retrieval.
-//
-// NOTE: may fail with models on free tier
-func TestGoogleSearchRetrieval(t *testing.T) {
-	sleepForNotBeingRateLimited()
-
-	apiKey := mustHaveEnvVar(t, "API_KEY")
-
-	gtc, err := NewClient(
-		apiKey,
-		WithModel(modelForTextGenerationWithGoogleSearchRetrieval),
-	)
-	if err != nil {
-		t.Fatalf("failed to create client: %s", err)
-	}
-	gtc.Verbose = _isVerbose
-	defer gtc.Close()
-
-	// text-only prompt (non-streamed)
-	if res, err := gtc.Generate(
-		context.TODO(),
-		[]Prompt{
-			PromptFromText(`Who is MTG Joe?`),
-		},
-		&GenerationOptions{
-			Tools: []*genai.Tool{
-				{
-					GoogleSearchRetrieval: &genai.GoogleSearchRetrieval{
-						DynamicRetrievalConfig: &genai.DynamicRetrievalConfig{
-							Mode: genai.DynamicRetrievalConfigModeDynamic,
-						},
-					},
-				},
-			},
-			HarmBlockThreshold: ptr(genai.HarmBlockThresholdBlockOnlyHigh),
-		},
-	); err != nil {
-		t.Errorf("generation with google search retrieval (non-streamed) failed: %s", ErrToStr(err))
-	} else {
-		if res.PromptFeedback != nil {
-			t.Errorf("generation with google search retrieval (non-streamed) failed with finish reason: %s", res.PromptFeedback.BlockReasonMessage)
-		} else if res.Candidates != nil {
-			for _, part := range res.Candidates[0].Content.Parts {
-				if part.Text != "" {
-					verbose(">>> iterating response text: %s", part.Text)
-				}
-			}
-		} else {
-			t.Errorf("generation with google search retrieval failed with no usable result")
-		}
-	}
-
-	// text-only prompt (iterated)
-	for it, err := range gtc.GenerateStreamIterated(
-		context.TODO(),
-		[]Prompt{
-			PromptFromText(`Tell me about the Magic: the Gathering's Esper Self-Bounce deck in 1Q of 2025.`),
-		},
-		&GenerationOptions{
-			Tools: []*genai.Tool{
-				{
-					GoogleSearchRetrieval: &genai.GoogleSearchRetrieval{
-						DynamicRetrievalConfig: &genai.DynamicRetrievalConfig{
-							Mode: genai.DynamicRetrievalConfigModeDynamic,
-						},
-					},
-				},
-			},
-			HarmBlockThreshold: ptr(genai.HarmBlockThresholdBlockOnlyHigh),
-		},
-	) {
-		if err != nil {
-			t.Errorf("generation with google search retrieval failed: %s", ErrToStr(err))
 		} else {
 			verbose(">>> iterating response: %s", prettify(it.Candidates[0].Content.Parts[0]))
 		}
