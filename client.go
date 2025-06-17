@@ -1,5 +1,7 @@
 // client.go
 
+// Package gt provides a client for interacting with the Google Generative AI API.
+// It encapsulates a genai.Client and adds higher-level functionalities.
 package gt
 
 import (
