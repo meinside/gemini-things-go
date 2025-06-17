@@ -482,6 +482,65 @@ func (c *Client) Generate(
 	return c.generate(ctx, contents, c.maxRetryCount, opts)
 }
 
+// FunctionCallHandler is a function type for handling function calls
+type FunctionCallHandler func(args map[string]any) (string, error)
+
+// GenerateWithRecursiveToolCalls generates recursively with resulting tool calls.
+func (c *Client) GenerateWithRecursiveToolCalls(
+	ctx context.Context,
+	fnCallHandlers map[string]FunctionCallHandler,
+	prompts []Prompt, // A slice of Prompt interfaces (e.g., TextPrompt, FilePrompt) to form the request.
+	options ...*GenerationOptions, // Optional GenerationOptions to customize the request.
+) (res *genai.GenerateContentResponse, err error) {
+	res, err = c.Generate(ctx, prompts, options...)
+	if err == nil {
+		// check if `res` has a function call,
+		if fnCall, exists := hasFunctionCall(res.Candidates); exists {
+			// if so, call the corresponding function,
+			if handler, exists := fnCallHandlers[fnCall.Name]; exists {
+				if handled, err := handler(fnCall.Args); err == nil {
+					if options == nil {
+						options = []*GenerationOptions{
+							{
+								History: []genai.Content{},
+							},
+						}
+					}
+
+					// append the result to `options.History`,
+					options[0].History = append(options[0].History, genai.Content{
+						Role: genai.RoleUser,
+						Parts: []*genai.Part{
+							{
+								Text: fmt.Sprintf(`Result of function '%s(%s)':
+
+%s`,
+									fnCall.Name,
+									prettify(fnCall.Args, true),
+									handled,
+								),
+							},
+						},
+					})
+
+					// and recurse
+					return c.GenerateWithRecursiveToolCalls(
+						ctx,
+						fnCallHandlers,
+						prompts,
+						options...,
+					)
+				} else {
+					return nil, fmt.Errorf("failed to handle function call: %w", err)
+				}
+			} else {
+				return nil, fmt.Errorf("no handler found for function call: %s", fnCall.Name)
+			}
+		}
+	}
+	return res, err
+}
+
 // ImageGenerationOptions defines parameters for image generation requests.
 // These options correspond to the fields in `genai.GenerateImagesConfig`.
 type ImageGenerationOptions struct {

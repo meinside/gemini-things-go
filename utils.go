@@ -252,6 +252,20 @@ func (c *Client) processPromptToPartAndInfo(
 	}
 }
 
+// check if there is a function call in the candidates
+func hasFunctionCall(candidates []*genai.Candidate) (*genai.FunctionCall, bool) {
+	for _, cand := range candidates {
+		if cand.Content != nil {
+			for _, part := range cand.Content.Parts {
+				if part.FunctionCall != nil {
+					return part.FunctionCall, true
+				}
+			}
+		}
+	}
+	return nil, false
+}
+
 // UploadFilesAndWait processes a slice of Prompts,
 // handling file uploads for FilePrompt and BytesPrompt types.
 // It waits for all uploaded files to become "ACTIVE".
@@ -535,9 +549,15 @@ func SupportedMimeTypePath(filepath string) (matchedMimeType string, supported b
 }
 
 // prettify given thing in JSON format
-func prettify(v any) string {
-	if bytes, err := json.MarshalIndent(v, "", "  "); err == nil {
-		return string(bytes)
+func prettify(v any, flatten ...bool) string {
+	if len(flatten) > 0 && flatten[0] {
+		if bytes, err := json.Marshal(v); err == nil {
+			return string(bytes)
+		}
+	} else {
+		if bytes, err := json.MarshalIndent(v, "", "  "); err == nil {
+			return string(bytes)
+		}
 	}
 	return fmt.Sprintf("%+v", v)
 }
