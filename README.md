@@ -20,7 +20,7 @@ import (
 
 const (
 	apiKey = `AIabcdefghijklmnopqrstuvwxyz_ABCDEFG-00000000-00` // Your API key here
-	model  = "gemini-2.0-flash"
+	model  = "gemini-2.5-flash"
 )
 
 func main() {

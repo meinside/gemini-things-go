@@ -23,11 +23,11 @@ import (
 //
 // https://ai.google.dev/gemini-api/docs/models
 const (
-	modelForContextCaching                       = `gemini-2.0-flash`
-	modelForTextGeneration                       = `gemini-2.0-flash`
-	modelForTextGenerationWithRecursiveToolCalls = `gemini-2.5-flash-preview-05-20`
+	modelForContextCaching                       = `gemini-2.5-flash`
+	modelForTextGeneration                       = `gemini-2.5-flash`
+	modelForTextGenerationWithRecursiveToolCalls = `gemini-2.5-flash`
 	modelForImageGeneration                      = `gemini-2.0-flash-preview-image-generation`
-	modelForTextGenerationWithGrounding          = `gemini-2.0-flash`
+	modelForTextGenerationWithGrounding          = `gemini-2.5-flash`
 	modelForSpeechGeneration                     = `gemini-2.5-flash-preview-tts`
 	modelForEmbeddings                           = `gemini-embedding-exp-03-07`
 )
@@ -1577,8 +1577,13 @@ func TestRecursiveToolCalls(t *testing.T) {
 	gtc.Verbose = _isVerbose
 	defer gtc.Close()
 
+	ctx := context.TODO()
+	var cancel context.CancelFunc
+	ctx, cancel = context.WithTimeout(ctx, 15*time.Second) // FIXME: not to recurse forever
+	defer cancel()
+
 	if res, err := gtc.GenerateWithRecursiveToolCalls(
-		context.TODO(),
+		ctx,
 		map[string]FunctionCallHandler{
 			`list_files_info_in_dir`: func(args map[string]any) (string, error) {
 				dir, err := FuncArg[string](args, "directory")
