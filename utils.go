@@ -83,12 +83,12 @@ func (c *Client) processPromptToPartAndInfo(
 		return ptr(prompt.ToPart()), prompt, nil, nil
 
 	case FilePrompt:
-		currentReader := prompt.reader
+		currentReader := prompt.Reader
 		if currentReader == nil {
 			return nil, prompt, nil, fmt.Errorf(
 				"prompts[%d] has a nil reader (%s)",
 				promptIndex,
-				prompt.filename,
+				prompt.Filename,
 			)
 		}
 
@@ -97,7 +97,7 @@ func (c *Client) processPromptToPartAndInfo(
 			return nil, prompt, nil, fmt.Errorf(
 				"failed to detect MIME type of prompts[%d] (%s): %w",
 				promptIndex,
-				prompt.filename,
+				prompt.Filename,
 				err,
 			)
 		}
@@ -110,7 +110,7 @@ func (c *Client) processPromptToPartAndInfo(
 				return nil, prompt, nil, fmt.Errorf(
 					"MIME type of prompts[%d] (%s) not supported: %s",
 					promptIndex,
-					prompt.filename,
+					prompt.Filename,
 					mimeType.String(),
 				)
 			}
@@ -120,7 +120,7 @@ func (c *Client) processPromptToPartAndInfo(
 					"read failed while converting %s for prompts[%d] (%s): %w",
 					matchedMimeType,
 					promptIndex,
-					prompt.filename,
+					prompt.Filename,
 					readErr,
 				)
 			}
@@ -129,7 +129,7 @@ func (c *Client) processPromptToPartAndInfo(
 					"> converting with custom file converter for %s for prompts[%d] (%s)...",
 					matchedMimeType,
 					promptIndex,
-					prompt.filename,
+					prompt.Filename,
 				)
 			}
 			converted, convertedMimeType, convErr := fn(bs)
@@ -138,7 +138,7 @@ func (c *Client) processPromptToPartAndInfo(
 					"converting %s for prompts[%d] (%s) failed: %w",
 					matchedMimeType,
 					promptIndex,
-					prompt.filename,
+					prompt.Filename,
 					convErr,
 				)
 			}
@@ -151,21 +151,21 @@ func (c *Client) processPromptToPartAndInfo(
 			currentReader,
 			&genai.UploadFileConfig{
 				MIMEType:    matchedMimeType,
-				DisplayName: prompt.filename, // Use original filename for display
+				DisplayName: prompt.Filename, // Use original filename for display
 			},
 		)
 		if uploadErr != nil {
 			return nil, prompt, nil, fmt.Errorf(
 				"failed to upload prompts[%d] (%s): %w",
 				promptIndex,
-				prompt.filename,
+				prompt.Filename,
 				uploadErr,
 			)
 		}
 
 		updatedFilePrompt := FilePrompt{
-			filename: uploadedFile.Name, // Store the server-generated unique name
-			data: &genai.FileData{
+			Filename: uploadedFile.Name, // Store the server-generated unique name
+			Data: &genai.FileData{
 				// DisplayName: uploadedFile.Name, // uncomment this line when Gemini API supports it
 				FileURI:  uploadedFile.URI,
 				MIMEType: uploadedFile.MIMEType,
@@ -175,7 +175,7 @@ func (c *Client) processPromptToPartAndInfo(
 		return ptr(updatedFilePrompt.ToPart()), updatedFilePrompt, ptr(uploadedFile.Name), nil
 
 	case BytesPrompt:
-		currentBytes := prompt.bytes
+		currentBytes := prompt.Bytes
 		mimeType := mimetype.Detect(currentBytes)
 		matchedMimeType, supported := checkMimeType(mimeType)
 
@@ -211,7 +211,7 @@ func (c *Client) processPromptToPartAndInfo(
 			matchedMimeType = convertedMimeType
 		}
 
-		displayName := prompt.filename
+		displayName := prompt.Filename
 		if displayName == "" {
 			displayName = fmt.Sprintf("prompts[%d] (%d bytes)", promptIndex, len(currentBytes))
 		}
@@ -228,15 +228,15 @@ func (c *Client) processPromptToPartAndInfo(
 			return nil, prompt, nil, fmt.Errorf(
 				"failed to upload prompts[%d] (%d bytes) as file: %w",
 				promptIndex,
-				len(prompt.bytes),
+				len(prompt.Bytes),
 				uploadErr,
 			)
 		}
 
 		// Convert BytesPrompt to FilePrompt after upload
 		fileDataPrompt := FilePrompt{
-			filename: uploadedFile.Name, // Store the server-generated unique name
-			data: &genai.FileData{
+			Filename: uploadedFile.Name, // Store the server-generated unique name
+			Data: &genai.FileData{
 				FileURI:  uploadedFile.URI,
 				MIMEType: uploadedFile.MIMEType,
 			},

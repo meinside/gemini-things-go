@@ -30,26 +30,26 @@ type Prompt interface {
 
 // TextPrompt represents a simple text-based prompt.
 type TextPrompt struct {
-	text string // The actual text content of the prompt.
+	Text string // The actual text content of the prompt.
 }
 
 // ToPart converts the TextPrompt into a `genai.Part` containing the text.
 func (p TextPrompt) ToPart() genai.Part {
 	return genai.Part{
-		Text: p.text,
+		Text: p.Text,
 	}
 }
 
 // String returns a string representation of the TextPrompt, showing the text content.
 func (p TextPrompt) String() string {
-	return fmt.Sprintf("text='%s'", p.text)
+	return fmt.Sprintf("text='%s'", p.Text)
 }
 
 // PromptFromText creates a new TextPrompt from the given text string.
 // It implements the Prompt interface.
 func PromptFromText(text string) Prompt {
 	return TextPrompt{
-		text: text,
+		Text: text,
 	}
 }
 
@@ -58,14 +58,14 @@ func PromptFromText(text string) Prompt {
 // After processing (e.g., uploading via client.processPromptToPartAndInfo), the `data` field
 // will be populated with the URI and MIME type of the uploaded file from the server.
 type FilePrompt struct {
-	filename string    // filename is the display name for the file, used during upload.
-	reader   io.Reader // reader provides the content of the file.
+	Filename string    // filename is the display name for the file, used during upload.
+	Reader   io.Reader // reader provides the content of the file.
 
-	// data holds the URI and MIME type of the file after it has been uploaded
+	// Data holds the URI and MIME type of the file after it has been uploaded
 	// and the server has responded with the file's metadata.
 	// This field is populated by processing functions like `client.processPromptToPartAndInfo`.
 	// It is nil until the file is successfully processed and its URI obtained.
-	data *genai.FileData
+	Data *genai.FileData
 }
 
 // ToPart converts the FilePrompt into a `genai.Part` using the FileData (URI and MIME type).
@@ -76,8 +76,8 @@ func (p FilePrompt) ToPart() genai.Part {
 	return genai.Part{
 		FileData: &genai.FileData{
 			// DisplayName: p.data.DisplayName, // TODO: uncomment this line when Gemini API supports it
-			FileURI:  p.data.FileURI,
-			MIMEType: p.data.MIMEType,
+			FileURI:  p.Data.FileURI,
+			MIMEType: p.Data.MIMEType,
 		},
 	}
 }
@@ -85,25 +85,25 @@ func (p FilePrompt) ToPart() genai.Part {
 // String returns a string representation of the FilePrompt.
 // If the file has been uploaded and `data` is populated, it includes the URI and MIME type.
 func (p FilePrompt) String() string {
-	if p.data != nil {
-		return fmt.Sprintf("file='%s';uri='%s';mimeType=%s", p.filename, p.data.FileURI, p.data.MIMEType)
+	if p.Data != nil {
+		return fmt.Sprintf("file='%s';uri='%s';mimeType=%s", p.Filename, p.Data.FileURI, p.Data.MIMEType)
 	}
-	return fmt.Sprintf("file='%s'", p.filename)
+	return fmt.Sprintf("file='%s'", p.Filename)
 }
 
 // PromptFromFile creates a new FilePrompt with the given display filename and an io.Reader for its content.
 // It implements the Prompt interface.
 func PromptFromFile(filename string, reader io.Reader) Prompt {
 	return FilePrompt{
-		filename: filename,
-		reader:   reader,
+		Filename: filename,
+		Reader:   reader,
 	}
 }
 
 // URIPrompt represents a prompt that uses a URI to point to file data
 // (e.g., a gs:// URI for a file in Google Cloud Storage, or a publicly accessible HTTPS URI).
 type URIPrompt struct {
-	uri string // The URI of the file.
+	URI string // The URI of the file.
 }
 
 // ToPart converts the URIPrompt into a `genai.Part` using the FileData URI.
@@ -111,21 +111,21 @@ type URIPrompt struct {
 func (p URIPrompt) ToPart() genai.Part {
 	return genai.Part{
 		FileData: &genai.FileData{
-			FileURI: p.uri,
+			FileURI: p.URI,
 		},
 	}
 }
 
 // String returns a string representation of the URIPrompt.
 func (p URIPrompt) String() string {
-	return fmt.Sprintf("uri='%s'", p.uri)
+	return fmt.Sprintf("uri='%s'", p.URI)
 }
 
 // PromptFromURI creates a new URIPrompt from the given URI string.
 // It implements the Prompt interface.
 func PromptFromURI(uri string) Prompt {
 	return URIPrompt{
-		uri: uri,
+		URI: uri,
 	}
 }
 
@@ -134,9 +134,9 @@ func PromptFromURI(uri string) Prompt {
 // or uploaded if they exceed size limits for inline data or if a file URI is preferred.
 // The `filename` field can be used to provide a display name if the bytes are uploaded.
 type BytesPrompt struct {
-	filename string // Optional display name for the byte data, used if uploaded.
-	bytes    []byte // The raw byte data of the file.
-	mimeType string // The MIME type of the byte data (e.g., "image/png"), typically auto-detected.
+	Filename string // Optional display name for the byte data, used if uploaded.
+	Bytes    []byte // The raw byte data of the file.
+	MimeType string // The MIME type of the byte data (e.g., "image/png"), typically auto-detected.
 }
 
 // ToPart converts the BytesPrompt into a `genai.Part`.
@@ -146,18 +146,18 @@ type BytesPrompt struct {
 func (p BytesPrompt) ToPart() genai.Part {
 	return genai.Part{
 		InlineData: &genai.Blob{
-			Data:     p.bytes,
-			MIMEType: p.mimeType,
+			Data:     p.Bytes,
+			MIMEType: p.MimeType,
 		},
 	}
 }
 
 // String returns a string representation of the BytesPrompt, including its filename (if any), length, and MIME type.
 func (p BytesPrompt) String() string {
-	if p.filename != "" {
-		return fmt.Sprintf("bytes(file='%s')[%d];mimeType=%s", p.filename, len(p.bytes), p.mimeType)
+	if p.Filename != "" {
+		return fmt.Sprintf("bytes(file='%s')[%d];mimeType=%s", p.Filename, len(p.Bytes), p.MimeType)
 	}
-	return fmt.Sprintf("bytes[%d];mimeType=%s", len(p.bytes), p.mimeType)
+	return fmt.Sprintf("bytes[%d];mimeType=%s", len(p.Bytes), p.MimeType)
 }
 
 // PromptFromBytes creates a new BytesPrompt from a byte slice.
@@ -166,8 +166,8 @@ func (p BytesPrompt) String() string {
 // This version does not include a filename.
 func PromptFromBytes(bytes []byte) Prompt {
 	return BytesPrompt{
-		bytes:    bytes,
-		mimeType: mimetype.Detect(bytes).String(),
+		Bytes:    bytes,
+		MimeType: mimetype.Detect(bytes).String(),
 	}
 }
 
@@ -176,9 +176,9 @@ func PromptFromBytes(bytes []byte) Prompt {
 // It implements the Prompt interface.
 func PromptFromBytesWithName(bytes []byte, filename string) Prompt {
 	return BytesPrompt{
-		filename: filename,
-		bytes:    bytes,
-		mimeType: mimetype.Detect(bytes).String(),
+		Filename: filename,
+		Bytes:    bytes,
+		MimeType: mimetype.Detect(bytes).String(),
 	}
 }
 
