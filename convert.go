@@ -1,19 +1,20 @@
 // convert.go
+//
+// functions for converting things across protocols and/or libraries
 
 package gt
 
 import (
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 
-	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"google.golang.org/genai"
 )
 
 // MCPToGeminiTools converts given []mcp.Tool to []genai.FunctionDeclaration.
 func MCPToGeminiTools(
-	from []mcp.Tool,
+	from []*mcp.Tool,
 ) (to []*genai.FunctionDeclaration, err error) {
 	to = make([]*genai.FunctionDeclaration, len(from))
 
@@ -44,21 +45,20 @@ func MCPCallToolResultToGeminiPrompts(
 	to = make([]Prompt, len(from.Content))
 
 	for i, c := range from.Content {
-		if ct, ok := c.(mcp.TextContent); ok {
-			to[i] = PromptFromText(ct.Text)
-		} else if ci, ok := c.(mcp.ImageContent); ok {
-			if bytes, err := base64.RawStdEncoding.DecodeString(ci.Data); err == nil {
-				to[i] = PromptFromBytes(bytes)
+		switch t := c.(type) {
+		case *mcp.TextContent:
+			to[i] = PromptFromText(t.Text)
+		case *mcp.ImageContent:
+			to[i] = PromptFromBytes(t.Data)
+		case *mcp.AudioContent:
+			to[i] = PromptFromBytes(t.Data)
+		case *mcp.EmbeddedResource:
+			if t.Resource != nil {
+				to[i] = PromptFromBytesWithName(t.Resource.Blob, t.Resource.URI)
 			} else {
-				return nil, fmt.Errorf("failed to decode image from call tool result: %w", err)
+				return nil, fmt.Errorf("embedded resource is nil")
 			}
-		} else if ca, ok := c.(mcp.AudioContent); ok {
-			if bytes, err := base64.RawStdEncoding.DecodeString(ca.Data); err == nil {
-				to[i] = PromptFromBytes(bytes)
-			} else {
-				return nil, fmt.Errorf("failed to decode audio from call tool result: %w", err)
-			}
-		} else {
+		default:
 			return nil, fmt.Errorf("unhandled content type from call tool result: %T", c)
 		}
 	}
