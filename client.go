@@ -1132,3 +1132,72 @@ func (c *Client) ListModels(ctx context.Context) (models []*genai.Model, err err
 
 	return models, err
 }
+
+// RequestBatch creates a batch job for the given job source.
+//
+// A `model` (specifically a batch model) must be set in the Client.
+// `displayName` is an optional name to give the batch job.
+func (c *Client) RequestBatch(
+	ctx context.Context,
+	job *genai.BatchJobSource,
+	displayName string,
+) (batch *genai.BatchJob, err error) {
+	// check if model is set
+	if c.model == "" {
+		return nil, fmt.Errorf("model is not set for batch requests")
+	}
+
+	return c.client.Batches.Create(
+		ctx,
+		c.model,
+		job,
+		&genai.CreateBatchJobConfig{
+			DisplayName: displayName,
+		},
+	)
+}
+
+// Batch returns the batch job with the given name.
+func (c *Client) Batch(
+	ctx context.Context,
+	name string,
+) (batch *genai.BatchJob, err error) {
+	return c.client.Batches.Get(
+		ctx,
+		name,
+		&genai.GetBatchJobConfig{},
+	)
+}
+
+// ListBatches returns a list of all batch jobs available to the authenticated API key.
+func (c *Client) ListBatches(ctx context.Context) iter.Seq2[*genai.BatchJob, error] {
+	return c.client.Batches.All(ctx)
+}
+
+// CancelBatch cancels the batch job with the given name.
+func (c *Client) CancelBatch(ctx context.Context, name string) (err error) {
+	return c.client.Batches.Cancel(
+		ctx,
+		name, &genai.CancelBatchJobConfig{},
+	)
+}
+
+// DeleteBatch deletes the batch job with the given name.
+func (c *Client) DeleteBatch(ctx context.Context, name string) (err error) {
+	var delete *genai.DeleteResourceJob
+	delete, err = c.client.Batches.Delete(
+		ctx,
+		name,
+		&genai.DeleteBatchJobConfig{},
+	)
+	if err != nil {
+		return fmt.Errorf("failed to delete batch: %w", err)
+	}
+	if delete.Error != nil {
+		return fmt.Errorf("error in delete resource job: %s", delete.Error.Message)
+	}
+	if delete.Done {
+		return nil
+	}
+	return fmt.Errorf("failed to delete batch")
+}

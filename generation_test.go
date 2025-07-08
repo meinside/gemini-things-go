@@ -30,6 +30,7 @@ const (
 	modelForTextGenerationWithGrounding          = `gemini-2.5-flash`
 	modelForSpeechGeneration                     = `gemini-2.5-flash-preview-tts`
 	modelForEmbeddings                           = `gemini-embedding-exp-03-07`
+	modelForBatches                              = `gemini-2.5-flash`
 )
 
 // flag for verbose log
@@ -67,8 +68,12 @@ func mustHaveEnvVar(t *testing.T, key string) string {
 
 // TestContextCaching tests context caching and generation with the cached context.
 //
-// NOTE: may fail with error on free tier:
-// `Error 429, Message: TotalCachedContentStorageTokensPerModelFreeTier limit exceeded for model XXXX: limit=0, requested=YYYY`
+//	NOTE: may fail with error on free tier:
+//	{
+//		"code": 429,
+//		"message": "TotalCachedContentStorageTokensPerModelFreeTier limit exceeded for model gemini-2.5-flash: limit=0, requested=45776",
+//		"status": "RESOURCE_EXHAUSTED"
+//	}
 func TestContextCaching(t *testing.T) {
 	sleepForNotBeingRateLimited()
 
@@ -89,7 +94,7 @@ func TestContextCaching(t *testing.T) {
 	gtc.DeleteFilesOnClose = true
 	gtc.DeleteCachesOnClose = true
 	gtc.Verbose = _isVerbose
-	defer gtc.Close()
+	defer func() { _ = gtc.Close() }()
 
 	// open files for testing
 	//
@@ -113,7 +118,7 @@ func TestContextCaching(t *testing.T) {
 		} else {
 			files = append(files, file)
 
-			defer file.Close()
+			defer func() { _ = gtc.Close() }()
 		}
 	}
 
@@ -238,7 +243,7 @@ func TestGeneration(t *testing.T) {
 	}
 	gtc.DeleteFilesOnClose = true
 	gtc.Verbose = _isVerbose
-	defer gtc.Close()
+	defer func() { _ = gtc.Close() }()
 
 	// text-only prompt (non-streamed)
 	if generated, err := gtc.Generate(
@@ -343,7 +348,7 @@ func TestGenerationIterated(t *testing.T) {
 	}
 	gtc.DeleteFilesOnClose = true
 	gtc.Verbose = _isVerbose
-	defer gtc.Close()
+	defer func() { _ = gtc.Close() }()
 
 	// text-only prompt (iterated)
 	for it, err := range gtc.GenerateStreamIterated(
@@ -361,7 +366,7 @@ func TestGenerationIterated(t *testing.T) {
 
 	// prompt with files (iterated)
 	if file, err := os.Open("./client.go"); err == nil {
-		defer file.Close()
+		defer func() { _ = gtc.Close() }()
 
 		for it, err := range gtc.GenerateStreamIterated(
 			context.TODO(),
@@ -428,7 +433,7 @@ func TestGenerationStreamed(t *testing.T) {
 	}
 	gtc.DeleteFilesOnClose = true
 	gtc.Verbose = _isVerbose
-	defer gtc.Close()
+	defer func() { _ = gtc.Close() }()
 
 	// text-only prompt (streamed)
 	if err := gtc.GenerateStreamed(
@@ -531,7 +536,7 @@ func TestGenerationWithCustomRetries(t *testing.T) {
 		t.Fatalf("failed to create client: %s", err)
 	}
 	gtc.Verbose = _isVerbose
-	defer gtc.Close()
+	defer func() { _ = gtc.Close() }()
 
 	// Attempt a standard text generation
 	if generated, err := gtc.Generate(
@@ -562,7 +567,7 @@ func TestGenerationWithCustomTimeout(t *testing.T) {
 		t.Fatalf("failed to create client: %s", err)
 	}
 	gtc.Verbose = _isVerbose
-	defer gtc.Close()
+	defer func() { _ = gtc.Close() }()
 
 	// Create a context that times out very quickly (e.g., 1 millisecond) to ensure it's the dominant timeout.
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Millisecond)
@@ -626,7 +631,7 @@ func TestGenerationWithFileConverter(t *testing.T) {
 	)
 	gtc.DeleteFilesOnClose = true
 	gtc.Verbose = _isVerbose
-	defer gtc.Close()
+	defer func() { _ = gtc.Close() }()
 
 	const jsonlForTest = `{"name": "John Doe", "age": 45, "gender": "m"}
 {"name": "Janet Doe", "age": 42, "gender": "f"}
@@ -762,7 +767,7 @@ func TestGenerationWithFunctionCall(t *testing.T) {
 		t.Fatalf("failed to create client: %s", err)
 	}
 	gtc.Verbose = _isVerbose
-	defer gtc.Close()
+	defer func() { _ = gtc.Close() }()
 
 	const prompt = `Generate an image file which shows a man standing in front of a vast dessert. The man is watching an old pyramid completely destroyed by a giant sandstorm. The mood should be sad and gloomy.`
 
@@ -897,7 +902,7 @@ func TestGenerationWithStructuredOutput(t *testing.T) {
 		t.Fatalf("failed to create client: %s", err)
 	}
 	gtc.Verbose = _isVerbose
-	defer gtc.Close()
+	defer func() { _ = gtc.Close() }()
 
 	// prompt with function calls (non-streamed)
 	if generated, err := gtc.Generate(
@@ -971,7 +976,7 @@ func TestGenerationWithCodeExecution(t *testing.T) {
 	}
 	gtc.DeleteFilesOnClose = true
 	gtc.Verbose = _isVerbose
-	defer gtc.Close()
+	defer func() { _ = gtc.Close() }()
 
 	// prompt with code execution (non-streamed)
 	if generated, err := gtc.Generate(
@@ -1057,7 +1062,7 @@ func TestGenerationWithHistory(t *testing.T) {
 		t.Fatalf("failed to create client: %s", err)
 	}
 	gtc.Verbose = _isVerbose
-	defer gtc.Close()
+	defer func() { _ = gtc.Close() }()
 
 	// text-only prompt with history (streamed)
 	if err := gtc.GenerateStreamed(
@@ -1172,7 +1177,7 @@ func TestEmbeddings(t *testing.T) {
 		t.Fatalf("failed to create client: %s", err)
 	}
 	gtc.Verbose = _isVerbose
-	defer gtc.Close()
+	defer func() { _ = gtc.Close() }()
 
 	// without title (task type: RETRIEVAL_QUERY)
 	if v, err := gtc.GenerateEmbeddings(
@@ -1221,7 +1226,7 @@ func TestImageGenerations(t *testing.T) {
 	// though GenerateImages itself doesn't use the client's systemInstructionFunc.
 	gtc.SetSystemInstructionFunc(nil)
 	gtc.Verbose = _isVerbose
-	defer gtc.Close()
+	defer func() { _ = gtc.Close() }()
 
 	const prompt = `Generate an image of a golden retriever puppy playing with a colorful ball in a grassy park`
 
@@ -1384,7 +1389,7 @@ func TestSpeechGenerations(t *testing.T) {
 	}
 	gtc.SetSystemInstructionFunc(nil)
 	gtc.Verbose = _isVerbose
-	defer gtc.Close()
+	defer func() { _ = gtc.Close() }()
 
 	prompt := `Say cheerfully: Have a wonderful day!`
 
@@ -1506,7 +1511,7 @@ func TestGrounding(t *testing.T) {
 		t.Fatalf("failed to create client: %s", err)
 	}
 	gtc.Verbose = _isVerbose
-	defer gtc.Close()
+	defer func() { _ = gtc.Close() }()
 
 	// text-only prompt (non-streamed)
 	if res, err := gtc.Generate(
@@ -1575,7 +1580,7 @@ func TestRecursiveToolCalls(t *testing.T) {
 		t.Fatalf("failed to create client: %s", err)
 	}
 	gtc.Verbose = _isVerbose
-	defer gtc.Close()
+	defer func() { _ = gtc.Close() }()
 
 	ctx := context.TODO()
 	var cancel context.CancelFunc
@@ -1679,7 +1684,7 @@ func TestCountingTokens(t *testing.T) {
 		t.Fatalf("failed to create client: %s", err)
 	}
 	gtc.Verbose = _isVerbose
-	defer gtc.Close()
+	defer func() { _ = gtc.Close() }()
 
 	// open a file for testing
 	file, err := os.Open("./client.go")
@@ -1721,11 +1726,205 @@ func TestListingModels(t *testing.T) {
 		t.Fatalf("failed to create client: %s", err)
 	}
 	gtc.Verbose = _isVerbose
-	defer gtc.Close()
+	defer func() { _ = gtc.Close() }()
 
 	if models, err := gtc.ListModels(context.TODO()); err != nil {
 		t.Errorf("listing models failed: %s", ErrToStr(err))
 	} else {
 		verbose(">>> listed models: %s", prettify(models))
+	}
+}
+
+// TestBatchRequests tests batch requests.
+//
+//	NOTE: may fail with error on free tier:
+//	{
+//		"code": 404,
+//		"message": "Requested entity was not found.",
+//		"status": "NOT_FOUND"
+//	}
+func TestBatchRequests(t *testing.T) {
+	sleepForNotBeingRateLimited()
+
+	apiKey := mustHaveEnvVar(t, "API_KEY")
+
+	gtc, err := NewClient(
+		apiKey,
+		WithModel(modelForBatches),
+	)
+	if err != nil {
+		t.Fatalf("failed to create client: %s", err)
+	}
+	gtc.Verbose = _isVerbose
+	gtc.DeleteFilesOnClose = true
+	defer func() { _ = gtc.Close() }()
+
+	// inlined request
+	if batch, err := gtc.RequestBatch(
+		context.TODO(),
+		&genai.BatchJobSource{
+			InlinedRequests: []*genai.InlinedRequest{
+				{
+					Model: modelForTextGeneration,
+					Contents: []*genai.Content{
+						{
+							Role: genai.RoleUser,
+							Parts: []*genai.Part{
+								ptr(
+									PromptFromText(
+										`Give me a detailed explanation of the terminal velocity.`,
+									).ToPart(),
+								),
+							},
+						},
+						{
+							Role: genai.RoleUser,
+							Parts: []*genai.Part{
+								ptr(
+									PromptFromText(
+										`Show me how to solve the quadratic equation.`,
+									).ToPart(),
+								),
+							},
+						},
+						{
+							Role: genai.RoleUser,
+							Parts: []*genai.Part{
+								ptr(
+									PromptFromText(
+										`How can I calculate the escape velocity from the Earth?`,
+									).ToPart(),
+								),
+							},
+						},
+					},
+					/*
+						// FIXME: not working (yet?)
+						Config: &genai.GenerateContentConfig{
+							SystemInstruction: &genai.Content{
+								Role: genai.RoleModel,
+								Parts: []*genai.Part{
+									ptr(PromptFromText(`You are a helpful assistant.`).ToPart()),
+								},
+							},
+						},
+					*/
+				},
+			},
+		},
+		"test-batch-request-with-inlined",
+	); err != nil {
+		t.Errorf("batch request failed: %s", ErrToStr(err))
+	} else {
+		verbose(">>> batch request: %s", prettify(batch))
+
+		if got, err := gtc.Batch(
+			context.TODO(),
+			batch.Name,
+		); err != nil {
+			t.Errorf("failed to get batch: %s", ErrToStr(err))
+		} else {
+			verbose(">>> batch status: %s", prettify(got.State))
+
+			if err := gtc.CancelBatch(
+				context.TODO(),
+				got.Name,
+			); err != nil {
+				t.Errorf("failed to cancel batch: %s", ErrToStr(err))
+			} else {
+				verbose(">>> batch canceled")
+
+				if err := gtc.DeleteBatch(
+					context.TODO(),
+					got.Name,
+				); err != nil {
+					t.Errorf("failed to delete batch: %s", ErrToStr(err))
+				} else {
+					verbose(">>> batch deleted")
+				}
+			}
+		}
+	}
+
+	// file request (JSONL)
+	if bytes, err := json.Marshal(struct {
+		Contents []*genai.Content `json:"contents"`
+	}{
+		Contents: []*genai.Content{
+			{
+				Role: genai.RoleUser,
+				Parts: []*genai.Part{
+					ptr(
+						PromptFromText(
+							`What are the three laws of thermodynamics?`,
+						).ToPart(),
+					),
+				},
+			},
+		},
+	}); err != nil {
+		t.Fatalf("failed to marshal jsonl: %s", err)
+	} else {
+		if uploaded, err := gtc.UploadFilesAndWait(
+			context.TODO(),
+			[]Prompt{
+				PromptFromBytes(bytes),
+			},
+			true, // NOTE: for not checking mime types of uploaded files
+		); err != nil {
+			t.Errorf("failed to upload json file: %s", ErrToStr(err))
+		} else {
+			first := uploaded[0]
+
+			var filename string
+			switch typ := first.(type) {
+			case FilePrompt:
+				filename = typ.Filename
+			}
+
+			if filename != "" {
+				if batch, err := gtc.RequestBatch(
+					context.TODO(),
+					&genai.BatchJobSource{
+						// Format:   "jsonl", // FIXME: not supported in gemini?
+						FileName: filename,
+					},
+					"test-batch-request-with-file",
+				); err != nil {
+					t.Errorf("batch request failed: %s", ErrToStr(err))
+				} else {
+					verbose(">>> batch request: %s", prettify(batch))
+
+					if got, err := gtc.Batch(
+						context.TODO(),
+						batch.Name,
+					); err != nil {
+						t.Errorf("failed to get batch: %s", ErrToStr(err))
+					} else {
+						verbose(">>> batch status: %s", prettify(got.State))
+
+						if err := gtc.CancelBatch(
+							context.TODO(),
+							got.Name,
+						); err != nil {
+							t.Errorf("failed to cancel batch: %s", ErrToStr(err))
+						} else {
+							verbose(">>> batch canceled")
+
+							if err := gtc.DeleteBatch(
+								context.TODO(),
+								got.Name,
+							); err != nil {
+								t.Errorf("failed to delete batch: %s", ErrToStr(err))
+							} else {
+								verbose(">>> batch deleted")
+							}
+						}
+					}
+				}
+			} else {
+				t.Errorf("failed to get uploaded json file, got: %+v", first)
+			}
+		}
 	}
 }
