@@ -74,7 +74,10 @@ func (c *Client) processPromptToPartAndInfo(
 	ctx context.Context,
 	p Prompt, // The prompt to process.
 	promptIndex int,
+	ignoreMimeType ...bool,
 ) (part *genai.Part, updatedPrompt Prompt, filenameForWaiting *string, err error) {
+	ignoreMime := len(ignoreMimeType) > 0 && ignoreMimeType[0]
+
 	switch prompt := p.(type) {
 	case TextPrompt:
 		return ptr(prompt.ToPart()), prompt, nil, nil
@@ -104,7 +107,8 @@ func (c *Client) processPromptToPartAndInfo(
 		currentReader = readerForUpload // Use the recycled reader
 
 		matchedMimeType, supported := checkMimeType(mimeType)
-		if !supported {
+
+		if !ignoreMime && !supported {
 			fn, exists := c.fileConvertFuncs[matchedMimeType]
 			if !exists {
 				return nil, prompt, nil, fmt.Errorf(
@@ -166,7 +170,7 @@ func (c *Client) processPromptToPartAndInfo(
 		updatedFilePrompt := FilePrompt{
 			Filename: uploadedFile.Name, // Store the server-generated unique name
 			Data: &genai.FileData{
-				// DisplayName: uploadedFile.Name, // uncomment this line when Gemini API supports it
+				// DisplayName: uploadedFile.Name, // FIXME: uncomment this line when Gemini API supports it
 				FileURI:  uploadedFile.URI,
 				MIMEType: uploadedFile.MIMEType,
 			},
@@ -179,7 +183,7 @@ func (c *Client) processPromptToPartAndInfo(
 		mimeType := mimetype.Detect(currentBytes)
 		matchedMimeType, supported := checkMimeType(mimeType)
 
-		if !supported {
+		if !ignoreMime && !supported {
 			fn, exists := c.fileConvertFuncs[matchedMimeType]
 			if !exists {
 				return nil, prompt, nil, fmt.Errorf(
@@ -289,12 +293,22 @@ func hasFunctionCall(candidates []*genai.Candidate) (*genai.FunctionCall, bool) 
 //     FilePrompt instances are updated with server data, and BytesPrompt instances
 //     are converted to FilePrompt instances. Other prompt types remain unchanged.
 //   - err: An error if any part of the processing (like file upload or waiting) fails.
-func (c *Client) UploadFilesAndWait(ctx context.Context, prompts []Prompt) (processedPrompts []Prompt, err error) {
+func (c *Client) UploadFilesAndWait(
+	ctx context.Context,
+	prompts []Prompt,
+	ignoreMimeType ...bool,
+) (processedPrompts []Prompt, err error) {
 	processedPrompts = make([]Prompt, 0, len(prompts))
 	fileNamesToWaitFor := []string{}
 
 	for i, p := range prompts {
-		_, updatedPrompt, filenameForWaiting, processErr := c.processPromptToPartAndInfo(ctx, p, i)
+		_, updatedPrompt, filenameForWaiting, processErr := c.processPromptToPartAndInfo(
+			ctx,
+			p,
+			i,
+			ignoreMimeType...,
+		)
+
 		if processErr != nil {
 			return nil, fmt.Errorf(
 				"error processing prompts[%d]: %w",
@@ -415,7 +429,12 @@ func safetySettings(threshold *genai.HarmBlockThreshold) (settings []*genai.Safe
 		genai.HarmCategoryDangerousContent,
 		genai.HarmCategoryHarassment,
 		genai.HarmCategorySexuallyExplicit,
-		genai.HarmCategoryCivicIntegrity,
+		/*
+			genai.HarmCategoryImageHate,
+			genai.HarmCategoryImageDangerousContent,
+			genai.HarmCategoryImageHarassment,
+			genai.HarmCategoryImageSexuallyExplicit,
+		*/
 	} {
 		settings = append(settings, &genai.SafetySetting{
 			// Method:    genai.HarmBlockMethodSeverity, // FIXME: => error: 'method parameter is not supported in Gemini API'
