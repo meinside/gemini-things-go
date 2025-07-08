@@ -1739,9 +1739,9 @@ func TestListingModels(t *testing.T) {
 //
 //	NOTE: may fail with error on free tier:
 //	{
-//		"code": 404,
-//		"message": "Requested entity was not found.",
-//		"status": "NOT_FOUND"
+//		"code": 429,
+//		"message": "Resource has been exhausted (e.g. check quota).",
+//		"status": "RESOURCE_EXHAUSTED"
 //	}
 func TestBatchRequests(t *testing.T) {
 	sleepForNotBeingRateLimited()
