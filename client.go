@@ -1026,11 +1026,12 @@ func (c *Client) GenerateEmbeddings(
 
 	// task type
 	var selectedTaskType EmbeddingTaskType
-	if taskType == nil {
-		selectedTaskType = EmbeddingTaskUnspecified
-	} else {
+	if taskType != nil {
 		selectedTaskType = *taskType
-	}
+	} /* else {
+		// FIXME: 500 error when task is unspecified
+		selectedTaskType = EmbeddingTaskUnspecified
+	}*/
 
 	// title
 	if title != "" {
