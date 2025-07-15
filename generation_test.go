@@ -29,7 +29,7 @@ const (
 	modelForImageGeneration                      = `gemini-2.0-flash-preview-image-generation`
 	modelForTextGenerationWithGrounding          = `gemini-2.5-flash`
 	modelForSpeechGeneration                     = `gemini-2.5-flash-preview-tts`
-	modelForEmbeddings                           = `gemini-embedding-exp-03-07`
+	modelForEmbeddings                           = `gemini-embedding-001`
 	modelForBatches                              = `gemini-2.5-flash`
 )
 
@@ -1190,7 +1190,7 @@ func TestEmbeddings(t *testing.T) {
 	); err != nil {
 		t.Errorf("generation of embeddings from text failed: %s", ErrToStr(err))
 	} else {
-		verbose(">>> embeddings: %+v", v)
+		verbose(">>> embeddings from text: %+v", v)
 	}
 
 	// with title (task type: RETRIEVAL_DOCUMENT)
@@ -1204,7 +1204,7 @@ func TestEmbeddings(t *testing.T) {
 	); err != nil {
 		t.Errorf("generation of embeddings from title and text failed: %s", ErrToStr(err))
 	} else {
-		verbose(">>> embeddings: %+v", v)
+		verbose(">>> embeddings from title and text: %+v", v)
 	}
 }
 
@@ -1691,7 +1691,7 @@ func TestCountingTokens(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to open file for counting tokens: %s", err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	bytes, err := io.ReadAll(file)
 	if err != nil {
 		t.Fatalf("failed to read file for counting tokens")
