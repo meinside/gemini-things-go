@@ -5,7 +5,7 @@ go 1.23.1
 require (
 	github.com/gabriel-vasile/mimetype v1.4.9
 	github.com/modelcontextprotocol/go-sdk v0.2.0
-	google.golang.org/genai v1.15.0
+	google.golang.org/genai v1.16.0
 )
 
 require (
