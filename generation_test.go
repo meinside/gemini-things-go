@@ -31,6 +31,8 @@ const (
 	modelForSpeechGeneration                     = `gemini-2.5-flash-preview-tts`
 	modelForEmbeddings                           = `gemini-embedding-001`
 	modelForBatches                              = `gemini-2.5-flash`
+
+	timeoutSecondsForTesting = 60
 )
 
 // flag for verbose log
@@ -82,6 +84,7 @@ func TestContextCaching(t *testing.T) {
 	gtc, err := NewClient(
 		apiKey,
 		WithModel(modelForContextCaching),
+		WithTimeoutSeconds(timeoutSecondsForTesting),
 	)
 	if err != nil {
 		t.Fatalf("failed to create client: %s", err)
@@ -237,6 +240,7 @@ func TestGeneration(t *testing.T) {
 	gtc, err := NewClient(
 		apiKey,
 		WithModel(modelForTextGeneration),
+		WithTimeoutSeconds(timeoutSecondsForTesting),
 	)
 	if err != nil {
 		t.Fatalf("failed to create client: %s", err)
@@ -342,6 +346,7 @@ func TestGenerationIterated(t *testing.T) {
 	gtc, err := NewClient(
 		apiKey,
 		WithModel(modelForTextGeneration),
+		WithTimeoutSeconds(timeoutSecondsForTesting),
 	)
 	if err != nil {
 		t.Fatalf("failed to create client: %s", err)
@@ -427,6 +432,7 @@ func TestGenerationStreamed(t *testing.T) {
 	gtc, err := NewClient(
 		apiKey,
 		WithModel(modelForTextGeneration),
+		WithTimeoutSeconds(timeoutSecondsForTesting),
 	)
 	if err != nil {
 		t.Fatalf("failed to create client: %s", err)
@@ -530,6 +536,7 @@ func TestGenerationWithCustomRetries(t *testing.T) {
 	gtc, err := NewClient(
 		apiKey,
 		WithModel(modelForTextGeneration),
+		WithTimeoutSeconds(timeoutSecondsForTesting),
 		WithMaxRetryCount(1),
 	)
 	if err != nil {
@@ -604,6 +611,7 @@ func TestGenerationWithFileConverter(t *testing.T) {
 	gtc, err := NewClient(
 		apiKey,
 		WithModel(modelForTextGeneration),
+		WithTimeoutSeconds(timeoutSecondsForTesting),
 	)
 	if err != nil {
 		t.Fatalf("failed to create client: %s", err)
@@ -762,6 +770,7 @@ func TestGenerationWithFunctionCall(t *testing.T) {
 	gtc, err := NewClient(
 		apiKey,
 		WithModel(modelForTextGeneration),
+		WithTimeoutSeconds(timeoutSecondsForTesting),
 	)
 	if err != nil {
 		t.Fatalf("failed to create client: %s", err)
@@ -897,6 +906,7 @@ func TestGenerationWithStructuredOutput(t *testing.T) {
 	gtc, err := NewClient(
 		apiKey,
 		WithModel(modelForTextGeneration),
+		WithTimeoutSeconds(timeoutSecondsForTesting),
 	)
 	if err != nil {
 		t.Fatalf("failed to create client: %s", err)
@@ -970,6 +980,7 @@ func TestGenerationWithCodeExecution(t *testing.T) {
 	gtc, err := NewClient(
 		apiKey,
 		WithModel(modelForTextGeneration),
+		WithTimeoutSeconds(timeoutSecondsForTesting),
 	)
 	if err != nil {
 		t.Fatalf("failed to create client: %s", err)
@@ -1057,6 +1068,7 @@ func TestGenerationWithHistory(t *testing.T) {
 	gtc, err := NewClient(
 		apiKey,
 		WithModel(modelForTextGeneration),
+		WithTimeoutSeconds(timeoutSecondsForTesting),
 	)
 	if err != nil {
 		t.Fatalf("failed to create client: %s", err)
@@ -1172,6 +1184,7 @@ func TestEmbeddings(t *testing.T) {
 	gtc, err := NewClient(
 		apiKey,
 		WithModel(modelForEmbeddings),
+		WithTimeoutSeconds(timeoutSecondsForTesting),
 	)
 	if err != nil {
 		t.Fatalf("failed to create client: %s", err)
@@ -1217,6 +1230,7 @@ func TestImageGenerations(t *testing.T) {
 	gtc, err := NewClient(
 		apiKey,
 		WithModel(modelForImageGeneration),
+		WithTimeoutSeconds(timeoutSecondsForTesting),
 	)
 	if err != nil {
 		t.Fatalf("failed to create client: %s", err)
@@ -1383,6 +1397,7 @@ func TestSpeechGenerations(t *testing.T) {
 	gtc, err := NewClient(
 		apiKey,
 		WithModel(modelForSpeechGeneration),
+		WithTimeoutSeconds(timeoutSecondsForTesting),
 	)
 	if err != nil {
 		t.Fatalf("failed to create client: %s", err)
@@ -1506,6 +1521,7 @@ func TestGrounding(t *testing.T) {
 	gtc, err := NewClient(
 		apiKey,
 		WithModel(modelForTextGenerationWithGrounding),
+		WithTimeoutSeconds(timeoutSecondsForTesting),
 	)
 	if err != nil {
 		t.Fatalf("failed to create client: %s", err)
@@ -1575,6 +1591,7 @@ func TestRecursiveToolCalls(t *testing.T) {
 	gtc, err := NewClient(
 		apiKey,
 		WithModel(modelForTextGenerationWithRecursiveToolCalls),
+		WithTimeoutSeconds(timeoutSecondsForTesting),
 	)
 	if err != nil {
 		t.Fatalf("failed to create client: %s", err)
@@ -1679,6 +1696,7 @@ func TestCountingTokens(t *testing.T) {
 	gtc, err := NewClient(
 		apiKey,
 		WithModel(modelForTextGeneration),
+		WithTimeoutSeconds(timeoutSecondsForTesting),
 	)
 	if err != nil {
 		t.Fatalf("failed to create client: %s", err)
@@ -1721,6 +1739,7 @@ func TestListingModels(t *testing.T) {
 	gtc, err := NewClient(
 		apiKey,
 		// WithModel(modelForTextGeneration), // NOTE: `model` is not needed for some tasks (eg. listing models)
+		WithTimeoutSeconds(timeoutSecondsForTesting),
 	)
 	if err != nil {
 		t.Fatalf("failed to create client: %s", err)
@@ -1751,6 +1770,7 @@ func TestBatchRequests(t *testing.T) {
 	gtc, err := NewClient(
 		apiKey,
 		WithModel(modelForBatches),
+		WithTimeoutSeconds(timeoutSecondsForTesting),
 	)
 	if err != nil {
 		t.Fatalf("failed to create client: %s", err)
