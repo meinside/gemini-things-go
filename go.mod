@@ -5,13 +5,13 @@ go 1.23.1
 require (
 	github.com/gabriel-vasile/mimetype v1.4.9
 	github.com/modelcontextprotocol/go-sdk v0.2.0
-	google.golang.org/genai v1.18.0
+	google.golang.org/genai v1.19.0
 )
 
 require (
 	cloud.google.com/go v0.121.4 // indirect
-	cloud.google.com/go/auth v0.16.3 // indirect
-	cloud.google.com/go/compute/metadata v0.7.0 // indirect
+	cloud.google.com/go/auth v0.16.4 // indirect
+	cloud.google.com/go/compute/metadata v0.8.0 // indirect
 	github.com/felixge/httpsnoop v1.0.4 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
