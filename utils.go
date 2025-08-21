@@ -37,13 +37,10 @@ const (
 func (c *Client) waitForFiles(ctx context.Context, fileNames []string) {
 	var wg sync.WaitGroup
 	for _, fileName := range fileNames {
-		wg.Add(1)
-
-		go func(name string) {
+		wg.Go(func() {
 			for {
-				if file, err := c.client.Files.Get(ctx, name, &genai.GetFileConfig{}); err == nil {
+				if file, err := c.client.Files.Get(ctx, fileName, &genai.GetFileConfig{}); err == nil {
 					if file.State == genai.FileStateActive {
-						wg.Done()
 						break
 					} else {
 						time.Sleep(uploadedFileStateCheckIntervalMilliseconds * time.Millisecond)
@@ -52,7 +49,7 @@ func (c *Client) waitForFiles(ctx context.Context, fileNames []string) {
 					time.Sleep(uploadedFileStateCheckIntervalMilliseconds * time.Millisecond)
 				}
 			}
-		}(fileName)
+		})
 	}
 	wg.Wait()
 }
