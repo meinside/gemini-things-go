@@ -158,7 +158,7 @@ func TestContextCaching(t *testing.T) {
 			if err != nil {
 				t.Errorf("generation with cached context (iterated) failed: %s", ErrToStr(err))
 			} else {
-				verbose(">>> iterating response (cached): %s", prettify(it.Candidates[0].Content.Parts[0]))
+				verbose(">>> iterating response (cached): %s", prettify(it.Candidates[0]))
 			}
 		}
 
@@ -219,7 +219,7 @@ func TestContextCaching(t *testing.T) {
 				cachedContentTokenCount,
 			)
 
-			verbose(">>> generated: %s", prettify(generated.Candidates[0].Content.Parts[0]))
+			verbose(">>> generated: %s", prettify(generated.Candidates[0]))
 		}
 	}
 
@@ -258,7 +258,7 @@ func TestGeneration(t *testing.T) {
 	); err != nil {
 		t.Errorf("generation with text prompt failed: %s", ErrToStr(err))
 	} else {
-		verbose(">>> generated: %s", prettify(generated.Candidates[0].Content.Parts[0]))
+		verbose(">>> generated: %s", prettify(generated.Candidates[0]))
 	}
 
 	// prompt with files (non-streamed)
@@ -293,7 +293,7 @@ func TestGeneration(t *testing.T) {
 				cachedContentTokenCount,
 			)
 
-			verbose(">>> generated: %s", prettify(generated.Candidates[0].Content.Parts[0]))
+			verbose(">>> generated: %s", prettify(generated.Candidates[0]))
 		}
 	} else {
 		t.Errorf("failed to open file for generation: %s", err)
@@ -309,7 +309,7 @@ func TestGeneration(t *testing.T) {
 	); err != nil {
 		t.Errorf("generation with text & file prompt failed: %s", ErrToStr(err))
 	} else {
-		verbose(">>> generated (BytesPrompt): %s", prettify(generated.Candidates[0].Content.Parts[0]))
+		verbose(">>> generated (BytesPrompt): %s", prettify(generated.Candidates[0]))
 		var promptTokenCount int32 = 0
 		var candidatesTokenCount int32 = 0
 		var cachedContentTokenCount int32 = 0
@@ -331,7 +331,7 @@ func TestGeneration(t *testing.T) {
 			cachedContentTokenCount,
 		)
 
-		verbose(">>> generated: %s", prettify(generated.Candidates[0].Content.Parts[0]))
+		verbose(">>> generated: %s", prettify(generated.Candidates[0]))
 	}
 
 	// NOTE: files will be deleted on close
@@ -365,7 +365,7 @@ func TestGenerationIterated(t *testing.T) {
 		if err != nil {
 			t.Errorf("generation with text prompt failed: %s", ErrToStr(err))
 		} else {
-			verbose(">>> iterating response: %s", prettify(it.Candidates[0].Content.Parts[0]))
+			verbose(">>> iterating response: %s", prettify(it.Candidates[0]))
 		}
 	}
 
@@ -383,7 +383,7 @@ func TestGenerationIterated(t *testing.T) {
 			if err != nil {
 				t.Errorf("generation with text & file prompt failed: %s", ErrToStr(err))
 			} else {
-				verbose(">>> iterating response: %s", prettify(it.Candidates[0].Content.Parts[0]))
+				verbose(">>> iterating response: %s", prettify(it.Candidates[0]))
 			}
 		}
 	} else {
@@ -401,7 +401,7 @@ func TestGenerationIterated(t *testing.T) {
 		if err != nil {
 			t.Errorf("generation with text & file prompt (iterated) failed: %s", ErrToStr(err))
 		} else {
-			verbose(">>> iterating response: %s", prettify(it.Candidates[0].Content.Parts[0]))
+			verbose(">>> iterating response: %s", prettify(it.Candidates[0]))
 		}
 	}
 
@@ -416,7 +416,7 @@ func TestGenerationIterated(t *testing.T) {
 		if err != nil {
 			t.Errorf("generation with uri prompt (youtube) failed: %s", ErrToStr(err))
 		} else {
-			verbose(">>> iterating response: %s", prettify(it.Candidates[0].Content.Parts[0]))
+			verbose(">>> iterating response: %s", prettify(it.Candidates[0]))
 		}
 	}
 
@@ -554,7 +554,7 @@ func TestGenerationWithCustomRetries(t *testing.T) {
 	); err != nil {
 		t.Errorf("generation with custom retry count failed: %s", ErrToStr(err))
 	} else {
-		verbose(">>> generated with custom retry count: %s", prettify(generated.Candidates[0].Content.Parts[0]))
+		verbose(">>> generated with custom retry count: %s", prettify(generated.Candidates[0]))
 	}
 }
 
@@ -672,7 +672,7 @@ func TestGenerationWithFileConverter(t *testing.T) {
 			cachedContentTokenCount,
 		)
 
-		verbose(">>> generated with file converter: %s", prettify(generated.Candidates[0].Content.Parts[0]))
+		verbose(">>> generated with file converter: %s", prettify(generated.Candidates[0]))
 	}
 }
 
@@ -1171,7 +1171,7 @@ func TestGenerationWithHistory(t *testing.T) {
 			cachedContentTokenCount,
 		)
 
-		verbose(">>> generated: %s", prettify(generated.Candidates[0].Content.Parts[0]))
+		verbose(">>> generated: %s", prettify(generated.Candidates[0]))
 	}
 }
 
@@ -1577,7 +1577,7 @@ func TestGrounding(t *testing.T) {
 		if err != nil {
 			t.Errorf("generation with grounding with google search failed: %s", ErrToStr(err))
 		} else {
-			verbose(">>> iterating response: %s", prettify(it.Candidates[0].Content.Parts[0]))
+			verbose(">>> iterating response: %s", prettify(it.Candidates[0]))
 		}
 	}
 }
