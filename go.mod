@@ -6,7 +6,7 @@ require (
 	github.com/gabriel-vasile/mimetype v1.4.10
 	github.com/google/jsonschema-go v0.3.0
 	github.com/modelcontextprotocol/go-sdk v1.0.0
-	google.golang.org/genai v1.29.0
+	google.golang.org/genai v1.30.0
 )
 
 require (
