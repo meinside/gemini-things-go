@@ -1071,7 +1071,7 @@ func (c *Client) GenerateEmbeddings(
 	} else {
 		err = fmt.Errorf("failed to generate embeddings: %w", err)
 	}
-	return
+	return vectors, err
 }
 
 // CountTokens calculates the number of tokens that the provided content would consume.
@@ -1164,6 +1164,30 @@ func (c *Client) RequestBatch(
 		c.model,
 		job,
 		&genai.CreateBatchJobConfig{
+			DisplayName: displayName,
+		},
+	)
+}
+
+// RequestBatchEmbeddings creates a batch job for the given embeddings job source.
+//
+// A `model` (specifically a batch model) must be set in the Client.
+// `displayName` is an optional name to give the batch job.
+func (c *Client) RequestBatchEmbeddings(
+	ctx context.Context,
+	job *genai.EmbeddingsBatchJobSource,
+	displayName string,
+) (batch *genai.BatchJob, err error) {
+	// check if model is set
+	if c.model == "" {
+		return nil, fmt.Errorf("model is not set for batch embeddings requests")
+	}
+
+	return c.client.Batches.CreateEmbeddings(
+		ctx,
+		&c.model,
+		job,
+		&genai.CreateEmbeddingsBatchJobConfig{
 			DisplayName: displayName,
 		},
 	)
