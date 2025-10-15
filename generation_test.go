@@ -628,7 +628,7 @@ func TestGenerationWithFileConverter(t *testing.T) {
 			}
 			converted := strings.Builder{}
 			converted.Write([]byte("name,age,gender\n"))
-			for _, line := range strings.Split(string(bs), "\n") {
+			for line := range strings.SplitSeq(string(bs), "\n") {
 				var decoded record
 				if err := json.Unmarshal([]byte(line), &decoded); err == nil {
 					converted.Write(fmt.Appendf(nil, `"%s",%d,"%s"\n`, decoded.Name, decoded.Age, decoded.Gender))
@@ -1944,6 +1944,58 @@ func TestBatchRequests(t *testing.T) {
 				}
 			} else {
 				t.Errorf("failed to get uploaded json file, got: %+v", first)
+			}
+		}
+	}
+
+	// embeddings batch request
+	gtc.model = modelForEmbeddings
+	if batch, err := gtc.RequestBatchEmbeddings(
+		context.TODO(),
+		&genai.EmbeddingsBatchJobSource{
+			InlinedRequests: &genai.EmbedContentBatch{
+				Contents: []*genai.Content{
+					{
+						Parts: []*genai.Part{
+							{
+								Text: `Life is like riding a bicycle. To keep your balance, you must keep moving.\n- Albert Einstein`,
+							},
+						},
+					},
+				},
+				Config: &genai.EmbedContentConfig{},
+			},
+		},
+		"test-embeddings-batch-request",
+	); err != nil {
+		t.Errorf("embeddings batch request failed: %s", ErrToStr(err))
+	} else {
+		verbose(">>> embeddings batch request: %s", prettify(batch))
+
+		if got, err := gtc.Batch(
+			context.TODO(),
+			batch.Name,
+		); err != nil {
+			t.Errorf("failed to get batch: %s", ErrToStr(err))
+		} else {
+			verbose(">>> batch status: %s", prettify(got.State))
+
+			if err := gtc.CancelBatch(
+				context.TODO(),
+				got.Name,
+			); err != nil {
+				t.Errorf("failed to cancel batch: %s", ErrToStr(err))
+			} else {
+				verbose(">>> batch canceled")
+
+				if err := gtc.DeleteBatch(
+					context.TODO(),
+					got.Name,
+				); err != nil {
+					t.Errorf("failed to delete batch: %s", ErrToStr(err))
+				} else {
+					verbose(">>> batch deleted")
+				}
 			}
 		}
 	}
