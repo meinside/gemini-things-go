@@ -27,20 +27,35 @@ func MCPToGeminiTools(
 			Description: f.Description,
 		}
 
-		if inputSchema, ok := f.InputSchema.(jsonschema.Schema); ok {
-			if marshalled, err := inputSchema.MarshalJSON(); err == nil {
-				var schema map[string]any
-				if err := json.Unmarshal(marshalled, &schema); err == nil {
-					to[i].ParametersJsonSchema = schema
-				} else {
-					return nil, fmt.Errorf("could not convert json to map: %w", err)
-				}
-			} else {
-				return nil, fmt.Errorf("could not convert input schema to json: %w", err)
-			}
-		} else if inputSchema, ok := f.InputSchema.(map[string]any); ok {
+		if inputSchema, ok := f.InputSchema.(map[string]any); ok {
 			to[i].ParametersJsonSchema = inputSchema
+			continue
 		} else {
+			if inputSchema, ok := f.InputSchema.(jsonschema.Schema); ok {
+				if marshalled, err := inputSchema.MarshalJSON(); err == nil {
+					var schema map[string]any
+					if err := json.Unmarshal(marshalled, &schema); err == nil {
+						to[i].ParametersJsonSchema = schema
+						continue
+					} else {
+						return nil, fmt.Errorf("could not convert json to map: %w", err)
+					}
+				} else {
+					return nil, fmt.Errorf("could not convert input schema to json: %w", err)
+				}
+			} else if inputSchema, ok := f.InputSchema.(*jsonschema.Schema); ok {
+				if marshalled, err := inputSchema.MarshalJSON(); err == nil {
+					var schema map[string]any
+					if err := json.Unmarshal(marshalled, &schema); err == nil {
+						to[i].ParametersJsonSchema = schema
+						continue
+					} else {
+						return nil, fmt.Errorf("could not convert json to map: %w", err)
+					}
+				} else {
+					return nil, fmt.Errorf("could not convert input schema to json: %w", err)
+				}
+			}
 			return nil, fmt.Errorf("tools[%d].InputSchema is not in type `jsonschema.Schema` or `map[string]any`: %T", i, f.InputSchema)
 		}
 	}
