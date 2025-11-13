@@ -44,6 +44,8 @@ func TestFuncArgs(t *testing.T) {
 // TestMimeTypes tests functions for checking MIME types.
 func TestMimeTypes(t *testing.T) {
 	if file, err := os.Open("./README.md"); err == nil {
+		defer func() { _ = file.Close() }()
+
 		if bs, err := io.ReadAll(file); err == nil {
 			if matched, supported, err := SupportedMimeType(bs); err != nil {
 				t.Errorf("failed to check mime type support: %s", err)

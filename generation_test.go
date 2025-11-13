@@ -116,12 +116,12 @@ func TestContextCaching(t *testing.T) {
 		"./generation_test.go",
 		"./utils_test.go",
 	} {
-		if file, err := os.Open(fpath); err != nil {
-			t.Fatalf("failed to open file for caching context: %s", err)
-		} else {
-			files = append(files, file)
+		if file, err := os.Open(fpath); err == nil {
+			defer func() { _ = file.Close() }()
 
-			defer func() { _ = gtc.Close() }()
+			files = append(files, file)
+		} else {
+			t.Fatalf("failed to open file for caching context: %s", err)
 		}
 	}
 
@@ -263,6 +263,8 @@ func TestGeneration(t *testing.T) {
 
 	// prompt with files (non-streamed)
 	if file, err := os.Open("./client.go"); err == nil {
+		defer func() { _ = file.Close() }()
+
 		if generated, err := gtc.Generate(
 			context.TODO(),
 			[]Prompt{
@@ -371,7 +373,7 @@ func TestGenerationIterated(t *testing.T) {
 
 	// prompt with files (iterated)
 	if file, err := os.Open("./client.go"); err == nil {
-		defer func() { _ = gtc.Close() }()
+		defer func() { _ = file.Close() }()
 
 		for it, err := range gtc.GenerateStreamIterated(
 			context.TODO(),
@@ -468,6 +470,8 @@ func TestGenerationStreamed(t *testing.T) {
 
 	// prompt with files (streamed)
 	if file, err := os.Open("./client.go"); err == nil {
+		defer func() { _ = file.Close() }()
+
 		if err := gtc.GenerateStreamed(
 			context.TODO(),
 			[]Prompt{
@@ -1776,9 +1780,9 @@ func TestFileSearch(t *testing.T) {
 		t.Errorf("failed to create file search store: %s", err)
 	} else {
 		// upload a file to file search store
-		if file, err := os.Open(`./generation_test.go`); err != nil {
-			t.Fatalf("failed to open file for file search store: %s", err)
-		} else {
+		if file, err := os.Open(`./generation_test.go`); err == nil {
+			defer func() { _ = file.Close() }()
+
 			if _, err := gtc.UploadFileForSearch(
 				context.TODO(),
 				store.Name,
@@ -1797,12 +1801,14 @@ func TestFileSearch(t *testing.T) {
 			} else {
 				t.Errorf("failed to upload file for search: %s", ErrToStr(err))
 			}
+		} else {
+			t.Fatalf("failed to open file for file search store: %s", err)
 		}
 
 		// upload a file and import it to search store
-		if file, err := os.Open(`./utils_test.go`); err != nil {
-			t.Fatalf("failed to open file: %s", err)
-		} else {
+		if file, err := os.Open(`./utils_test.go`); err == nil {
+			defer func() { _ = file.Close() }()
+
 			if uploaded, err := gtc.UploadFile(
 				context.TODO(),
 				file,
@@ -1829,6 +1835,8 @@ func TestFileSearch(t *testing.T) {
 			} else {
 				t.Errorf("failed to upload file: %s", ErrToStr(err))
 			}
+		} else {
+			t.Fatalf("failed to open file: %s", err)
 		}
 
 		// generate with file search
