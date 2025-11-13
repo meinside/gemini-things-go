@@ -1839,6 +1839,51 @@ func TestFileSearch(t *testing.T) {
 			t.Fatalf("failed to open file: %s", err)
 		}
 
+		// list files in a search store
+		for file, err := range gtc.ListFilesInFileSearchStore(
+			context.TODO(),
+			store.Name,
+		) {
+			if err != nil {
+				t.Errorf("failed to list files in file search store: %s", ErrToStr(err))
+			} else {
+				verbose(">>> listed files in file search store: %s", prettify(file))
+			}
+		}
+
+		// delete a file in a search store
+		if file, err := os.Open(`./utils.go`); err == nil {
+			defer func() { _ = file.Close() }()
+
+			if uploaded, err := gtc.UploadFileForSearch(
+				context.TODO(),
+				store.Name,
+				file,
+				"utils for gmn (utils.go)",
+				[]*genai.CustomMetadata{
+					{
+						Key:         "filename",
+						StringValue: "utils.go",
+					},
+				},
+				nil,
+			); err == nil {
+				// gtc.waitForFilesForSearch(context.TODO(), []string{uploaded.Name}) // FIXME: not working yet
+				time.Sleep(10 * time.Second)
+
+				if err := gtc.DeleteFileInFileSearchStore(
+					context.TODO(),
+					uploaded.Response.DocumentName,
+				); err != nil {
+					t.Errorf("failed to delete file in file search store: %s", ErrToStr(err))
+				}
+			} else {
+				t.Errorf("failed to upload file for search: %s", ErrToStr(err))
+			}
+		} else {
+			t.Fatalf("failed to open file for file search store: %s", err)
+		}
+
 		// generate with file search
 		if generated, err := gtc.Generate(context.TODO(), []Prompt{
 			PromptFromText(`how many test cases are there in the 'generation_test.go' file?`),

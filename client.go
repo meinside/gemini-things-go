@@ -1260,6 +1260,28 @@ func (c *Client) ImportFileForSearch(
 	)
 }
 
+// ListFilesInFileSearchStore lists all files in a file search store.
+func (c *Client) ListFilesInFileSearchStore(
+	ctx context.Context,
+	fileSearchStoreName string,
+) iter.Seq2[*genai.Document, error] {
+	return c.client.FileSearchStores.Documents.All(fileSearchStoreName, ctx) // FIXME: `ctx` should be ahead of `fileSearchStoreName`...
+}
+
+// DeleteFileInFileSearchStore deletes a file in a file search store.
+func (c *Client) DeleteFileInFileSearchStore(
+	ctx context.Context,
+	fileName string,
+) error {
+	return c.client.FileSearchStores.Documents.Delete(
+		ctx,
+		fileName,
+		&genai.DeleteDocumentConfig{
+			Force: ptr(true),
+		},
+	)
+}
+
 // RequestBatch creates a batch job for the given job source.
 //
 // A `model` (specifically a batch model) must be set in the Client.
