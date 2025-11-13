@@ -28,18 +28,27 @@ const (
 )
 
 const (
-	uploadedFileStateCheckIntervalMilliseconds = 300 // 300 milliseconds
+	uploadedFileStateCheckIntervalMilliseconds       = 300  // 300 milliseconds
+	uploadedFileSearchStateCheckIntervalMilliseconds = 1000 // 1000 milliseconds
 )
 
-// waitForFiles waits for all specified uploaded files to reach the "ACTIVE" state.
+// waitForFiles waits for all specified uploaded files
+// to reach the "ACTIVE" state.
 // It uses a sync.WaitGroup to wait for all concurrent checks to complete.
 // This is an internal helper function.
-func (c *Client) waitForFiles(ctx context.Context, fileNames []string) {
+func (c *Client) waitForFiles(
+	ctx context.Context,
+	fileNames []string,
+) {
 	var wg sync.WaitGroup
 	for _, fileName := range fileNames {
 		wg.Go(func() {
 			for {
-				if file, err := c.client.Files.Get(ctx, fileName, &genai.GetFileConfig{}); err == nil {
+				if file, err := c.client.Files.Get(
+					ctx,
+					fileName,
+					&genai.GetFileConfig{},
+				); err == nil {
 					if file.State == genai.FileStateActive {
 						break
 					} else {
@@ -47,6 +56,39 @@ func (c *Client) waitForFiles(ctx context.Context, fileNames []string) {
 					}
 				} else {
 					time.Sleep(uploadedFileStateCheckIntervalMilliseconds * time.Millisecond)
+				}
+			}
+		})
+	}
+	wg.Wait()
+}
+
+// waitForFilesForSearch waits for all specified uploaded documents for search
+// to reach the "ACTIVE" state.
+// It uses a sync.WaitGroup to wait for all concurrent checks to complete.
+// This is an internal helper function.
+//
+// FIXME: (not working yet) state is returned empty
+func (c *Client) waitForFilesForSearch(
+	ctx context.Context,
+	fileNames []string,
+) {
+	var wg sync.WaitGroup
+	for _, fileName := range fileNames {
+		wg.Go(func() {
+			for {
+				if document, err := c.client.FileSearchStores.Documents.Get(
+					ctx,
+					fileName,
+					&genai.GetDocumentConfig{},
+				); err == nil {
+					if document.State == genai.DocumentStateActive {
+						break
+					} else {
+						time.Sleep(uploadedFileSearchStateCheckIntervalMilliseconds * time.Millisecond)
+					}
+				} else {
+					time.Sleep(uploadedFileSearchStateCheckIntervalMilliseconds * time.Millisecond)
 				}
 			}
 		})
@@ -103,7 +145,7 @@ func (c *Client) processPromptToPartAndInfo(
 		}
 		currentReader = readerForUpload // Use the recycled reader
 
-		matchedMimeType, supported := checkMimeType(mimeType)
+		matchedMimeType, supported := checkMimeTypeForFile(mimeType)
 
 		if !ignoreMime && !supported {
 			fn, exists := c.fileConvertFuncs[matchedMimeType]
@@ -178,7 +220,7 @@ func (c *Client) processPromptToPartAndInfo(
 	case BytesPrompt:
 		currentBytes := prompt.Bytes
 		mimeType := mimetype.Detect(currentBytes)
-		matchedMimeType, supported := checkMimeType(mimeType)
+		matchedMimeType, supported := checkMimeTypeForFile(mimeType)
 
 		if !ignoreMime && !supported {
 			fn, exists := c.fileConvertFuncs[matchedMimeType]
@@ -443,9 +485,11 @@ func safetySettings(threshold *genai.HarmBlockThreshold) (settings []*genai.Safe
 	return settings
 }
 
-// checkMimeType is an internal helper function that checks if a given MIME type
-// (as detected by the mimetype library) is supported by the Gemini API.
-// It returns the matched MIME type string (which might be a more general type if an alias matches)
+// checkMimeTypeForFile is an internal helper function that checks
+// if a given MIME type (as detected by the mimetype library) is
+// supported by the Gemini API.
+// It returns the matched MIME type string
+// (which might be a more general type if an alias matches)
 // and a boolean indicating if it's supported.
 //
 // See:
@@ -453,8 +497,12 @@ func safetySettings(threshold *genai.HarmBlockThreshold) (settings []*genai.Safe
 //   - Audios: https://ai.google.dev/gemini-api/docs/audio?lang=go#supported-formats
 //   - Videos: https://ai.google.dev/gemini-api/docs/vision?lang=go#technical-details-video
 //   - Documents: https://ai.google.dev/gemini-api/docs/document-processing?lang=go#technical-details
-func checkMimeType(mimeType *mimetype.MIME) (matched string, supported bool) {
-	return func(mimeType *mimetype.MIME) (matchedMimeType string, supportedMimeType bool) {
+func checkMimeTypeForFile(
+	mimeType *mimetype.MIME,
+) (matched string, supported bool) {
+	return func(
+		mimeType *mimetype.MIME,
+	) (matchedMimeType string, supportedMimeType bool) {
 		matchedMimeType = mimeType.String() // fallback, used if a more specific alias isn't found but it's still supported.
 
 		switch {
@@ -462,48 +510,275 @@ func checkMimeType(mimeType *mimetype.MIME) (matched string, supported bool) {
 			// images
 			//
 			// https://ai.google.dev/gemini-api/docs/vision?lang=go#technical-details-image
-			"image/png",
-			"image/jpeg",
-			"image/webp",
-			"image/heic",
-			"image/heif",
+			`image/png`,
+			`image/jpeg`,
+			`image/webp`,
+			`image/heic`,
+			`image/heif`,
 
 			// audios
 			//
 			// https://ai.google.dev/gemini-api/docs/audio?lang=go#supported-formats
-			"audio/wav",
-			"audio/mp3",
-			"audio/aiff",
-			"audio/aac",
-			"audio/ogg",
-			"audio/flac",
+			`audio/wav`,
+			`audio/mp3`,
+			`audio/aiff`,
+			`audio/aac`,
+			`audio/ogg`,
+			`audio/flac`,
 
 			// videos
 			//
 			// https://ai.google.dev/gemini-api/docs/vision?lang=go#technical-details-video
-			"video/mp4",
-			"video/mpeg",
-			"video/mov",
-			"video/avi",
-			"video/x-flv",
-			"video/mpg",
-			"video/webm",
-			"video/wmv",
-			"video/3gpp",
+			`video/mp4`,
+			`video/mpeg`,
+			`video/mov`,
+			`video/avi`,
+			`video/x-flv`,
+			`video/mpg`,
+			`video/webm`,
+			`video/wmv`,
+			`video/3gpp`,
 
 			// document formats
 			//
 			// https://ai.google.dev/gemini-api/docs/document-processing?lang=go#technical-details
-			"application/pdf",
-			"application/x-javascript", "text/javascript",
-			"application/x-python", "text/x-python",
-			"text/plain",
-			"text/html",
-			"text/css",
-			"text/md",
-			"text/csv",
-			"text/xml",
-			"text/rtf",
+			`application/pdf`,
+			`application/x-javascript`, `text/javascript`,
+			`application/x-python`, `text/x-python`,
+			`text/plain`,
+			`text/html`,
+			`text/css`,
+			`text/md`,
+			`text/csv`,
+			`text/xml`,
+			`text/rtf`,
+		}, func(element string) bool {
+			if mimeType.Is(element) { // supported,
+				matchedMimeType = element
+				return true
+			}
+			return false // matched but not supported,
+		}): // matched,
+			return matchedMimeType, true
+		default: // not matched, or not supported
+			return matchedMimeType, false
+		}
+	}(mimeType)
+}
+
+// checkMimeTypeForFileSearch is an internal helper function that checks
+// if a given MIME type (as detected by the mimetype library) is
+// supported for file search by the Gemini API.
+// It returns the matched MIME type string
+// (which might be a more general type if an alias matches)
+// and a boolean indicating if it's supported.
+//
+// See:
+//   - Application: https://ai.google.dev/gemini-api/docs/file-search#application
+//   - Text:        https://ai.google.dev/gemini-api/docs/file-search#text
+func checkMimeTypeForFileSearch(
+	mimeType *mimetype.MIME,
+) (matched string, supported bool) {
+	return func(
+		mimeType *mimetype.MIME,
+	) (matchedMimeType string, supportedMimeType bool) {
+		matchedMimeType = mimeType.String() // fallback, used if a more specific alias isn't found but it's still supported.
+
+		switch {
+		case slices.ContainsFunc([]string{
+			// applications
+			//
+			// https://ai.google.dev/gemini-api/docs/file-search#application
+			`application/dart`,
+			`application/ecmascript`,
+			`application/json`,
+			`application/ms-java`,
+			`application/msword`,
+			`application/pdf`,
+			`application/sql`,
+			`application/typescript`,
+			`application/vnd.curl`,
+			`application/vnd.dart`,
+			`application/vnd.ibm.secure-container`,
+			`application/vnd.jupyter`,
+			`application/vnd.ms-excel`,
+			`application/vnd.oasis.opendocument.text`,
+			`application/vnd.openxmlformats-officedocument.presentationml.presentation`,
+			`application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`,
+			`application/vnd.openxmlformats-officedocument.wordprocessingml.document`,
+			`application/vnd.openxmlformats-officedocument.wordprocessingml.template`,
+			`application/x-csh`,
+			`application/x-hwp`,
+			`application/x-hwp-v5`,
+			`application/x-latex`,
+			`application/x-php`,
+			`application/x-powershell`,
+			`application/x-sh`,
+			`application/x-shellscript`,
+			`application/x-tex`,
+			`application/x-zsh`,
+			`application/xml`,
+			`application/zip`,
+
+			// text
+			//
+			// https://ai.google.dev/gemini-api/docs/file-search#text
+			`text/1d-interleaved-parityfec`,
+			`text/RED`,
+			`text/SGML`,
+			`text/cache-manifest`,
+			`text/calendar`,
+			`text/cql`,
+			`text/cql-extension`,
+			`text/cql-identifier`,
+			`text/css`,
+			`text/csv`,
+			`text/csv-schema`,
+			`text/dns`,
+			`text/encaprtp`,
+			`text/enriched`,
+			`text/example`,
+			`text/fhirpath`,
+			`text/flexfec`,
+			`text/fwdred`,
+			`text/gff3`,
+			`text/grammar-ref-list`,
+			`text/hl7v2`,
+			`text/html`,
+			`text/javascript`,
+			`text/jcr-cnd`,
+			`text/jsx`,
+			`text/markdown`,
+			`text/mizar`,
+			`text/n3`,
+			`text/parameters`,
+			`text/parityfec`,
+			`text/php`,
+			`text/plain`,
+			`text/provenance-notation`,
+			`text/prs.fallenstein.rst`,
+			`text/prs.lines.tag`,
+			`text/prs.prop.logic`,
+			`text/raptorfec`,
+			`text/rfc822-headers`,
+			`text/rtf`,
+			`text/rtp-enc-aescm128`,
+			`text/rtploopback`,
+			`text/rtx`,
+			`text/sgml`,
+			`text/shaclc`,
+			`text/shex`,
+			`text/spdx`,
+			`text/strings`,
+			`text/t140`,
+			`text/tab-separated-values`,
+			`text/texmacs`,
+			`text/troff`,
+			`text/tsv`,
+			`text/tsx`,
+			`text/turtle`,
+			`text/ulpfec`,
+			`text/uri-list`,
+			`text/vcard`,
+			`text/vnd.DMClientScript`,
+			`text/vnd.IPTC.NITF`,
+			`text/vnd.IPTC.NewsML`,
+			`text/vnd.a`,
+			`text/vnd.abc`,
+			`text/vnd.ascii-art`,
+			`text/vnd.curl`,
+			`text/vnd.debian.copyright`,
+			`text/vnd.dvb.subtitle`,
+			`text/vnd.esmertec.theme-descriptor`,
+			`text/vnd.exchangeable`,
+			`text/vnd.familysearch.gedcom`,
+			`text/vnd.ficlab.flt`,
+			`text/vnd.fly`,
+			`text/vnd.fmi.flexstor`,
+			`text/vnd.gml`,
+			`text/vnd.graphviz`,
+			`text/vnd.hans`,
+			`text/vnd.hgl`,
+			`text/vnd.in3d.3dml`,
+			`text/vnd.in3d.spot`,
+			`text/vnd.latex-z`,
+			`text/vnd.motorola.reflex`,
+			`text/vnd.ms-mediapackage`,
+			`text/vnd.net2phone.commcenter.command`,
+			`text/vnd.radisys.msml-basic-layout`,
+			`text/vnd.senx.warpscript`,
+			`text/vnd.sosi`,
+			`text/vnd.sun.j2me.app-descriptor`,
+			`text/vnd.trolltech.linguist`,
+			`text/vnd.wap.si`,
+			`text/vnd.wap.sl`,
+			`text/vnd.wap.wml`,
+			`text/vnd.wap.wmlscript`,
+			`text/vtt`,
+			`text/wgsl`,
+			`text/x-asm`,
+			`text/x-bibtex`,
+			`text/x-boo`,
+			`text/x-c`,
+			`text/x-c++hdr`,
+			`text/x-c++src`,
+			`text/x-cassandra`,
+			`text/x-chdr`,
+			`text/x-coffeescript`,
+			`text/x-component`,
+			`text/x-csh`,
+			`text/x-csharp`,
+			`text/x-csrc`,
+			`text/x-cuda`,
+			`text/x-d`,
+			`text/x-diff`,
+			`text/x-dsrc`,
+			`text/x-emacs-lisp`,
+			`text/x-erlang`,
+			`text/x-gff3`,
+			`text/x-go`,
+			`text/x-haskell`,
+			`text/x-java`,
+			`text/x-java-properties`,
+			`text/x-java-source`,
+			`text/x-kotlin`,
+			`text/x-lilypond`,
+			`text/x-lisp`,
+			`text/x-literate-haskell`,
+			`text/x-lua`,
+			`text/x-moc`,
+			`text/x-objcsrc`,
+			`text/x-pascal`,
+			`text/x-pcs-gcd`,
+			`text/x-perl`,
+			`text/x-perl-script`,
+			`text/x-python`,
+			`text/x-python-script`,
+			`text/x-r-markdown`,
+			`text/x-rsrc`,
+			`text/x-rst`,
+			`text/x-ruby-script`,
+			`text/x-rust`,
+			`text/x-sass`,
+			`text/x-scala`,
+			`text/x-scheme`,
+			`text/x-script.python`,
+			`text/x-scss`,
+			`text/x-setext`,
+			`text/x-sfv`,
+			`text/x-sh`,
+			`text/x-siesta`,
+			`text/x-sos`,
+			`text/x-sql`,
+			`text/x-swift`,
+			`text/x-tcl`,
+			`text/x-tex`,
+			`text/x-vbasic`,
+			`text/x-vcalendar`,
+			`text/xml`,
+			`text/xml-dtd`,
+			`text/xml-external-parsed-entity`,
+			`text/yaml`,
 		}, func(element string) bool {
 			if mimeType.Is(element) { // supported,
 				matchedMimeType = element
@@ -532,7 +807,7 @@ func checkMimeType(mimeType *mimetype.MIME) (matched string, supported bool) {
 func SupportedMimeType(data []byte) (matchedMimeType string, supported bool, err error) {
 	var mimeType *mimetype.MIME
 	if mimeType, err = mimetype.DetectReader(bytes.NewReader(data)); err == nil {
-		matchedMimeType, supported = checkMimeType(mimeType)
+		matchedMimeType, supported = checkMimeTypeForFile(mimeType)
 
 		return matchedMimeType, supported, nil
 	}
@@ -555,7 +830,7 @@ func SupportedMimeTypePath(filepath string) (matchedMimeType string, supported b
 	if f, err = os.Open(filepath); err == nil {
 		var mimeType *mimetype.MIME
 		if mimeType, err = mimetype.DetectReader(f); err == nil {
-			matchedMimeType, supported = checkMimeType(mimeType)
+			matchedMimeType, supported = checkMimeTypeForFile(mimeType)
 
 			return matchedMimeType, supported, nil
 		}

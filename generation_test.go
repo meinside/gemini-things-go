@@ -1754,6 +1754,126 @@ func TestListingModels(t *testing.T) {
 	}
 }
 
+// TestFileSearch tests file search.
+func TestFileSearch(t *testing.T) {
+	sleepForNotBeingRateLimited()
+
+	apiKey := mustHaveEnvVar(t, "API_KEY")
+
+	gtc, err := NewClient(
+		apiKey,
+		WithModel(modelForTextGeneration),
+		WithTimeoutSeconds(timeoutSecondsForTesting),
+	)
+	if err != nil {
+		t.Fatalf("failed to create client: %s", err)
+	}
+	gtc.Verbose = _isVerbose
+	defer func() { _ = gtc.Close() }()
+
+	// create a file search store
+	if store, err := gtc.CreateFileSearchStore(context.TODO(), "file-search-store-for-test"); err != nil {
+		t.Errorf("failed to create file search store: %s", err)
+	} else {
+		// upload a file to file search store
+		if file, err := os.Open(`./generation_test.go`); err != nil {
+			t.Fatalf("failed to open file for file search store: %s", err)
+		} else {
+			if _, err := gtc.UploadFileForSearch(
+				context.TODO(),
+				store.Name,
+				file,
+				"golang test file for gmn (generation_test.go)",
+				[]*genai.CustomMetadata{
+					{
+						Key:         "filename",
+						StringValue: "generation_test.go",
+					},
+				},
+				nil,
+			); err == nil {
+				// gtc.waitForFilesForSearch(context.TODO(), []string{uploaded.Name}) // FIXME: not working yet
+				time.Sleep(10 * time.Second)
+			} else {
+				t.Errorf("failed to upload file for search: %s", ErrToStr(err))
+			}
+		}
+
+		// upload a file and import it to search store
+		if file, err := os.Open(`./utils_test.go`); err != nil {
+			t.Fatalf("failed to open file: %s", err)
+		} else {
+			if uploaded, err := gtc.UploadFile(
+				context.TODO(),
+				file,
+				"golang test file for gmn (utils_test.go)",
+			); err == nil {
+				// import to file search store
+				if _, err := gtc.ImportFileForSearch(
+					context.TODO(),
+					store.Name,
+					uploaded.Name,
+					[]*genai.CustomMetadata{
+						{
+							Key:         "filename",
+							StringValue: "utils_test.go",
+						},
+					},
+					nil,
+				); err == nil {
+					// gtc.waitForFilesForSearch(context.TODO(), []string{uploaded.Name}) // FIXME: file? file search?
+					time.Sleep(10 * time.Second)
+				} else {
+					t.Errorf("failed to import file to file search store: %s", ErrToStr(err))
+				}
+			} else {
+				t.Errorf("failed to upload file: %s", ErrToStr(err))
+			}
+		}
+
+		// generate with file search
+		if generated, err := gtc.Generate(context.TODO(), []Prompt{
+			PromptFromText(`how many test cases are there in the 'generation_test.go' file?`),
+		}, &GenerationOptions{
+			Tools: []*genai.Tool{
+				{
+					FileSearch: &genai.FileSearch{
+						FileSearchStoreNames: []string{
+							store.Name,
+						},
+					},
+				},
+			},
+		}); err == nil {
+			var promptTokenCount int32 = 0
+			var cachedContentTokenCount int32 = 0
+			if generated.UsageMetadata != nil {
+				if generated.UsageMetadata.PromptTokenCount != 0 {
+					promptTokenCount = generated.UsageMetadata.PromptTokenCount
+				}
+				if generated.UsageMetadata.CachedContentTokenCount != 0 {
+					cachedContentTokenCount = generated.UsageMetadata.CachedContentTokenCount
+				}
+			}
+
+			verbose(">>> input tokens: %d, output tokens: %d, cached tokens: %d (usage metadata)",
+				promptTokenCount,
+				generated.UsageMetadata.TotalTokenCount-promptTokenCount,
+				cachedContentTokenCount,
+			)
+
+			verbose(">>> generated: %s", prettify(generated.Candidates[0]))
+		} else {
+			t.Errorf("generation with file search (non-streamed) failed: %s", ErrToStr(err))
+		}
+
+		// delete file search store
+		if err := gtc.DeleteFileSearchStore(context.TODO(), store.Name); err != nil {
+			t.Errorf("failed to delete file search store: %s", ErrToStr(err))
+		}
+	}
+}
+
 // TestBatchRequests tests batch requests.
 //
 //	NOTE: may fail with error on free tier:
