@@ -1152,23 +1152,30 @@ func (c *Client) UploadFile(
 	ctx context.Context,
 	file io.Reader,
 	fileDisplayName string,
+	ignoreMimeType ...bool,
 ) (uploaded *genai.File, err error) {
-	var mime *mimetype.MIME
-	if mime, err = mimetype.DetectReader(file); err == nil {
-		if matched, supported := checkMimeTypeForFile(mime); supported {
-			return c.client.Files.Upload(
-				ctx,
-				file,
-				&genai.UploadFileConfig{
-					DisplayName: fileDisplayName,
-					MIMEType:    matched,
-				},
-			)
-		} else {
-			err = fmt.Errorf("unsupported mime type for file: %s", mime.String())
+	config := &genai.UploadFileConfig{
+		DisplayName: fileDisplayName,
+	}
+
+	ignoreMime := len(ignoreMimeType) > 0 && ignoreMimeType[0]
+
+	if !ignoreMime {
+		var mime *mimetype.MIME
+		if mime, err = mimetype.DetectReader(file); err == nil {
+			if matched, supported := checkMimeTypeForFile(mime); supported {
+				config.MIMEType = matched
+			} else {
+				return nil, fmt.Errorf("unsupported mime type for file: %s", mime.String())
+			}
 		}
 	}
-	return nil, err
+
+	return c.client.Files.Upload(
+		ctx,
+		file,
+		config,
+	)
 }
 
 // CreateFileSearchStore creates a new file search store.
@@ -1216,27 +1223,33 @@ func (c *Client) UploadFileForSearch(
 	fileDisplayName string,
 	metadata []*genai.CustomMetadata,
 	chunkConfig *genai.ChunkingConfig,
+	ignoreMimeType ...bool,
 ) (operation *genai.UploadToFileSearchStoreOperation, err error) {
-	var mime *mimetype.MIME
-	if mime, err = mimetype.DetectReader(file); err == nil {
-		if matched, supported := checkMimeTypeForFileSearch(mime); supported {
-			return c.client.FileSearchStores.UploadToFileSearchStore(
-				ctx,
-				file,
-				fileSearchStoreName,
-				&genai.UploadToFileSearchStoreConfig{
-					DisplayName: fileDisplayName,
-					MIMEType:    matched,
+	config := &genai.UploadToFileSearchStoreConfig{
+		DisplayName: fileDisplayName,
 
-					CustomMetadata: metadata,
-					ChunkingConfig: chunkConfig,
-				},
-			)
-		} else {
-			err = fmt.Errorf("unsupported mime type for file search: %s", mime.String())
+		CustomMetadata: metadata,
+		ChunkingConfig: chunkConfig,
+	}
+
+	ignoreMime := len(ignoreMimeType) > 0 && ignoreMimeType[0]
+	if !ignoreMime {
+		var mime *mimetype.MIME
+		if mime, err = mimetype.DetectReader(file); err == nil {
+			if matched, supported := checkMimeTypeForFileSearch(mime); supported {
+				config.MIMEType = matched
+			} else {
+				return nil, fmt.Errorf("unsupported mime type for file search: %s", mime.String())
+			}
 		}
 	}
-	return nil, err
+
+	return c.client.FileSearchStores.UploadToFileSearchStore(
+		ctx,
+		file,
+		fileSearchStoreName,
+		config,
+	)
 }
 
 // ImportFileForSearch imports an alread-uploaded file into a file search store.
