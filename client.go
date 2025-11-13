@@ -1148,19 +1148,25 @@ func (c *Client) ListModels(ctx context.Context) (models []*genai.Model, err err
 }
 
 // UploadFile uploads a file to the Gemini API.
+//
+// If `overrideMimeType` is not given, it will be inferred from the file bytes.
 func (c *Client) UploadFile(
 	ctx context.Context,
 	file io.Reader,
 	fileDisplayName string,
-	ignoreMimeType ...bool,
+	overrideMimeType ...string,
 ) (uploaded *genai.File, err error) {
 	config := &genai.UploadFileConfig{
 		DisplayName: fileDisplayName,
 	}
 
-	ignoreMime := len(ignoreMimeType) > 0 && ignoreMimeType[0]
-
-	if !ignoreMime {
+	var overridden string
+	if len(overrideMimeType) > 0 {
+		overridden = overrideMimeType[0]
+	}
+	if len(overridden) > 0 {
+		config.MIMEType = overridden
+	} else {
 		var mime *mimetype.MIME
 		if mime, err = mimetype.DetectReader(file); err == nil {
 			if matched, supported := checkMimeTypeForFile(mime); supported {
@@ -1168,6 +1174,8 @@ func (c *Client) UploadFile(
 			} else {
 				return nil, fmt.Errorf("unsupported mime type for file: %s", mime.String())
 			}
+		} else {
+			return nil, fmt.Errorf("failed to detect mimetype: %w", err)
 		}
 	}
 
@@ -1215,6 +1223,8 @@ func (c *Client) GetFileSearchStore(
 
 // UploadFileForSearch creates a new file in a file search store.
 //
+// If `overrideMimeType` is not given, it will be inferred from the file bytes.
+//
 // Supported file formats are: https://ai.google.dev/gemini-api/docs/file-search#supported-files
 func (c *Client) UploadFileForSearch(
 	ctx context.Context,
@@ -1223,7 +1233,7 @@ func (c *Client) UploadFileForSearch(
 	fileDisplayName string,
 	metadata []*genai.CustomMetadata,
 	chunkConfig *genai.ChunkingConfig,
-	ignoreMimeType ...bool,
+	overrideMimeType ...string,
 ) (operation *genai.UploadToFileSearchStoreOperation, err error) {
 	config := &genai.UploadToFileSearchStoreConfig{
 		DisplayName: fileDisplayName,
@@ -1232,8 +1242,13 @@ func (c *Client) UploadFileForSearch(
 		ChunkingConfig: chunkConfig,
 	}
 
-	ignoreMime := len(ignoreMimeType) > 0 && ignoreMimeType[0]
-	if !ignoreMime {
+	var overridden string
+	if len(overrideMimeType) > 0 {
+		overridden = overrideMimeType[0]
+	}
+	if len(overridden) > 0 {
+		config.MIMEType = overridden
+	} else {
 		var mime *mimetype.MIME
 		if mime, err = mimetype.DetectReader(file); err == nil {
 			if matched, supported := checkMimeTypeForFileSearch(mime); supported {
@@ -1241,6 +1256,8 @@ func (c *Client) UploadFileForSearch(
 			} else {
 				return nil, fmt.Errorf("unsupported mime type for file search: %s", mime.String())
 			}
+		} else {
+			return nil, fmt.Errorf("failed to detect mimetype: %w", err)
 		}
 	}
 
