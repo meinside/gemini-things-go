@@ -8,10 +8,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"iter"
 	"log"
 	"time"
 
+	"github.com/gabriel-vasile/mimetype"
 	"google.golang.org/genai"
 )
 
@@ -1143,6 +1145,119 @@ func (c *Client) ListModels(ctx context.Context) (models []*genai.Model, err err
 	}
 
 	return models, err
+}
+
+// UploadFile uploads a file to the Gemini API.
+func (c *Client) UploadFile(
+	ctx context.Context,
+	file io.Reader,
+	fileDisplayName string,
+) (uploaded *genai.File, err error) {
+	var mime *mimetype.MIME
+	if mime, err = mimetype.DetectReader(file); err == nil {
+		if matched, supported := checkMimeTypeForFile(mime); supported {
+			return c.client.Files.Upload(
+				ctx,
+				file,
+				&genai.UploadFileConfig{
+					DisplayName: fileDisplayName,
+					MIMEType:    matched,
+				},
+			)
+		} else {
+			err = fmt.Errorf("unsupported mime type for file: %s", mime.String())
+		}
+	}
+	return nil, err
+}
+
+// CreateFileSearchStore creates a new file search store.
+func (c *Client) CreateFileSearchStore(
+	ctx context.Context,
+	displayName string,
+) (store *genai.FileSearchStore, err error) {
+	return c.client.FileSearchStores.Create(ctx, &genai.CreateFileSearchStoreConfig{
+		DisplayName: displayName,
+	})
+}
+
+// DeleteFileSearchStore deletes a file search store.
+func (c *Client) DeleteFileSearchStore(
+	ctx context.Context,
+	fileSearchStoreName string,
+) (err error) {
+	return c.client.FileSearchStores.Delete(ctx, fileSearchStoreName, &genai.DeleteFileSearchStoreConfig{
+		Force: ptr(true),
+	})
+}
+
+// ListFileSearchStores lists all file search stores.
+func (c *Client) ListFileSearchStores(
+	ctx context.Context,
+) (stores iter.Seq2[*genai.FileSearchStore, error]) {
+	return c.client.FileSearchStores.All(ctx)
+}
+
+// GetFileSearchStore gets a file search store.
+func (c *Client) GetFileSearchStore(
+	ctx context.Context,
+	fileSearchStoreName string,
+) (store *genai.FileSearchStore, err error) {
+	return c.client.FileSearchStores.Get(ctx, fileSearchStoreName, &genai.GetFileSearchStoreConfig{})
+}
+
+// UploadFileForSearch creates a new file in a file search store.
+//
+// Supported file formats are: https://ai.google.dev/gemini-api/docs/file-search#supported-files
+func (c *Client) UploadFileForSearch(
+	ctx context.Context,
+	fileSearchStoreName string,
+	file io.Reader,
+	fileDisplayName string,
+	metadata []*genai.CustomMetadata,
+	chunkConfig *genai.ChunkingConfig,
+) (operation *genai.UploadToFileSearchStoreOperation, err error) {
+	var mime *mimetype.MIME
+	if mime, err = mimetype.DetectReader(file); err == nil {
+		if matched, supported := checkMimeTypeForFileSearch(mime); supported {
+			return c.client.FileSearchStores.UploadToFileSearchStore(
+				ctx,
+				file,
+				fileSearchStoreName,
+				&genai.UploadToFileSearchStoreConfig{
+					DisplayName: fileDisplayName,
+					MIMEType:    matched,
+
+					CustomMetadata: metadata,
+					ChunkingConfig: chunkConfig,
+				},
+			)
+		} else {
+			err = fmt.Errorf("unsupported mime type for file search: %s", mime.String())
+		}
+	}
+	return nil, err
+}
+
+// ImportFileForSearch imports an alread-uploaded file into a file search store.
+//
+// Supported file formats are: https://ai.google.dev/gemini-api/docs/file-search#supported-files
+func (c *Client) ImportFileForSearch(
+	ctx context.Context,
+	fileSearchStoreName string,
+	fileName string,
+	metadata []*genai.CustomMetadata,
+	chunkConfig *genai.ChunkingConfig,
+) (operation *genai.ImportFileOperation, err error) {
+	return c.client.FileSearchStores.ImportFile(
+		ctx,
+		fileSearchStoreName,
+		fileName,
+		&genai.ImportFileConfig{
+			CustomMetadata: metadata,
+			ChunkingConfig: chunkConfig,
+		},
+	)
 }
 
 // RequestBatch creates a batch job for the given job source.
