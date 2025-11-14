@@ -134,18 +134,23 @@ func (c *Client) processPromptToPartAndInfo(
 			)
 		}
 
-		mimeType, readerForUpload, err := readMimeAndRecycle(currentReader)
-		if err != nil {
-			return nil, prompt, nil, fmt.Errorf(
-				"failed to detect MIME type of prompts[%d] (%s): %w",
-				promptIndex,
-				prompt.Filename,
-				err,
-			)
+		// check mime type
+		var mime *mimetype.MIME
+		if prompt.MIMEType == "" { // detect the MIME type
+			var err error
+			mime, currentReader, err = readMimeAndRecycle(currentReader) // Reuse the recycled reader
+			if err != nil {
+				return nil, prompt, nil, fmt.Errorf(
+					"failed to detect MIME type of prompts[%d] (%s): %w",
+					promptIndex,
+					prompt.Filename,
+					err,
+				)
+			}
+		} else { // if a forced MIME type is provided, use it
+			mime = mimetype.Lookup(prompt.MIMEType)
 		}
-		currentReader = readerForUpload // Use the recycled reader
-
-		matchedMimeType, supported := checkMimeTypeForFile(mimeType)
+		matchedMimeType, supported := checkMimeTypeForFile(mime)
 
 		if !ignoreMime && !supported {
 			fn, exists := c.fileConvertFuncs[matchedMimeType]
@@ -154,7 +159,7 @@ func (c *Client) processPromptToPartAndInfo(
 					"MIME type of prompts[%d] (%s) not supported: %s",
 					promptIndex,
 					prompt.Filename,
-					mimeType.String(),
+					matchedMimeType,
 				)
 			}
 			bs, readErr := io.ReadAll(currentReader)
@@ -219,7 +224,14 @@ func (c *Client) processPromptToPartAndInfo(
 
 	case BytesPrompt:
 		currentBytes := prompt.Bytes
-		mimeType := mimetype.Detect(currentBytes)
+
+		// check mime type
+		var mimeType *mimetype.MIME
+		if prompt.MIMEType == "" { // detect the MIME type
+			mimeType = mimetype.Detect(currentBytes)
+		} else { // if a forced MIME type is provided, use it
+			mimeType = mimetype.Lookup(prompt.MIMEType)
+		}
 		matchedMimeType, supported := checkMimeTypeForFile(mimeType)
 
 		if !ignoreMime && !supported {
@@ -229,7 +241,7 @@ func (c *Client) processPromptToPartAndInfo(
 					"MIME type of prompts[%d] (%d bytes) not supported: %s",
 					promptIndex,
 					len(currentBytes),
-					mimeType.String(),
+					matchedMimeType,
 				)
 			}
 			if c.Verbose {

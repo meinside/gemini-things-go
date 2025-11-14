@@ -66,6 +66,10 @@ type FilePrompt struct {
 	// This field is populated by processing functions like `client.processPromptToPartAndInfo`.
 	// It is nil until the file is successfully processed and its URI obtained.
 	Data *genai.FileData
+
+	// When this data needs to be handled as a specific MIME type,
+	// set this value then it will be forced to that type.
+	MIMEType string
 }
 
 // ToPart converts the FilePrompt into a `genai.Part` using the FileData (URI and MIME type).
@@ -93,11 +97,21 @@ func (p FilePrompt) String() string {
 
 // PromptFromFile creates a new FilePrompt with the given display filename and an io.Reader for its content.
 // It implements the Prompt interface.
-func PromptFromFile(filename string, reader io.Reader) Prompt {
-	return FilePrompt{
+func PromptFromFile(
+	filename string,
+	reader io.Reader,
+	forceMimeType ...string,
+) Prompt {
+	prompt := FilePrompt{
 		Filename: filename,
 		Reader:   reader,
 	}
+
+	if len(forceMimeType) > 0 {
+		prompt.MIMEType = forceMimeType[0]
+	}
+
+	return prompt
 }
 
 // URIPrompt represents a prompt that uses a URI to point to file data
@@ -136,7 +150,11 @@ func PromptFromURI(uri string) Prompt {
 type BytesPrompt struct {
 	Filename string // Optional display name for the byte data, used if uploaded.
 	Bytes    []byte // The raw byte data of the file.
-	MimeType string // The MIME type of the byte data (e.g., "image/png"), typically auto-detected.
+
+	// The MIME type of the byte data (e.g., "image/png"), typically auto-detected.
+	// When this data needs to be handled as a specific MIME type,
+	// set this value then it will be forced to that type.
+	MIMEType string
 }
 
 // ToPart converts the BytesPrompt into a `genai.Part`.
@@ -147,7 +165,7 @@ func (p BytesPrompt) ToPart() genai.Part {
 	return genai.Part{
 		InlineData: &genai.Blob{
 			Data:     p.Bytes,
-			MIMEType: p.MimeType,
+			MIMEType: p.MIMEType,
 		},
 	}
 }
@@ -155,31 +173,52 @@ func (p BytesPrompt) ToPart() genai.Part {
 // String returns a string representation of the BytesPrompt, including its filename (if any), length, and MIME type.
 func (p BytesPrompt) String() string {
 	if p.Filename != "" {
-		return fmt.Sprintf("bytes(file='%s')[%d];mimeType=%s", p.Filename, len(p.Bytes), p.MimeType)
+		return fmt.Sprintf("bytes(file='%s')[%d];mimeType=%s", p.Filename, len(p.Bytes), p.MIMEType)
 	}
-	return fmt.Sprintf("bytes[%d];mimeType=%s", len(p.Bytes), p.MimeType)
+	return fmt.Sprintf("bytes[%d];mimeType=%s", len(p.Bytes), p.MIMEType)
 }
 
 // PromptFromBytes creates a new BytesPrompt from a byte slice.
 // The MIME type is automatically detected from the byte content.
 // It implements the Prompt interface.
 // This version does not include a filename.
-func PromptFromBytes(bytes []byte) Prompt {
-	return BytesPrompt{
-		Bytes:    bytes,
-		MimeType: mimetype.Detect(bytes).String(),
+func PromptFromBytes(
+	bytes []byte,
+	forceMimeType ...string,
+) Prompt {
+	prompt := BytesPrompt{
+		Bytes: bytes,
 	}
+
+	if len(forceMimeType) > 0 {
+		prompt.MIMEType = forceMimeType[0]
+	} else {
+		prompt.MIMEType = mimetype.Detect(bytes).String()
+	}
+
+	return prompt
 }
 
 // PromptFromBytesWithName creates a new BytesPrompt from a byte slice with an associated filename.
 // The MIME type is automatically detected from the byte content.
 // It implements the Prompt interface.
-func PromptFromBytesWithName(bytes []byte, filename string) Prompt {
-	return BytesPrompt{
+func PromptFromBytesWithName(
+	bytes []byte,
+	filename string,
+	forceMimeType ...string,
+) Prompt {
+	prompt := BytesPrompt{
 		Filename: filename,
 		Bytes:    bytes,
-		MimeType: mimetype.Detect(bytes).String(),
 	}
+
+	if len(forceMimeType) > 0 {
+		prompt.MIMEType = forceMimeType[0]
+	} else {
+		prompt.MIMEType = mimetype.Detect(bytes).String()
+	}
+
+	return prompt
 }
 
 // GenerationOptions defines various parameters to control the content generation process.

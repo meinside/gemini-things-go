@@ -375,11 +375,16 @@ func TestGenerationIterated(t *testing.T) {
 	if file, err := os.Open("./client.go"); err == nil {
 		defer func() { _ = file.Close() }()
 
+		promptFromText := PromptFromText(`What's the golang package name of this file? Can you give me a short sample code of using this file?`)
+
+		// prompt with forced MIME-types
+		promptFromFile := PromptFromFile("client.go", file, "text/plain")
+
 		for it, err := range gtc.GenerateStreamIterated(
 			context.TODO(),
 			[]Prompt{
-				PromptFromText(`What's the golang package name of this file? Can you give me a short sample code of using this file?`),
-				PromptFromFile("client.go", file),
+				promptFromText,
+				promptFromFile,
 			},
 		) {
 			if err != nil {
