@@ -134,11 +134,13 @@ func (c *Client) processPromptToPartAndInfo(
 			)
 		}
 
-		// check mime type
-		var mime *mimetype.MIME
-		if prompt.MIMEType == "" { // detect the MIME type
+		// check mimeType type
+		var matchedMimeType string
+		var supported bool
+		if prompt.ForcedMIMEType == "" { // detect the MIME type
+			var mimeType *mimetype.MIME
 			var err error
-			mime, currentReader, err = readMimeAndRecycle(currentReader) // Reuse the recycled reader
+			mimeType, currentReader, err = readMimeAndRecycle(currentReader) // Reuse the recycled reader
 			if err != nil {
 				return nil, prompt, nil, fmt.Errorf(
 					"failed to detect MIME type of prompts[%d] (%s): %w",
@@ -147,10 +149,11 @@ func (c *Client) processPromptToPartAndInfo(
 					err,
 				)
 			}
+			matchedMimeType, supported = checkMimeTypeForFile(mimeType)
 		} else { // if a forced MIME type is provided, use it
-			mime = mimetype.Lookup(prompt.MIMEType)
+			matchedMimeType = prompt.ForcedMIMEType
+			supported = true
 		}
-		matchedMimeType, supported := checkMimeTypeForFile(mime)
 
 		if !ignoreMime && !supported {
 			fn, exists := c.fileConvertFuncs[matchedMimeType]
@@ -226,13 +229,14 @@ func (c *Client) processPromptToPartAndInfo(
 		currentBytes := prompt.Bytes
 
 		// check mime type
-		var mimeType *mimetype.MIME
-		if prompt.MIMEType == "" { // detect the MIME type
-			mimeType = mimetype.Detect(currentBytes)
+		var matchedMimeType string
+		var supported bool
+		if prompt.ForcedMIMEType == "" { // detect the MIME type
+			matchedMimeType, supported = checkMimeTypeForFile(mimetype.Detect(currentBytes))
 		} else { // if a forced MIME type is provided, use it
-			mimeType = mimetype.Lookup(prompt.MIMEType)
+			matchedMimeType = prompt.ForcedMIMEType
+			supported = true
 		}
-		matchedMimeType, supported := checkMimeTypeForFile(mimeType)
 
 		if !ignoreMime && !supported {
 			fn, exists := c.fileConvertFuncs[matchedMimeType]
