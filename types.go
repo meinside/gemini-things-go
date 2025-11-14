@@ -69,7 +69,7 @@ type FilePrompt struct {
 
 	// When this data needs to be handled as a specific MIME type,
 	// set this value then it will be forced to that type.
-	MIMEType string
+	ForcedMIMEType string
 }
 
 // ToPart converts the FilePrompt into a `genai.Part` using the FileData (URI and MIME type).
@@ -108,7 +108,7 @@ func PromptFromFile(
 	}
 
 	if len(forceMimeType) > 0 {
-		prompt.MIMEType = forceMimeType[0]
+		prompt.ForcedMIMEType = forceMimeType[0]
 	}
 
 	return prompt
@@ -152,9 +152,11 @@ type BytesPrompt struct {
 	Bytes    []byte // The raw byte data of the file.
 
 	// The MIME type of the byte data (e.g., "image/png"), typically auto-detected.
+	MIMEType string
+
 	// When this data needs to be handled as a specific MIME type,
 	// set this value then it will be forced to that type.
-	MIMEType string
+	ForcedMIMEType string
 }
 
 // ToPart converts the BytesPrompt into a `genai.Part`.
@@ -187,13 +189,12 @@ func PromptFromBytes(
 	forceMimeType ...string,
 ) Prompt {
 	prompt := BytesPrompt{
-		Bytes: bytes,
+		Bytes:    bytes,
+		MIMEType: mimetype.Detect(bytes).String(),
 	}
 
 	if len(forceMimeType) > 0 {
-		prompt.MIMEType = forceMimeType[0]
-	} else {
-		prompt.MIMEType = mimetype.Detect(bytes).String()
+		prompt.ForcedMIMEType = forceMimeType[0]
 	}
 
 	return prompt
@@ -210,12 +211,11 @@ func PromptFromBytesWithName(
 	prompt := BytesPrompt{
 		Filename: filename,
 		Bytes:    bytes,
+		MIMEType: mimetype.Detect(bytes).String(),
 	}
 
 	if len(forceMimeType) > 0 {
-		prompt.MIMEType = forceMimeType[0]
-	} else {
-		prompt.MIMEType = mimetype.Detect(bytes).String()
+		prompt.ForcedMIMEType = forceMimeType[0]
 	}
 
 	return prompt
