@@ -512,6 +512,10 @@ func safetySettings(threshold *genai.HarmBlockThreshold) (settings []*genai.Safe
 func checkMimeTypeForFile(
 	mimeType *mimetype.MIME,
 ) (matched string, supported bool) {
+	if mimeType == nil { // FIXME
+		return `application/octet-stream`, false
+	}
+
 	return func(
 		mimeType *mimetype.MIME,
 	) (matchedMimeType string, supportedMimeType bool) {
