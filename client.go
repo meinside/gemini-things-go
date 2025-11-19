@@ -199,31 +199,21 @@ func (c *Client) SetMaxRetryCount(count uint) {
 // generateStream is an internal helper to create a stream iterator for content generation.
 func (c *Client) generateStream(
 	ctx context.Context,
-	prompts []Prompt,
+	contents []*genai.Content,
 	options ...*GenerationOptions,
 ) iter.Seq2[*genai.GenerateContentResponse, error] {
 	// generation options
 	var opts *GenerationOptions = nil
-	var history []genai.Content = nil
 	if len(options) > 0 {
 		opts = options[0]
-		history = opts.History
 	}
 
 	if c.Verbose {
 		log.Printf(
-			"> generating streamed content with prompts: %v (options: %s)",
-			prompts,
+			"> generating streamed with contents: %v (options: %s)",
+			contents,
 			prettify(opts),
 		)
-	}
-
-	// generate parts for prompting
-	var contents []*genai.Content
-	var err error
-	contents, err = c.buildPromptContents(ctx, prompts, history)
-	if err != nil {
-		return yieldErrorAndEndIterator(fmt.Errorf("failed to build prompts: %w", err))
 	}
 
 	// stream
@@ -246,14 +236,17 @@ func (c *Client) generateStream(
 //
 // Example:
 //
-//	iter := client.GenerateStreamIterated(ctx, []gt.Prompt{gt.PromptFromText("Tell me a story.")})
-//	for resp, err := range iter {
-//	    if err != nil { /* handle error */ }
-//	    // process response part
+//	if contents, err := client.PromptsToContents(ctx, []gt.Prompt{gt.PromptFromText("Tell me a story.")}, nil); err == nil {
+//		iter := client.GenerateStreamIterated(ctx, []gt.Prompt{gt.PromptFromText("Tell me a story.")})
+//		for resp, err := range iter {
+//			if err != nil { /* handle error */
+//			}
+//			// process response part
+//		}
 //	}
 func (c *Client) GenerateStreamIterated(
 	ctx context.Context,
-	prompts []Prompt,
+	contents []*genai.Content,
 	options ...*GenerationOptions,
 ) iter.Seq2[*genai.GenerateContentResponse, error] {
 	// check if model is set
@@ -261,7 +254,7 @@ func (c *Client) GenerateStreamIterated(
 		return yieldErrorAndEndIterator(fmt.Errorf("model is not set for generating iterated stream"))
 	}
 
-	return c.generateStream(ctx, prompts, options...)
+	return c.generateStream(ctx, contents, options...)
 }
 
 // GenerateStreamed generates content and streams the response through a callback function.
@@ -280,7 +273,7 @@ func (c *Client) GenerateStreamIterated(
 // using GenerateStreamIterated directly is recommended.
 func (c *Client) GenerateStreamed(
 	ctx context.Context,
-	prompts []Prompt,
+	contents []*genai.Content,
 	fnStreamCallback FnStreamCallback, // fnStreamCallback is the function to call with each part of the streamed response.
 	options ...*GenerationOptions,
 ) (err error) {
@@ -305,7 +298,7 @@ func (c *Client) GenerateStreamed(
 	var numTokensTotal int32 = 0
 
 	var it *genai.GenerateContentResponse
-	for it, err = range c.generateStream(ctx, prompts, options...) {
+	for it, err = range c.generateStream(ctx, contents, options...) {
 		if err != nil {
 			err = fmt.Errorf("failed to iterate stream: %w", err)
 			break
@@ -449,7 +442,7 @@ func (c *Client) GenerateStreamed(
 // (configurable via `WithMaxRetryCount` or `SetMaxRetryCount`).
 func (c *Client) Generate(
 	ctx context.Context,
-	prompts []Prompt, // A slice of Prompt interfaces (e.g., TextPrompt, FilePrompt) to form the request.
+	contents []*genai.Content,
 	options ...*GenerationOptions, // Optional GenerationOptions to customize the request.
 ) (res *genai.GenerateContentResponse, err error) {
 	// check if model is set
@@ -466,25 +459,16 @@ func (c *Client) Generate(
 
 	// generation options
 	var opts *GenerationOptions = nil
-	var history []genai.Content = nil
 	if len(options) > 0 {
 		opts = options[0]
-		history = opts.History
 	}
 
 	if c.Verbose {
 		log.Printf(
-			"> generating content with prompts: %v (options: %s)",
-			prompts,
+			"> generating with contents: %v (options: %s)",
+			contents,
 			prettify(opts),
 		)
-	}
-
-	// generate parts for prompting
-	var contents []*genai.Content
-	contents, err = c.buildPromptContents(ctx, prompts, history)
-	if err != nil {
-		return nil, fmt.Errorf("failed to build prompts: %w", err)
 	}
 
 	return c.generate(ctx, contents, c.maxRetryCount, opts)
@@ -497,36 +481,27 @@ type FunctionCallHandler func(args map[string]any) (string, error)
 func (c *Client) GenerateWithRecursiveToolCalls(
 	ctx context.Context,
 	fnCallHandlers map[string]FunctionCallHandler,
-	prompts []Prompt, // A slice of Prompt interfaces (e.g., TextPrompt, FilePrompt) to form the request.
+	contents []*genai.Content,
 	options ...*GenerationOptions, // Optional GenerationOptions to customize the request.
 ) (res *genai.GenerateContentResponse, err error) {
-	res, err = c.Generate(ctx, prompts, options...)
+	res, err = c.Generate(ctx, contents, options...)
 	if err == nil {
 		// check if `res` has a function call,
 		if fnCall, exists := hasFunctionCall(res.Candidates); exists {
 			// if so, call the corresponding function,
 			if handler, exists := fnCallHandlers[fnCall.Name]; exists {
 				if handled, err := handler(fnCall.Args); err == nil {
-					if options == nil {
-						options = []*GenerationOptions{
-							{
-								History: []genai.Content{},
-							},
-						}
-					}
-
-					// append the result to `options.History`,
-					options[0].History = append(options[0].History, genai.Content{
+					// append the result to `contents`
+					contents = append(contents, &genai.Content{
 						Role: genai.RoleUser,
 						Parts: []*genai.Part{
 							{
-								Text: fmt.Sprintf(`Result of function '%s(%s)':
-
-%s`,
-									fnCall.Name,
-									prettify(fnCall.Args, true),
-									handled,
-								),
+								FunctionResponse: &genai.FunctionResponse{
+									Name: fnCall.Name,
+									Response: map[string]any{
+										"output": handled,
+									},
+								},
 							},
 						},
 					})
@@ -535,7 +510,7 @@ func (c *Client) GenerateWithRecursiveToolCalls(
 					return c.GenerateWithRecursiveToolCalls(
 						ctx,
 						fnCallHandlers,
-						prompts,
+						contents,
 						options...,
 					)
 				} else {
@@ -800,7 +775,7 @@ func (c *Client) CacheContext(
 	}
 
 	// prompts
-	argcc.Contents, err = c.buildPromptContents(ctx, prompts, nil)
+	argcc.Contents, err = c.PromptsToContents(ctx, prompts, nil)
 	if err != nil {
 		return "", fmt.Errorf("failed to build prompts for caching context: %w", err)
 	}
