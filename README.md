@@ -25,22 +25,33 @@ const (
 
 func main() {
 	if client, err := gt.NewClient(
-			apiKey,
-			gt.WithModel(model),        // Specify the model
-			gt.WithTimeoutSeconds(60),	// Set a 60-second timeout for operations
-			gt.WithMaxRetryCount(5),    // Configure a maximum of 5 retries on 5xx server errors
+		apiKey,
+		gt.WithModel(model),       // Specify the model
+		gt.WithTimeoutSeconds(60), // Set a 60-second timeout for operations
+		gt.WithMaxRetryCount(5),   // Configure a maximum of 5 retries on 5xx server errors
 	); err == nil {
-		if res, err := client.Generate(
+		// convert prompts and histories to contents for generation
+		if contents, err := client.PromptsToContents(
 			context.TODO(),
 			[]gt.Prompt{
 				gt.PromptFromText(`What is the answer to life, the universe, and everything?`),
 			},
+			nil,
 		); err == nil {
-			// do something with `client`
-			fmt.Printf("response: %+v\n", res)
+			if res, err := client.Generate(
+				context.TODO(),
+				contents,
+			); err == nil {
+				// do something with `client`
+				fmt.Printf("response: %+v\n", res)
+			} else {
+				panic(fmt.Errorf("failed to generate: %w", err))
+			}
+		} else {
+			panic(fmt.Errorf("failed to convert prompts: %w", err))
 		}
 	} else {
-		panic(err)
+		panic(fmt.Errorf("failed to create client: %w", err))
 	}
 }
 ```
