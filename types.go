@@ -247,10 +247,6 @@ type GenerationOptions struct {
 	// SpeechConfig provides configuration for speech synthesis, if applicable.
 	SpeechConfig *genai.SpeechConfig
 
-	// History provides the preceding conversation messages to maintain context in a session.
-	// It's a slice of `genai.Content` structs, ordered from oldest to newest.
-	History []genai.Content
-
 	// IgnoreUnsupportedType, if true, will cause the streaming callback to ignore
 	// parts of a type that it does not explicitly handle, rather than returning an error.
 	IgnoreUnsupportedType bool

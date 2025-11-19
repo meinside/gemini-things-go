@@ -146,80 +146,104 @@ func TestContextCaching(t *testing.T) {
 		t.Errorf("failed to cache context: %s", ErrToStr(err))
 	} else {
 		// generate iterated with the cached context
-		for it, err := range gtc.GenerateStreamIterated(
+		if contents, err := gtc.PromptsToContents(
 			context.TODO(),
 			[]Prompt{
 				PromptFromText("What are these files?"),
 			},
-			&GenerationOptions{
-				CachedContent: cachedContextName,
-			},
-		) {
-			if err != nil {
-				t.Errorf("generation with cached context (iterated) failed: %s", ErrToStr(err))
-			} else {
-				verbose(">>> iterating response (cached): %s", prettify(it.Candidates[0]))
+			nil,
+		); err != nil {
+			t.Errorf("failed to convert prompts to contents: %s", err)
+		} else {
+			for it, err := range gtc.GenerateStreamIterated(
+				context.TODO(),
+				contents,
+				&GenerationOptions{
+					CachedContent: cachedContextName,
+				},
+			) {
+				if err != nil {
+					t.Errorf("generation with cached context (iterated) failed: %s", ErrToStr(err))
+				} else {
+					verbose(">>> iterating response (cached): %s", prettify(it.Candidates[0]))
+				}
 			}
 		}
 
 		// generate streamed response with the cached context
-		if err := gtc.GenerateStreamed(
+		if contents, err := gtc.PromptsToContents(
 			context.TODO(),
 			[]Prompt{
 				PromptFromText("Can you give me any insight about these files?"),
 			},
-			func(data StreamCallbackData) {
-				if data.TextDelta != nil {
-					if _isVerbose {
-						fmt.Print(*data.TextDelta) // print text stream
-					}
-				} else if data.NumTokens != nil {
-					verbose(">>> input tokens: %d, output tokens: %d, cached tokens: %d", data.NumTokens.Input, data.NumTokens.Output, data.NumTokens.Cached)
-				} else if data.FinishReason != nil {
-					if *data.FinishReason != genai.FinishReasonStop {
-						t.Errorf("generation finished unexpectedly with reason: %s", *data.FinishReason)
-					}
-				} else if data.Error != nil {
-					t.Errorf("error while processing generation with cached context: %s", data.Error)
-				}
-			},
-			&GenerationOptions{
-				CachedContent: cachedContextName,
-			},
+			nil,
 		); err != nil {
-			t.Errorf("generation with cached context (streamed) failed: %s", ErrToStr(err))
+			t.Errorf("failed to convert prompts to contents: %s", err)
+		} else {
+			if err := gtc.GenerateStreamed(
+				context.TODO(),
+				contents,
+				func(data StreamCallbackData) {
+					if data.TextDelta != nil {
+						if _isVerbose {
+							fmt.Print(*data.TextDelta) // print text stream
+						}
+					} else if data.NumTokens != nil {
+						verbose(">>> input tokens: %d, output tokens: %d, cached tokens: %d", data.NumTokens.Input, data.NumTokens.Output, data.NumTokens.Cached)
+					} else if data.FinishReason != nil {
+						if *data.FinishReason != genai.FinishReasonStop {
+							t.Errorf("generation finished unexpectedly with reason: %s", *data.FinishReason)
+						}
+					} else if data.Error != nil {
+						t.Errorf("error while processing generation with cached context: %s", data.Error)
+					}
+				},
+				&GenerationOptions{
+					CachedContent: cachedContextName,
+				},
+			); err != nil {
+				t.Errorf("generation with cached context (streamed) failed: %s", ErrToStr(err))
+			}
 		}
 
 		// generate with the cached context
-		if generated, err := gtc.Generate(
+		if contents, err := gtc.PromptsToContents(
 			context.TODO(),
 			[]Prompt{
 				PromptFromText("How many standard golang libraries are used in these source codes?"),
 			},
-			&GenerationOptions{
-				CachedContent: cachedContextName,
-			},
+			nil,
 		); err != nil {
-			t.Errorf("generation with cached context (non-streamed) failed: %s", ErrToStr(err))
+			t.Errorf("failed to convert prompts to contents: %s", err)
 		} else {
-			var promptTokenCount int32 = 0
-			var cachedContentTokenCount int32 = 0
-			if generated.UsageMetadata != nil {
-				if generated.UsageMetadata.PromptTokenCount != 0 {
-					promptTokenCount = generated.UsageMetadata.PromptTokenCount
+			if generated, err := gtc.Generate(
+				context.TODO(),
+				contents,
+				&GenerationOptions{
+					CachedContent: cachedContextName,
+				},
+			); err != nil {
+				t.Errorf("generation with cached context (non-streamed) failed: %s", ErrToStr(err))
+			} else {
+				var promptTokenCount int32 = 0
+				var cachedContentTokenCount int32 = 0
+				if generated.UsageMetadata != nil {
+					if generated.UsageMetadata.PromptTokenCount != 0 {
+						promptTokenCount = generated.UsageMetadata.PromptTokenCount
+					}
+					if generated.UsageMetadata.CachedContentTokenCount != 0 {
+						cachedContentTokenCount = generated.UsageMetadata.CachedContentTokenCount
+					}
 				}
-				if generated.UsageMetadata.CachedContentTokenCount != 0 {
-					cachedContentTokenCount = generated.UsageMetadata.CachedContentTokenCount
-				}
+
+				verbose(">>> input tokens: %d, output tokens: %d, cached tokens: %d (usage metadata)",
+					promptTokenCount,
+					generated.UsageMetadata.TotalTokenCount-promptTokenCount,
+					cachedContentTokenCount,
+				)
+
+				verbose(">>> generated: %s", prettify(generated.Candidates[0]))
 			}
-
-			verbose(">>> input tokens: %d, output tokens: %d, cached tokens: %d (usage metadata)",
-				promptTokenCount,
-				generated.UsageMetadata.TotalTokenCount-promptTokenCount,
-				cachedContentTokenCount,
-			)
-
-			verbose(">>> generated: %s", prettify(generated.Candidates[0]))
 		}
 	}
 
@@ -250,30 +274,91 @@ func TestGeneration(t *testing.T) {
 	defer func() { _ = gtc.Close() }()
 
 	// text-only prompt (non-streamed)
-	if generated, err := gtc.Generate(
+	if contents, err := gtc.PromptsToContents(
 		context.TODO(),
 		[]Prompt{
 			PromptFromText(`What is the answer to life, the universe, and everything?`),
 		},
+		nil,
 	); err != nil {
-		t.Errorf("generation with text prompt failed: %s", ErrToStr(err))
+		t.Errorf("failed to convert prompts to contents: %s", err)
 	} else {
-		verbose(">>> generated: %s", prettify(generated.Candidates[0]))
+		if generated, err := gtc.Generate(
+			context.TODO(),
+			contents,
+		); err != nil {
+			t.Errorf("generation with text prompt failed: %s", ErrToStr(err))
+		} else {
+			verbose(">>> generated: %s", prettify(generated.Candidates[0]))
+		}
 	}
 
 	// prompt with files (non-streamed)
 	if file, err := os.Open("./client.go"); err == nil {
 		defer func() { _ = file.Close() }()
 
-		if generated, err := gtc.Generate(
+		if contents, err := gtc.PromptsToContents(
 			context.TODO(),
 			[]Prompt{
 				PromptFromText(`What's the golang package name of this file? Can you give me a short sample code of using this file?`),
 				PromptFromFile("client.go", file),
 			},
+			nil,
+		); err != nil {
+			t.Errorf("failed to convert prompts to contents: %s", err)
+		} else {
+			if generated, err := gtc.Generate(
+				context.TODO(),
+				contents,
+			); err != nil {
+				t.Errorf("generation with text & file prompt failed: %s", ErrToStr(err))
+			} else {
+				var promptTokenCount int32 = 0
+				var candidatesTokenCount int32 = 0
+				var cachedContentTokenCount int32 = 0
+				if generated.UsageMetadata != nil {
+					if generated.UsageMetadata.PromptTokenCount != 0 {
+						promptTokenCount = generated.UsageMetadata.PromptTokenCount
+					}
+					if generated.UsageMetadata.CandidatesTokenCount != 0 {
+						candidatesTokenCount = generated.UsageMetadata.CandidatesTokenCount
+					}
+					if generated.UsageMetadata.CachedContentTokenCount != 0 {
+						cachedContentTokenCount = generated.UsageMetadata.CachedContentTokenCount
+					}
+				}
+
+				verbose(">>> input tokens: %d, output tokens: %d, cached tokens: %d (usage metadata)",
+					promptTokenCount,
+					candidatesTokenCount,
+					cachedContentTokenCount,
+				)
+
+				verbose(">>> generated: %s", prettify(generated.Candidates[0]))
+			}
+		}
+	} else {
+		t.Errorf("failed to open file for generation: %s", err)
+	}
+
+	// prompt with specific BytesPrompt (non-streamed) - this will be uploaded
+	if contents, err := gtc.PromptsToContents(
+		context.TODO(),
+		[]Prompt{
+			PromptFromText(`Translate the text in the given file into English.`),
+			PromptFromFile("some lyrics", strings.NewReader(`동해물과 백두산이 마르고 닳도록 하느님이 보우하사 우리나라 만세`)),
+		},
+		nil,
+	); err != nil {
+		t.Errorf("failed to convert prompts to contents: %s", err)
+	} else {
+		if generated, err := gtc.Generate(
+			context.TODO(),
+			contents,
 		); err != nil {
 			t.Errorf("generation with text & file prompt failed: %s", ErrToStr(err))
 		} else {
+			verbose(">>> generated (BytesPrompt): %s", prettify(generated.Candidates[0]))
 			var promptTokenCount int32 = 0
 			var candidatesTokenCount int32 = 0
 			var cachedContentTokenCount int32 = 0
@@ -297,43 +382,6 @@ func TestGeneration(t *testing.T) {
 
 			verbose(">>> generated: %s", prettify(generated.Candidates[0]))
 		}
-	} else {
-		t.Errorf("failed to open file for generation: %s", err)
-	}
-
-	// prompt with specific BytesPrompt (non-streamed) - this will be uploaded
-	if generated, err := gtc.Generate(
-		context.TODO(),
-		[]Prompt{
-			PromptFromText(`Translate the text in the given file into English.`),
-			PromptFromFile("some lyrics", strings.NewReader(`동해물과 백두산이 마르고 닳도록 하느님이 보우하사 우리나라 만세`)),
-		},
-	); err != nil {
-		t.Errorf("generation with text & file prompt failed: %s", ErrToStr(err))
-	} else {
-		verbose(">>> generated (BytesPrompt): %s", prettify(generated.Candidates[0]))
-		var promptTokenCount int32 = 0
-		var candidatesTokenCount int32 = 0
-		var cachedContentTokenCount int32 = 0
-		if generated.UsageMetadata != nil {
-			if generated.UsageMetadata.PromptTokenCount != 0 {
-				promptTokenCount = generated.UsageMetadata.PromptTokenCount
-			}
-			if generated.UsageMetadata.CandidatesTokenCount != 0 {
-				candidatesTokenCount = generated.UsageMetadata.CandidatesTokenCount
-			}
-			if generated.UsageMetadata.CachedContentTokenCount != 0 {
-				cachedContentTokenCount = generated.UsageMetadata.CachedContentTokenCount
-			}
-		}
-
-		verbose(">>> input tokens: %d, output tokens: %d, cached tokens: %d (usage metadata)",
-			promptTokenCount,
-			candidatesTokenCount,
-			cachedContentTokenCount,
-		)
-
-		verbose(">>> generated: %s", prettify(generated.Candidates[0]))
 	}
 
 	// NOTE: files will be deleted on close
@@ -358,16 +406,24 @@ func TestGenerationIterated(t *testing.T) {
 	defer func() { _ = gtc.Close() }()
 
 	// text-only prompt (iterated)
-	for it, err := range gtc.GenerateStreamIterated(
+	if contents, err := gtc.PromptsToContents(
 		context.TODO(),
 		[]Prompt{
 			PromptFromText(`What is the answer to life, the universe, and everything?`),
 		},
-	) {
-		if err != nil {
-			t.Errorf("generation with text prompt failed: %s", ErrToStr(err))
-		} else {
-			verbose(">>> iterating response: %s", prettify(it.Candidates[0]))
+		nil,
+	); err != nil {
+		t.Errorf("failed to convert prompts to contents: %s", err)
+	} else {
+		for it, err := range gtc.GenerateStreamIterated(
+			context.TODO(),
+			contents,
+		) {
+			if err != nil {
+				t.Errorf("generation with text prompt failed: %s", ErrToStr(err))
+			} else {
+				verbose(">>> iterating response: %s", prettify(it.Candidates[0]))
+			}
 		}
 	}
 
@@ -380,17 +436,25 @@ func TestGenerationIterated(t *testing.T) {
 		// prompt with forced MIME-types
 		promptFromFile := PromptFromFile("client.go", file, "text/plain")
 
-		for it, err := range gtc.GenerateStreamIterated(
+		if contents, err := gtc.PromptsToContents(
 			context.TODO(),
 			[]Prompt{
 				promptFromText,
 				promptFromFile,
 			},
-		) {
-			if err != nil {
-				t.Errorf("generation with text & file prompt failed: %s", ErrToStr(err))
-			} else {
-				verbose(">>> iterating response: %s", prettify(it.Candidates[0]))
+			nil,
+		); err != nil {
+			t.Errorf("failed to convert prompts to contents: %s", err)
+		} else {
+			for it, err := range gtc.GenerateStreamIterated(
+				context.TODO(),
+				contents,
+			) {
+				if err != nil {
+					t.Errorf("generation with text & file prompt failed: %s", ErrToStr(err))
+				} else {
+					verbose(">>> iterating response: %s", prettify(it.Candidates[0]))
+				}
 			}
 		}
 	} else {
@@ -398,32 +462,48 @@ func TestGenerationIterated(t *testing.T) {
 	}
 
 	// prompt with bytes array
-	for it, err := range gtc.GenerateStreamIterated(
+	if contents, err := gtc.PromptsToContents(
 		context.TODO(),
 		[]Prompt{
 			PromptFromText(`Translate the text in the given file into English.`),
 			PromptFromFile("some lyrics", strings.NewReader(`동해물과 백두산이 마르고 닳도록 하느님이 보우하사 우리나라 만세`)),
 		},
-	) {
-		if err != nil {
-			t.Errorf("generation with text & file prompt (iterated) failed: %s", ErrToStr(err))
-		} else {
-			verbose(">>> iterating response: %s", prettify(it.Candidates[0]))
+		nil,
+	); err != nil {
+		t.Errorf("failed to convert prompts to contents: %s", err)
+	} else {
+		for it, err := range gtc.GenerateStreamIterated(
+			context.TODO(),
+			contents,
+		) {
+			if err != nil {
+				t.Errorf("generation with text & file prompt (iterated) failed: %s", ErrToStr(err))
+			} else {
+				verbose(">>> iterating response: %s", prettify(it.Candidates[0]))
+			}
 		}
 	}
 
 	// prompt with youtube URI (iterated)
-	for it, err := range gtc.GenerateStreamIterated(
+	if contents, err := gtc.PromptsToContents(
 		context.TODO(),
 		[]Prompt{
 			PromptFromText(`Summarize this youtube video.`),
 			PromptFromURI(`https://www.youtube.com/watch?v=I44_zbEwz_w`),
 		},
-	) {
-		if err != nil {
-			t.Errorf("generation with uri prompt (youtube) failed: %s", ErrToStr(err))
-		} else {
-			verbose(">>> iterating response: %s", prettify(it.Candidates[0]))
+		nil,
+	); err != nil {
+		t.Errorf("failed to convert prompts to contents: %s", err)
+	} else {
+		for it, err := range gtc.GenerateStreamIterated(
+			context.TODO(),
+			contents,
+		) {
+			if err != nil {
+				t.Errorf("generation with uri prompt (youtube) failed: %s", ErrToStr(err))
+			} else {
+				verbose(">>> iterating response: %s", prettify(it.Candidates[0]))
+			}
 		}
 	}
 
@@ -449,40 +529,18 @@ func TestGenerationStreamed(t *testing.T) {
 	defer func() { _ = gtc.Close() }()
 
 	// text-only prompt (streamed)
-	if err := gtc.GenerateStreamed(
+	if contents, err := gtc.PromptsToContents(
 		context.TODO(),
 		[]Prompt{
 			PromptFromText(`What is the answer to life, the universe, and everything?`),
 		},
-		func(data StreamCallbackData) {
-			if data.TextDelta != nil {
-				if _isVerbose {
-					fmt.Print(*data.TextDelta) // print text stream
-				}
-			} else if data.NumTokens != nil {
-				verbose(">>> input tokens: %d, output tokens: %d, cached tokens: %d", data.NumTokens.Input, data.NumTokens.Output, data.NumTokens.Cached)
-			} else if data.FinishReason != nil {
-				if *data.FinishReason != genai.FinishReasonStop {
-					t.Errorf("generation finished unexpectedly with reason: %s", *data.FinishReason)
-				}
-			} else if data.Error != nil {
-				t.Errorf("error while processing text generation: %s", data.Error)
-			}
-		},
+		nil,
 	); err != nil {
-		t.Errorf("generation with text prompt failed: %s", ErrToStr(err))
-	}
-
-	// prompt with files (streamed)
-	if file, err := os.Open("./client.go"); err == nil {
-		defer func() { _ = file.Close() }()
-
+		t.Errorf("failed to convert prompts to contents: %s", err)
+	} else {
 		if err := gtc.GenerateStreamed(
 			context.TODO(),
-			[]Prompt{
-				PromptFromText(`What's the golang package name of this file? Can you give me a short sample code of using this file?`),
-				PromptFromFile("client.go", file),
-			},
+			contents,
 			func(data StreamCallbackData) {
 				if data.TextDelta != nil {
 					if _isVerbose {
@@ -495,40 +553,86 @@ func TestGenerationStreamed(t *testing.T) {
 						t.Errorf("generation finished unexpectedly with reason: %s", *data.FinishReason)
 					}
 				} else if data.Error != nil {
-					t.Errorf("error while processing generation with files: %s", data.Error)
+					t.Errorf("error while processing text generation: %s", data.Error)
 				}
 			},
 		); err != nil {
-			t.Errorf("generation with text & file prompt failed: %s", ErrToStr(err))
+			t.Errorf("generation with text prompt failed: %s", ErrToStr(err))
+		}
+	}
+
+	// prompt with files (streamed)
+	if file, err := os.Open("./client.go"); err == nil {
+		defer func() { _ = file.Close() }()
+
+		if contents, err := gtc.PromptsToContents(
+			context.TODO(),
+			[]Prompt{
+				PromptFromText(`What's the golang package name of this file? Can you give me a short sample code of using this file?`),
+				PromptFromFile("client.go", file),
+			},
+			nil,
+		); err != nil {
+			t.Errorf("failed to convert prompts to contents: %s", err)
+		} else {
+			if err := gtc.GenerateStreamed(
+				context.TODO(),
+				contents,
+				func(data StreamCallbackData) {
+					if data.TextDelta != nil {
+						if _isVerbose {
+							fmt.Print(*data.TextDelta) // print text stream
+						}
+					} else if data.NumTokens != nil {
+						verbose(">>> input tokens: %d, output tokens: %d, cached tokens: %d", data.NumTokens.Input, data.NumTokens.Output, data.NumTokens.Cached)
+					} else if data.FinishReason != nil {
+						if *data.FinishReason != genai.FinishReasonStop {
+							t.Errorf("generation finished unexpectedly with reason: %s", *data.FinishReason)
+						}
+					} else if data.Error != nil {
+						t.Errorf("error while processing generation with files: %s", data.Error)
+					}
+				},
+			); err != nil {
+				t.Errorf("generation with text & file prompt failed: %s", ErrToStr(err))
+			}
 		}
 	} else {
 		t.Errorf("failed to open file for streamed generation: %s", err)
 	}
 
 	// prompt with bytes array (streamed)
-	if err := gtc.GenerateStreamed(
+	if contents, err := gtc.PromptsToContents(
 		context.TODO(),
 		[]Prompt{
 			PromptFromText(`Translate the text in the given file into English.`),
 			PromptFromFile("some lyrics", strings.NewReader(`동해물과 백두산이 마르고 닳도록 하느님이 보우하사 우리나라 만세`)),
 		},
-		func(data StreamCallbackData) {
-			if data.TextDelta != nil {
-				if _isVerbose {
-					fmt.Print(*data.TextDelta) // print text stream
-				}
-			} else if data.NumTokens != nil {
-				verbose(">>> input tokens: %d, output tokens: %d, cached tokens: %d", data.NumTokens.Input, data.NumTokens.Output, data.NumTokens.Cached)
-			} else if data.FinishReason != nil {
-				if *data.FinishReason != genai.FinishReasonStop {
-					t.Errorf("generation finished unexpectedly with reason: %s", *data.FinishReason)
-				}
-			} else if data.Error != nil {
-				t.Errorf("error while processing generation with bytes (streamed): %s", data.Error)
-			}
-		},
+		nil,
 	); err != nil {
-		t.Errorf("generation with text & bytes prompt (streamed) failed: %s", ErrToStr(err))
+		t.Errorf("failed to convert prompts to contents: %s", err)
+	} else {
+		if err := gtc.GenerateStreamed(
+			context.TODO(),
+			contents,
+			func(data StreamCallbackData) {
+				if data.TextDelta != nil {
+					if _isVerbose {
+						fmt.Print(*data.TextDelta) // print text stream
+					}
+				} else if data.NumTokens != nil {
+					verbose(">>> input tokens: %d, output tokens: %d, cached tokens: %d", data.NumTokens.Input, data.NumTokens.Output, data.NumTokens.Cached)
+				} else if data.FinishReason != nil {
+					if *data.FinishReason != genai.FinishReasonStop {
+						t.Errorf("generation finished unexpectedly with reason: %s", *data.FinishReason)
+					}
+				} else if data.Error != nil {
+					t.Errorf("error while processing generation with bytes (streamed): %s", data.Error)
+				}
+			},
+		); err != nil {
+			t.Errorf("generation with text & bytes prompt (streamed) failed: %s", ErrToStr(err))
+		}
 	}
 
 	// NOTE: files will be deleted on close
@@ -555,15 +659,23 @@ func TestGenerationWithCustomRetries(t *testing.T) {
 	defer func() { _ = gtc.Close() }()
 
 	// Attempt a standard text generation
-	if generated, err := gtc.Generate(
+	if contents, err := gtc.PromptsToContents(
 		context.TODO(),
 		[]Prompt{
 			PromptFromText(`What is the answer to life, the universe, and everything?`),
 		},
+		nil,
 	); err != nil {
-		t.Errorf("generation with custom retry count failed: %s", ErrToStr(err))
+		t.Errorf("failed to convert prompts to contents: %s", err)
 	} else {
-		verbose(">>> generated with custom retry count: %s", prettify(generated.Candidates[0]))
+		if generated, err := gtc.Generate(
+			context.TODO(),
+			contents,
+		); err != nil {
+			t.Errorf("generation with custom retry count failed: %s", ErrToStr(err))
+		} else {
+			verbose(">>> generated with custom retry count: %s", prettify(generated.Candidates[0]))
+		}
 	}
 }
 
@@ -590,12 +702,21 @@ func TestGenerationWithCustomTimeout(t *testing.T) {
 	defer cancel()
 
 	// Attempt a text generation that should take longer than 1ms
-	_, err = gtc.Generate(
-		ctx, // Pass the short-lived context
+	var contents []*genai.Content
+	if contents, err = gtc.PromptsToContents(
+		context.TODO(),
 		[]Prompt{
 			PromptFromText(`Tell me a very long story that will take more than 1 millisecond to generate.`),
 		},
-	)
+		nil,
+	); err != nil {
+		t.Errorf("failed to convert prompts to contents: %s", err)
+	} else {
+		_, err = gtc.Generate(
+			ctx, // Pass the short-lived context
+			contents,
+		)
+	}
 
 	if err == nil {
 		t.Errorf("expected an error due to timeout, but got nil")
@@ -654,34 +775,46 @@ func TestGenerationWithFileConverter(t *testing.T) {
 {"name": "Janet Doe", "age": 42, "gender": "f"}
 {"name": "Jane Doe", "age": 15, "gender": "f"}`
 
-	if generated, err := gtc.Generate(context.TODO(), []Prompt{
-		PromptFromText(`Infer the relationships between the characters from the given information.`),
-		PromptFromBytes([]byte(jsonlForTest)),
-	}, &GenerationOptions{}); err != nil {
-		t.Errorf("generation with file converter failed: %s", ErrToStr(err))
+	if contents, err := gtc.PromptsToContents(
+		context.TODO(),
+		[]Prompt{
+			PromptFromText(`Infer the relationships between the characters from the given information.`),
+			PromptFromBytes([]byte(jsonlForTest)),
+		},
+		nil,
+	); err != nil {
+		t.Errorf("failed to convert prompts to contents: %s", err)
 	} else {
-		var promptTokenCount int32 = 0
-		var candidatesTokenCount int32 = 0
-		var cachedContentTokenCount int32 = 0
-		if generated.UsageMetadata != nil {
-			if generated.UsageMetadata.PromptTokenCount != 0 {
-				promptTokenCount = generated.UsageMetadata.PromptTokenCount
+		if generated, err := gtc.Generate(
+			context.TODO(),
+			contents,
+			&GenerationOptions{},
+		); err != nil {
+			t.Errorf("generation with file converter failed: %s", ErrToStr(err))
+		} else {
+			var promptTokenCount int32 = 0
+			var candidatesTokenCount int32 = 0
+			var cachedContentTokenCount int32 = 0
+			if generated.UsageMetadata != nil {
+				if generated.UsageMetadata.PromptTokenCount != 0 {
+					promptTokenCount = generated.UsageMetadata.PromptTokenCount
+				}
+				if generated.UsageMetadata.CandidatesTokenCount != 0 {
+					candidatesTokenCount = generated.UsageMetadata.CandidatesTokenCount
+				}
+				if generated.UsageMetadata.CachedContentTokenCount != 0 {
+					cachedContentTokenCount = generated.UsageMetadata.CachedContentTokenCount
+				}
 			}
-			if generated.UsageMetadata.CandidatesTokenCount != 0 {
-				candidatesTokenCount = generated.UsageMetadata.CandidatesTokenCount
-			}
-			if generated.UsageMetadata.CachedContentTokenCount != 0 {
-				cachedContentTokenCount = generated.UsageMetadata.CachedContentTokenCount
-			}
+
+			verbose(">>> input tokens: %d, output tokens: %d, cached tokens: %d (usage metadata)",
+				promptTokenCount,
+				candidatesTokenCount,
+				cachedContentTokenCount,
+			)
+
+			verbose(">>> generated with file converter: %s", prettify(generated.Candidates[0]))
 		}
-
-		verbose(">>> input tokens: %d, output tokens: %d, cached tokens: %d (usage metadata)",
-			promptTokenCount,
-			candidatesTokenCount,
-			cachedContentTokenCount,
-		)
-
-		verbose(">>> generated with file converter: %s", prettify(generated.Candidates[0]))
 	}
 }
 
@@ -790,110 +923,124 @@ func TestGenerationWithFunctionCall(t *testing.T) {
 	const prompt = `Generate an image file which shows a man standing in front of a vast dessert. The man is watching an old pyramid completely destroyed by a giant sandstorm. The mood should be sad and gloomy.`
 
 	// prompt with function calls (streamed)
-	if err := gtc.GenerateStreamed(
+	if contents, err := gtc.PromptsToContents(
 		context.TODO(),
 		[]Prompt{
 			PromptFromText(prompt),
 		},
-		func(data StreamCallbackData) {
-			if data.FunctionCall != nil {
-				if data.FunctionCall.Name == fnNameExtractPrompts {
-					positivePrompt, _ := FuncArg[string](data.FunctionCall.Args, fnParamNamePositivePrompt)
-					negativePrompt, _ := FuncArg[string](data.FunctionCall.Args, fnParamNameNegativePrompt)
+		nil,
+	); err != nil {
+		t.Errorf("failed to convert prompts to contents: %s", err)
+	} else {
+		if err := gtc.GenerateStreamed(
+			context.TODO(),
+			contents,
+			func(data StreamCallbackData) {
+				if data.FunctionCall != nil {
+					if data.FunctionCall.Name == fnNameExtractPrompts {
+						positivePrompt, _ := FuncArg[string](data.FunctionCall.Args, fnParamNamePositivePrompt)
+						negativePrompt, _ := FuncArg[string](data.FunctionCall.Args, fnParamNameNegativePrompt)
 
-					if positivePrompt != nil {
-						verbose(">>> positive prompt: %s", *positivePrompt)
+						if positivePrompt != nil {
+							verbose(">>> positive prompt: %s", *positivePrompt)
 
-						if negativePrompt != nil {
-							verbose(">>> negative prompt: %s", *negativePrompt)
-						}
+							if negativePrompt != nil {
+								verbose(">>> negative prompt: %s", *negativePrompt)
+							}
 
-						pastGenerations := []genai.Content{
-							{
-								Parts: []*genai.Part{
-									genai.NewPartFromText(prompt),
-								},
-								Role: string(RoleUser),
-							},
-							{
-								Parts: []*genai.Part{
-									genai.NewPartFromFunctionCall(data.FunctionCall.Name, map[string]any{
-										fnParamNamePositivePrompt: positivePrompt,
-										fnParamNameNegativePrompt: negativePrompt,
-									}),
-								},
-								Role: string(RoleModel),
-							},
-							{
-								Parts: []*genai.Part{
-									// NOTE:
-									// run your own function with the parameters returned from function call,
-									// then send a function response built with the result of your function.
-									genai.NewPartFromFunctionResponse(fnNameImageGenerationFinished, map[string]any{
-										fnParamNameGeneratedSuccessfully: true,
-										fnParamNameGeneratedSize:         424242,
-										fnParamNameGeneratedResolution:   "800x800",
-										fnParamNameGeneratedFilepath:     `/home/marvin/generated.jpg`,
-									}),
-								},
-								Role: string(RoleUser),
-							},
-						}
-
-						// generate again with a function response
-						if err := gtc.GenerateStreamed(
-							context.TODO(),
-							[]Prompt{},
-							func(data StreamCallbackData) {
-								if data.TextDelta != nil {
-									verbose(">>> generated from function response: %s", *data.TextDelta)
-								}
-							},
-							&GenerationOptions{
-								Tools: []*genai.Tool{
-									{
-										FunctionDeclarations: fnDeclarations,
+							pastGenerations := []genai.Content{
+								{
+									Parts: []*genai.Part{
+										genai.NewPartFromText(prompt),
 									},
+									Role: string(RoleUser),
 								},
+								{
+									Parts: []*genai.Part{
+										genai.NewPartFromFunctionCall(data.FunctionCall.Name, map[string]any{
+											fnParamNamePositivePrompt: positivePrompt,
+											fnParamNameNegativePrompt: negativePrompt,
+										}),
+									},
+									Role: string(RoleModel),
+								},
+								{
+									Parts: []*genai.Part{
+										// NOTE:
+										// run your own function with the parameters returned from function call,
+										// then send a function response built with the result of your function.
+										genai.NewPartFromFunctionResponse(fnNameImageGenerationFinished, map[string]any{
+											fnParamNameGeneratedSuccessfully: true,
+											fnParamNameGeneratedSize:         424242,
+											fnParamNameGeneratedResolution:   "800x800",
+											fnParamNameGeneratedFilepath:     `/home/marvin/generated.jpg`,
+										}),
+									},
+									Role: string(RoleUser),
+								},
+							}
 
-								History: pastGenerations,
-							},
-						); err != nil {
-							t.Errorf("failed to generate with function response: %s", ErrToStr(err))
+							// generate again with a function response
+							if contents, err := gtc.PromptsToContents(
+								context.TODO(),
+								nil,
+								pastGenerations,
+							); err != nil {
+								t.Errorf("failed to convert prompts to contents: %s", err)
+							} else {
+								if err := gtc.GenerateStreamed(
+									context.TODO(),
+									contents,
+									func(data StreamCallbackData) {
+										if data.TextDelta != nil {
+											verbose(">>> generated from function response: %s", *data.TextDelta)
+										}
+									},
+									&GenerationOptions{
+										Tools: []*genai.Tool{
+											{
+												FunctionDeclarations: fnDeclarations,
+											},
+										},
+									},
+								); err != nil {
+									t.Errorf("failed to generate with function response: %s", ErrToStr(err))
+								}
+							}
+						} else {
+							t.Errorf("failed to parse function args (%s)", prettify(data.FunctionCall.Args))
 						}
 					} else {
-						t.Errorf("failed to parse function args (%s)", prettify(data.FunctionCall.Args))
+						t.Errorf("function name does not match '%s': %s", fnNameExtractPrompts, prettify(data.FunctionCall))
 					}
+				} else if data.NumTokens != nil {
+					verbose(">>> input tokens: %d, output tokens: %d, cached tokens: %d", data.NumTokens.Input, data.NumTokens.Output, data.NumTokens.Cached)
+				} else if data.Error != nil {
+					t.Errorf("generation with function calls failed: %s", data.Error)
 				} else {
-					t.Errorf("function name does not match '%s': %s", fnNameExtractPrompts, prettify(data.FunctionCall))
+					if data.FinishReason == nil {
+						t.Fatalf("should not reach here; data: %s", prettify(data))
+					}
 				}
-			} else if data.NumTokens != nil {
-				verbose(">>> input tokens: %d, output tokens: %d, cached tokens: %d", data.NumTokens.Input, data.NumTokens.Output, data.NumTokens.Cached)
-			} else if data.Error != nil {
-				t.Errorf("generation with function calls failed: %s", data.Error)
-			} else {
-				if data.FinishReason == nil {
-					t.Fatalf("should not reach here; data: %s", prettify(data))
-				}
-			}
-		},
-		&GenerationOptions{
-			Tools: []*genai.Tool{
-				{
-					FunctionDeclarations: fnDeclarations,
-				},
 			},
-			ToolConfig: &genai.ToolConfig{
-				FunctionCallingConfig: &genai.FunctionCallingConfig{
-					Mode: genai.FunctionCallingConfigModeAny,
-					AllowedFunctionNames: []string{
-						fnNameExtractPrompts,
+			&GenerationOptions{
+				Tools: []*genai.Tool{
+					{
+						FunctionDeclarations: fnDeclarations,
+					},
+				},
+				ToolConfig: &genai.ToolConfig{
+					FunctionCallingConfig: &genai.FunctionCallingConfig{
+						Mode: genai.FunctionCallingConfigModeAny,
+						AllowedFunctionNames: []string{
+							fnNameExtractPrompts,
+						},
 					},
 				},
 			},
-		},
-	); err != nil {
-		t.Errorf("generation with function calls failed: %s", ErrToStr(err))
+		); err != nil {
+			t.Errorf("generation with function calls failed: %s", ErrToStr(err))
+		}
 	}
 }
 
@@ -924,59 +1071,67 @@ func TestGenerationWithStructuredOutput(t *testing.T) {
 	defer func() { _ = gtc.Close() }()
 
 	// prompt with function calls (non-streamed)
-	if generated, err := gtc.Generate(
+	if contents, err := gtc.PromptsToContents(
 		context.TODO(),
 		[]Prompt{
 			PromptFromText(prompt),
 		},
-		&GenerationOptions{
-			Config: &genai.GenerationConfig{
-				ResponseMIMEType: "application/json",
-				ResponseSchema: &genai.Schema{
-					Type:     genai.TypeObject,
-					Nullable: ptr(false),
-					Properties: map[string]*genai.Schema{
-						paramNamePositivePrompt: {
-							Type:        genai.TypeString,
-							Description: paramDescPositivePrompt,
-							Nullable:    ptr(false),
+		nil,
+	); err != nil {
+		t.Errorf("failed to convert prompts to contents: %s", err)
+	} else {
+		if generated, err := gtc.Generate(
+			context.TODO(),
+			contents,
+			&GenerationOptions{
+				Config: &genai.GenerationConfig{
+					ResponseMIMEType: "application/json",
+					ResponseSchema: &genai.Schema{
+						Type:     genai.TypeObject,
+						Nullable: ptr(false),
+						Properties: map[string]*genai.Schema{
+							paramNamePositivePrompt: {
+								Type:        genai.TypeString,
+								Description: paramDescPositivePrompt,
+								Nullable:    ptr(false),
+							},
+							paramNameNegativePrompt: {
+								Type:        genai.TypeString,
+								Description: paramDescNegativePrompt,
+								Nullable:    ptr(true),
+							},
 						},
-						paramNameNegativePrompt: {
-							Type:        genai.TypeString,
-							Description: paramDescNegativePrompt,
-							Nullable:    ptr(true),
-						},
+						Required: []string{paramNamePositivePrompt, paramNameNegativePrompt},
 					},
-					Required: []string{paramNamePositivePrompt, paramNameNegativePrompt},
 				},
 			},
-		},
-	); err == nil {
-		for _, part := range generated.Candidates[0].Content.Parts {
-			if len(part.Text) > 0 {
-				var args map[string]any
-				if err := json.Unmarshal([]byte(part.Text), &args); err == nil {
-					positivePrompt, _ := FuncArg[string](args, paramNamePositivePrompt)
-					negativePrompt, _ := FuncArg[string](args, paramNameNegativePrompt)
+		); err == nil {
+			for _, part := range generated.Candidates[0].Content.Parts {
+				if len(part.Text) > 0 {
+					var args map[string]any
+					if err := json.Unmarshal([]byte(part.Text), &args); err == nil {
+						positivePrompt, _ := FuncArg[string](args, paramNamePositivePrompt)
+						negativePrompt, _ := FuncArg[string](args, paramNameNegativePrompt)
 
-					if positivePrompt != nil {
-						verbose(">>> positive prompt: %s", *positivePrompt)
+						if positivePrompt != nil {
+							verbose(">>> positive prompt: %s", *positivePrompt)
 
-						if negativePrompt != nil {
-							verbose(">>> negative prompt: %s", *negativePrompt)
+							if negativePrompt != nil {
+								verbose(">>> negative prompt: %s", *negativePrompt)
+							}
+						} else {
+							t.Errorf("failed to parse structured output (%s)", prettify(args))
 						}
 					} else {
-						t.Errorf("failed to parse structured output (%s)", prettify(args))
+						t.Errorf("failed to parse structured output text '%s': %s", part.Text, err)
 					}
 				} else {
-					t.Errorf("failed to parse structured output text '%s': %s", part.Text, err)
+					t.Errorf("wrong type of generated part: (%T) %s", part, prettify(part))
 				}
-			} else {
-				t.Errorf("wrong type of generated part: (%T) %s", part, prettify(part))
 			}
+		} else {
+			t.Errorf("generation with structured output failed: %s", ErrToStr(err))
 		}
-	} else {
-		t.Errorf("generation with structured output failed: %s", ErrToStr(err))
 	}
 }
 
@@ -999,72 +1154,88 @@ func TestGenerationWithCodeExecution(t *testing.T) {
 	defer func() { _ = gtc.Close() }()
 
 	// prompt with code execution (non-streamed)
-	if generated, err := gtc.Generate(
+	if contents, err := gtc.PromptsToContents(
 		context.TODO(),
 		[]Prompt{
 			PromptFromText(`Generate 6 unique random numbers between 1 and 45. Make sure there is no duplicated number, and list the numbers in ascending order.`),
 		},
-		&GenerationOptions{
-			Tools: []*genai.Tool{
-				{
-					CodeExecution: &genai.ToolCodeExecution{},
+		nil,
+	); err != nil {
+		t.Errorf("failed to convert prompts to contents: %s", err)
+	} else {
+		if generated, err := gtc.Generate(
+			context.TODO(),
+			contents,
+			&GenerationOptions{
+				Tools: []*genai.Tool{
+					{
+						CodeExecution: &genai.ToolCodeExecution{},
+					},
 				},
 			},
-		},
-	); err == nil {
-		for _, part := range generated.Candidates[0].Content.Parts {
-			if len(part.Text) > 0 {
-				verbose(">>> generated text: %s", part.Text)
-			} else if part.ExecutableCode != nil {
-				verbose(">>> executable code (%s):\n%s", part.ExecutableCode.Language, part.ExecutableCode.Code)
-			} else if part.CodeExecutionResult != nil {
-				if part.CodeExecutionResult.Outcome != genai.OutcomeOK {
-					t.Errorf("code execution failed: %s", prettify(part.CodeExecutionResult))
+		); err == nil {
+			for _, part := range generated.Candidates[0].Content.Parts {
+				if len(part.Text) > 0 {
+					verbose(">>> generated text: %s", part.Text)
+				} else if part.ExecutableCode != nil {
+					verbose(">>> executable code (%s):\n%s", part.ExecutableCode.Language, part.ExecutableCode.Code)
+				} else if part.CodeExecutionResult != nil {
+					if part.CodeExecutionResult.Outcome != genai.OutcomeOK {
+						t.Errorf("code execution failed: %s", prettify(part.CodeExecutionResult))
+					} else {
+						verbose(">>> code output: %s", part.CodeExecutionResult.Output)
+					}
 				} else {
-					verbose(">>> code output: %s", part.CodeExecutionResult.Output)
+					t.Errorf("wrong type of generated part: (%T) %s", part, prettify(part))
 				}
-			} else {
-				t.Errorf("wrong type of generated part: (%T) %s", part, prettify(part))
 			}
+		} else {
+			t.Errorf("generation with code execution failed: %s", ErrToStr(err))
 		}
-	} else {
-		t.Errorf("generation with code execution failed: %s", ErrToStr(err))
 	}
 
 	// prompt and file with code execution (non-streamed)
-	if generated, err := gtc.Generate(
+	if contents, err := gtc.PromptsToContents(
 		context.TODO(),
 		[]Prompt{
 			PromptFromText(`Calculate the total and median of all values in the csv file. Also generate a nice graph from the csv file.`),
 			PromptFromFile("test.csv", strings.NewReader(`year,value\n1981,0\n2021,40\n2024,43\n2025,44`)),
 		},
-		&GenerationOptions{
-			Tools: []*genai.Tool{
-				{
-					CodeExecution: &genai.ToolCodeExecution{},
+		nil,
+	); err != nil {
+		t.Errorf("failed to convert prompts to contents: %s", err)
+	} else {
+		if generated, err := gtc.Generate(
+			context.TODO(),
+			contents,
+			&GenerationOptions{
+				Tools: []*genai.Tool{
+					{
+						CodeExecution: &genai.ToolCodeExecution{},
+					},
 				},
 			},
-		},
-	); err == nil {
-		for _, part := range generated.Candidates[0].Content.Parts {
-			if len(part.Text) > 0 {
-				verbose(">>> generated text from csv: %s", part.Text)
-			} else if part.ExecutableCode != nil {
-				verbose(">>> executable code (%s) from csv:\n%s", part.ExecutableCode.Language, part.ExecutableCode.Code)
-			} else if part.CodeExecutionResult != nil {
-				if part.CodeExecutionResult.Outcome != genai.OutcomeOK {
-					t.Errorf("code execution from csv failed: %s", prettify(part.CodeExecutionResult))
+		); err == nil {
+			for _, part := range generated.Candidates[0].Content.Parts {
+				if len(part.Text) > 0 {
+					verbose(">>> generated text from csv: %s", part.Text)
+				} else if part.ExecutableCode != nil {
+					verbose(">>> executable code (%s) from csv:\n%s", part.ExecutableCode.Language, part.ExecutableCode.Code)
+				} else if part.CodeExecutionResult != nil {
+					if part.CodeExecutionResult.Outcome != genai.OutcomeOK {
+						t.Errorf("code execution from csv failed: %s", prettify(part.CodeExecutionResult))
+					} else {
+						verbose(">>> code output from csv: %s", part.CodeExecutionResult.Output)
+					}
+				} else if part.InlineData != nil {
+					verbose(">>> generated inline data from csv: %s (%d bytes)", part.InlineData.MIMEType, len(part.InlineData.Data))
 				} else {
-					verbose(">>> code output from csv: %s", part.CodeExecutionResult.Output)
+					t.Errorf("wrong type of generated part from csv: (%T) %s", part, prettify(part))
 				}
-			} else if part.InlineData != nil {
-				verbose(">>> generated inline data from csv: %s (%d bytes)", part.InlineData.MIMEType, len(part.InlineData.Data))
-			} else {
-				t.Errorf("wrong type of generated part from csv: (%T) %s", part, prettify(part))
 			}
+		} else {
+			t.Errorf("generation with code execution from csv failed: %s", ErrToStr(err))
 		}
-	} else {
-		t.Errorf("generation with code execution from csv failed: %s", ErrToStr(err))
 	}
 }
 
@@ -1086,101 +1257,111 @@ func TestGenerationWithHistory(t *testing.T) {
 	defer func() { _ = gtc.Close() }()
 
 	// text-only prompt with history (streamed)
-	if err := gtc.GenerateStreamed(
+	if contents, err := gtc.PromptsToContents(
 		context.TODO(),
 		[]Prompt{
 			PromptFromText(`Isn't that 42?`),
 		},
-		func(data StreamCallbackData) {
-			if data.TextDelta != nil {
-				if _isVerbose {
-					fmt.Print(*data.TextDelta) // print text stream
-				}
-			} else if data.NumTokens != nil {
-				verbose(">>> input tokens: %d, output tokens: %d, cached tokens: %d", data.NumTokens.Input, data.NumTokens.Output, data.NumTokens.Cached)
-			} else if data.FinishReason != nil {
-				if *data.FinishReason != genai.FinishReasonStop {
-					t.Errorf("generation finished unexpectedly with reason: %s", *data.FinishReason)
-				}
-			} else if data.Error != nil {
-				t.Errorf("error while processing text generation: %s", data.Error)
-			}
-		},
-		&GenerationOptions{
-			History: []genai.Content{
-				{
-					Role: string(RoleUser),
-					Parts: []*genai.Part{
-						{
-							Text: `What is the answer to life, the universe, and everything?`,
-						},
+		[]genai.Content{
+			{
+				Role: string(RoleUser),
+				Parts: []*genai.Part{
+					{
+						Text: `What is the answer to life, the universe, and everything?`,
 					},
 				},
-				{
-					Role: string(RoleModel),
-					Parts: []*genai.Part{
-						{
-							Text: `43.`,
-						},
+			},
+			{
+				Role: string(RoleModel),
+				Parts: []*genai.Part{
+					{
+						Text: `43.`,
 					},
 				},
 			},
 		},
 	); err != nil {
-		t.Errorf("generation with text prompt and history failed: %s", ErrToStr(err))
+		t.Errorf("failed to convert prompts to contents: %s", err)
+	} else {
+		if err := gtc.GenerateStreamed(
+			context.TODO(),
+			contents,
+			func(data StreamCallbackData) {
+				if data.TextDelta != nil {
+					if _isVerbose {
+						fmt.Print(*data.TextDelta) // print text stream
+					}
+				} else if data.NumTokens != nil {
+					verbose(">>> input tokens: %d, output tokens: %d, cached tokens: %d", data.NumTokens.Input, data.NumTokens.Output, data.NumTokens.Cached)
+				} else if data.FinishReason != nil {
+					if *data.FinishReason != genai.FinishReasonStop {
+						t.Errorf("generation finished unexpectedly with reason: %s", *data.FinishReason)
+					}
+				} else if data.Error != nil {
+					t.Errorf("error while processing text generation: %s", data.Error)
+				}
+			},
+		); err != nil {
+			t.Errorf("generation with text prompt and history failed: %s", ErrToStr(err))
+		}
 	}
 
 	// text-only prompt with history (non-streamed)
-	if generated, err := gtc.Generate(
+	if contents, err := gtc.PromptsToContents(
 		context.TODO(),
 		[]Prompt{
 			PromptFromText(`Isn't that 42? What do you think?`),
 		},
-		&GenerationOptions{
-			History: []genai.Content{
-				{
-					Role: string(RoleUser),
-					Parts: []*genai.Part{
-						{
-							Text: `What is the answer to life, the universe, and everything?`,
-						},
+		[]genai.Content{
+			{
+				Role: string(RoleUser),
+				Parts: []*genai.Part{
+					{
+						Text: `What is the answer to life, the universe, and everything?`,
 					},
 				},
-				{
-					Role: string(RoleModel),
-					Parts: []*genai.Part{
-						{
-							Text: `43.`,
-						},
+			},
+			{
+				Role: string(RoleModel),
+				Parts: []*genai.Part{
+					{
+						Text: `43.`,
 					},
 				},
 			},
 		},
 	); err != nil {
-		t.Errorf("generation with text prompt and history failed: %s", ErrToStr(err))
+		t.Errorf("failed to convert prompts to contents: %s", err)
 	} else {
-		var promptTokenCount int32 = 0
-		var candidatesTokenCount int32 = 0
-		var cachedContentTokenCount int32 = 0
-		if generated.UsageMetadata != nil {
-			if generated.UsageMetadata.PromptTokenCount != 0 {
-				promptTokenCount = generated.UsageMetadata.PromptTokenCount
+		if generated, err := gtc.Generate(
+			context.TODO(),
+			contents,
+		); err != nil {
+			t.Errorf("generation with text prompt and history failed: %s", ErrToStr(err))
+		} else {
+			var promptTokenCount int32 = 0
+			var candidatesTokenCount int32 = 0
+			var cachedContentTokenCount int32 = 0
+			if generated.UsageMetadata != nil {
+				if generated.UsageMetadata.PromptTokenCount != 0 {
+					promptTokenCount = generated.UsageMetadata.PromptTokenCount
+				}
+				if generated.UsageMetadata.CandidatesTokenCount != 0 {
+					candidatesTokenCount = generated.UsageMetadata.CandidatesTokenCount
+				}
+				if generated.UsageMetadata.CachedContentTokenCount != 0 {
+					cachedContentTokenCount = generated.UsageMetadata.CachedContentTokenCount
+				}
 			}
-			if generated.UsageMetadata.CandidatesTokenCount != 0 {
-				candidatesTokenCount = generated.UsageMetadata.CandidatesTokenCount
-			}
-			if generated.UsageMetadata.CachedContentTokenCount != 0 {
-				cachedContentTokenCount = generated.UsageMetadata.CachedContentTokenCount
-			}
+
+			verbose(">>> input tokens: %d, output tokens: %d, cached tokens: %d (usage metadata)",
+				promptTokenCount,
+				candidatesTokenCount,
+				cachedContentTokenCount,
+			)
+
+			verbose(">>> generated: %s", prettify(generated.Candidates[0]))
 		}
-
-		verbose(">>> input tokens: %d, output tokens: %d, cached tokens: %d (usage metadata)",
-			promptTokenCount,
-			candidatesTokenCount,
-			cachedContentTokenCount,
-		)
-
-		verbose(">>> generated: %s", prettify(generated.Candidates[0]))
 	}
 }
 
@@ -1256,115 +1437,139 @@ func TestImageGenerations(t *testing.T) {
 	// text-only prompt using the general Generate method
 	// For image generation models, requesting ResponseModalityImage is essential.
 	// Requesting ResponseModalityText is also fine if the model can provide textual descriptions or errors.
-	if res, err := gtc.Generate(
+	if contents, err := gtc.PromptsToContents(
 		context.TODO(),
 		[]Prompt{
 			PromptFromText(prompt),
 		},
-		&GenerationOptions{
-			HarmBlockThreshold: ptr(genai.HarmBlockThresholdBlockOnlyHigh),
-			ResponseModalities: []genai.Modality{
-				genai.ModalityText, // FIXME: when not given, error: 'Code: 400, Message: Model does not support the requested response modalities: image, Status: INVALID_ARGUMENT'
-				genai.ModalityImage,
-			},
-		},
+		nil,
 	); err != nil {
-		t.Errorf("image generation with text prompt (non-streamed) failed: %s", ErrToStr(err))
+		t.Errorf("failed to convert prompts to contents: %s", err)
 	} else {
-		if res.PromptFeedback != nil {
-			t.Errorf("image generation with text prompt (non-streamed) failed with finish reason: %s", res.PromptFeedback.BlockReasonMessage)
-		} else if res.Candidates != nil {
-			for _, cand := range res.Candidates {
-				for _, part := range cand.Content.Parts {
-					if part.InlineData != nil {
-						verbose(">>> iterating response image: %s (%d bytes)", part.InlineData.MIMEType, len(part.InlineData.Data))
-					} else if part.Text != "" {
-						verbose(">>> iterating response text: %s", part.Text)
+		if res, err := gtc.Generate(
+			context.TODO(),
+			contents,
+			&GenerationOptions{
+				HarmBlockThreshold: ptr(genai.HarmBlockThresholdBlockOnlyHigh),
+				ResponseModalities: []genai.Modality{
+					genai.ModalityText, // FIXME: when not given, error: 'Code: 400, Message: Model does not support the requested response modalities: image, Status: INVALID_ARGUMENT'
+					genai.ModalityImage,
+				},
+			},
+		); err != nil {
+			t.Errorf("image generation with text prompt (non-streamed) failed: %s", ErrToStr(err))
+		} else {
+			if res.PromptFeedback != nil {
+				t.Errorf("image generation with text prompt (non-streamed) failed with finish reason: %s", res.PromptFeedback.BlockReasonMessage)
+			} else if res.Candidates != nil {
+				for _, cand := range res.Candidates {
+					for _, part := range cand.Content.Parts {
+						if part.InlineData != nil {
+							verbose(">>> iterating response image: %s (%d bytes)", part.InlineData.MIMEType, len(part.InlineData.Data))
+						} else if part.Text != "" {
+							verbose(">>> iterating response text: %s", part.Text)
+						}
 					}
 				}
+			} else {
+				t.Errorf("image generation with text prompt failed with no usable result")
 			}
-		} else {
-			t.Errorf("image generation with text prompt failed with no usable result")
 		}
 	}
 
 	// text-only prompt (iterated)
-	failed := true
-	for it, err := range gtc.GenerateStreamIterated(
+	if contents, err := gtc.PromptsToContents(
 		context.TODO(),
 		[]Prompt{
 			PromptFromText(prompt),
 		},
-		&GenerationOptions{
-			HarmBlockThreshold: ptr(genai.HarmBlockThresholdBlockOnlyHigh),
-			ResponseModalities: []genai.Modality{
-				genai.ModalityText, // FIXME: when not given, error: 'Code: 400, Message: Model does not support the requested response modalities: image, Status: INVALID_ARGUMENT'
-				genai.ModalityImage,
+		nil,
+	); err != nil {
+		t.Errorf("failed to convert prompts to contents: %s", err)
+	} else {
+		failed := true
+		for it, err := range gtc.GenerateStreamIterated(
+			context.TODO(),
+			contents,
+			&GenerationOptions{
+				HarmBlockThreshold: ptr(genai.HarmBlockThresholdBlockOnlyHigh),
+				ResponseModalities: []genai.Modality{
+					genai.ModalityText, // FIXME: when not given, error: 'Code: 400, Message: Model does not support the requested response modalities: image, Status: INVALID_ARGUMENT'
+					genai.ModalityImage,
+				},
 			},
-		},
-	) {
-		if err != nil {
-			t.Errorf("image generation with text prompt (iterated) failed: %s", ErrToStr(err))
-		} else {
-			if it.PromptFeedback != nil {
-				t.Errorf("image generation with text prompt (iterated) failed with finish reason: %s", it.PromptFeedback.BlockReasonMessage)
-			} else if it.Candidates != nil {
-				for i, cand := range it.Candidates {
-					for _, part := range cand.Content.Parts {
-						if part.InlineData != nil {
-							verbose(">>> iterating response image from candidate[%d]: %s (%d bytes)", i, part.InlineData.MIMEType, len(part.InlineData.Data))
+		) {
+			if err != nil {
+				t.Errorf("image generation with text prompt (iterated) failed: %s", ErrToStr(err))
+			} else {
+				if it.PromptFeedback != nil {
+					t.Errorf("image generation with text prompt (iterated) failed with finish reason: %s", it.PromptFeedback.BlockReasonMessage)
+				} else if it.Candidates != nil {
+					for i, cand := range it.Candidates {
+						for _, part := range cand.Content.Parts {
+							if part.InlineData != nil {
+								verbose(">>> iterating response image from candidate[%d]: %s (%d bytes)", i, part.InlineData.MIMEType, len(part.InlineData.Data))
 
-							failed = false
-						} else if part.Text != "" {
-							verbose(">>> iterating response text from candidate[%d]: %s", i, part.Text)
+								failed = false
+							} else if part.Text != "" {
+								verbose(">>> iterating response text from candidate[%d]: %s", i, part.Text)
+							}
 						}
 					}
 				}
 			}
 		}
-	}
-	if failed {
-		t.Errorf("iterated image generation with text prompt failed with no usable result")
+		if failed {
+			t.Errorf("iterated image generation with text prompt failed with no usable result")
+		}
 	}
 
 	// text-only prompt (streamed)
-	failed = true
-	if err := gtc.GenerateStreamed(
+	if contents, err := gtc.PromptsToContents(
 		context.TODO(),
 		[]Prompt{
 			PromptFromText(prompt),
 		},
-		func(data StreamCallbackData) {
-			if data.Error != nil {
-				t.Errorf("error while processing image generation with text prompt (streamed): %s", data.Error)
-			} else if data.FinishReason != nil {
-				if *data.FinishReason != genai.FinishReasonStop {
-					t.Errorf("image generation with text prompt (streamed) failed with finish reason: %s", *data.FinishReason)
-				}
-			} else if data.TextDelta != nil {
-				if _isVerbose {
-					fmt.Print(*data.TextDelta) // print text stream
-				}
-			} else if data.InlineData != nil {
-				verbose(">>> response image: %s (%d bytes)", data.InlineData.MIMEType, len(data.InlineData.Data))
-
-				failed = false
-			} else if data.NumTokens != nil {
-				verbose(">>> input tokens: %d, output tokens: %d, cached tokens: %d", data.NumTokens.Input, data.NumTokens.Output, data.NumTokens.Cached)
-			}
-		},
-		&GenerationOptions{
-			HarmBlockThreshold: ptr(genai.HarmBlockThresholdBlockOnlyHigh),
-			ResponseModalities: []genai.Modality{
-				genai.ModalityText, // FIXME: when not given, error: 'Code: 400, Message: Model does not support the requested response modalities: image, Status: INVALID_ARGUMENT'
-				genai.ModalityImage,
-			},
-		},
+		nil,
 	); err != nil {
-		t.Errorf("image generation with text prompt (streamed) failed: %s", ErrToStr(err))
-	}
-	if failed {
-		t.Errorf("streamed image generation with text prompt failed with no usable result")
+		t.Errorf("failed to convert prompts to contents: %s", err)
+	} else {
+		failed := true
+		if err := gtc.GenerateStreamed(
+			context.TODO(),
+			contents,
+			func(data StreamCallbackData) {
+				if data.Error != nil {
+					t.Errorf("error while processing image generation with text prompt (streamed): %s", data.Error)
+				} else if data.FinishReason != nil {
+					if *data.FinishReason != genai.FinishReasonStop {
+						t.Errorf("image generation with text prompt (streamed) failed with finish reason: %s", *data.FinishReason)
+					}
+				} else if data.TextDelta != nil {
+					if _isVerbose {
+						fmt.Print(*data.TextDelta) // print text stream
+					}
+				} else if data.InlineData != nil {
+					verbose(">>> response image: %s (%d bytes)", data.InlineData.MIMEType, len(data.InlineData.Data))
+
+					failed = false
+				} else if data.NumTokens != nil {
+					verbose(">>> input tokens: %d, output tokens: %d, cached tokens: %d", data.NumTokens.Input, data.NumTokens.Output, data.NumTokens.Cached)
+				}
+			},
+			&GenerationOptions{
+				HarmBlockThreshold: ptr(genai.HarmBlockThresholdBlockOnlyHigh),
+				ResponseModalities: []genai.Modality{
+					genai.ModalityText, // FIXME: when not given, error: 'Code: 400, Message: Model does not support the requested response modalities: image, Status: INVALID_ARGUMENT'
+					genai.ModalityImage,
+				},
+			},
+		); err != nil {
+			t.Errorf("image generation with text prompt (streamed) failed: %s", ErrToStr(err))
+		}
+		if failed {
+			t.Errorf("streamed image generation with text prompt failed with no usable result")
+		}
 	}
 
 	// test `GenerateImages`
@@ -1417,107 +1622,123 @@ func TestSpeechGenerations(t *testing.T) {
 
 	prompt := `Say cheerfully: Have a wonderful day!`
 
-	if res, err := gtc.Generate(
+	if contents, err := gtc.PromptsToContents(
 		context.TODO(),
 		[]Prompt{
 			PromptFromText(prompt),
 		},
-		&GenerationOptions{
-			HarmBlockThreshold: ptr(genai.HarmBlockThresholdBlockOnlyHigh),
-			ResponseModalities: []genai.Modality{
-				genai.ModalityAudio,
-			},
-			SpeechConfig: &genai.SpeechConfig{
-				VoiceConfig: &genai.VoiceConfig{
-					PrebuiltVoiceConfig: &genai.PrebuiltVoiceConfig{
-						VoiceName: `Kore`,
+		nil,
+	); err != nil {
+		t.Errorf("failed to convert prompts to contents: %s", err)
+	} else {
+		if res, err := gtc.Generate(
+			context.TODO(),
+			contents,
+			&GenerationOptions{
+				HarmBlockThreshold: ptr(genai.HarmBlockThresholdBlockOnlyHigh),
+				ResponseModalities: []genai.Modality{
+					genai.ModalityAudio,
+				},
+				SpeechConfig: &genai.SpeechConfig{
+					VoiceConfig: &genai.VoiceConfig{
+						PrebuiltVoiceConfig: &genai.PrebuiltVoiceConfig{
+							VoiceName: `Kore`,
+						},
 					},
 				},
 			},
-		},
-	); err != nil {
-		t.Errorf("speech generation with text prompt (non-streamed) failed: %s", ErrToStr(err))
-	} else {
-		if res.PromptFeedback != nil {
-			t.Errorf("speech generation with text prompt (non-streamed) failed with finish reason: %s", res.PromptFeedback.BlockReasonMessage)
-		} else if res.Candidates != nil {
-			for _, cand := range res.Candidates {
-				for _, part := range cand.Content.Parts {
-					if part.InlineData != nil {
-						verbose(">>> iterating response audio: %s (%d bytes)", part.InlineData.MIMEType, len(part.InlineData.Data))
+		); err != nil {
+			t.Errorf("speech generation with text prompt (non-streamed) failed: %s", ErrToStr(err))
+		} else {
+			if res.PromptFeedback != nil {
+				t.Errorf("speech generation with text prompt (non-streamed) failed with finish reason: %s", res.PromptFeedback.BlockReasonMessage)
+			} else if res.Candidates != nil {
+				for _, cand := range res.Candidates {
+					for _, part := range cand.Content.Parts {
+						if part.InlineData != nil {
+							verbose(">>> iterating response audio: %s (%d bytes)", part.InlineData.MIMEType, len(part.InlineData.Data))
+						}
 					}
 				}
+			} else {
+				t.Errorf("speech generation with text prompt failed with no usable result")
 			}
-		} else {
-			t.Errorf("speech generation with text prompt failed with no usable result")
 		}
 	}
 
 	// multi-speaker speech from text-only prompt (iterated)
-	failed := true
 	prompt = `TTS the following conversation between Joe and Jane:
 Joe: How's it going today Jane?
 Jane: Not too bad, how about you?`
-	for it, err := range gtc.GenerateStreamIterated(
+	if contents, err := gtc.PromptsToContents(
 		context.TODO(),
 		[]Prompt{
 			PromptFromText(prompt),
 		},
-		&GenerationOptions{
-			HarmBlockThreshold: ptr(genai.HarmBlockThresholdBlockOnlyHigh),
-			ResponseModalities: []genai.Modality{
-				genai.ModalityAudio,
-			},
-			SpeechConfig: &genai.SpeechConfig{
-				MultiSpeakerVoiceConfig: &genai.MultiSpeakerVoiceConfig{
-					SpeakerVoiceConfigs: []*genai.SpeakerVoiceConfig{
-						{
-							Speaker: "Joe",
-							VoiceConfig: &genai.VoiceConfig{
-								PrebuiltVoiceConfig: &genai.PrebuiltVoiceConfig{
-									VoiceName: "Kore",
+		nil,
+	); err != nil {
+		t.Errorf("failed to convert prompts to contents: %s", err)
+	} else {
+		failed := true
+		for it, err := range gtc.GenerateStreamIterated(
+			context.TODO(),
+			contents,
+			&GenerationOptions{
+				HarmBlockThreshold: ptr(genai.HarmBlockThresholdBlockOnlyHigh),
+				ResponseModalities: []genai.Modality{
+					genai.ModalityAudio,
+				},
+				SpeechConfig: &genai.SpeechConfig{
+					MultiSpeakerVoiceConfig: &genai.MultiSpeakerVoiceConfig{
+						SpeakerVoiceConfigs: []*genai.SpeakerVoiceConfig{
+							{
+								Speaker: "Joe",
+								VoiceConfig: &genai.VoiceConfig{
+									PrebuiltVoiceConfig: &genai.PrebuiltVoiceConfig{
+										VoiceName: "Kore",
+									},
 								},
 							},
-						},
-						{
-							Speaker: "Jane",
-							VoiceConfig: &genai.VoiceConfig{
-								PrebuiltVoiceConfig: &genai.PrebuiltVoiceConfig{
-									VoiceName: "Puck",
+							{
+								Speaker: "Jane",
+								VoiceConfig: &genai.VoiceConfig{
+									PrebuiltVoiceConfig: &genai.PrebuiltVoiceConfig{
+										VoiceName: "Puck",
+									},
 								},
 							},
 						},
 					},
 				},
 			},
-		},
-	) {
-		if err != nil {
-			t.Errorf("speech generation with text prompt (iterated) failed: %s", ErrToStr(err))
-		} else {
-			if it.PromptFeedback != nil {
-				t.Errorf("speech generation with text prompt (iterated) failed with finish reason: %s", it.PromptFeedback.BlockReasonMessage)
-			} else if it.Candidates != nil {
-				for i, cand := range it.Candidates {
-					if cand.Content != nil {
-						for _, part := range cand.Content.Parts {
-							if part.InlineData != nil {
-								verbose(">>> iterating response audio from candidate[%d]: %s (%d bytes)", i, part.InlineData.MIMEType, len(part.InlineData.Data))
+		) {
+			if err != nil {
+				t.Errorf("speech generation with text prompt (iterated) failed: %s", ErrToStr(err))
+			} else {
+				if it.PromptFeedback != nil {
+					t.Errorf("speech generation with text prompt (iterated) failed with finish reason: %s", it.PromptFeedback.BlockReasonMessage)
+				} else if it.Candidates != nil {
+					for i, cand := range it.Candidates {
+						if cand.Content != nil {
+							for _, part := range cand.Content.Parts {
+								if part.InlineData != nil {
+									verbose(">>> iterating response audio from candidate[%d]: %s (%d bytes)", i, part.InlineData.MIMEType, len(part.InlineData.Data))
 
-								failed = false
+									failed = false
+								}
 							}
+						} else if cand.FinishReason != genai.FinishReasonStop {
+							t.Errorf("generation finished unexpectedly with reason: %s", cand.FinishReason)
+						} else {
+							t.Errorf("candidate has no usable content: %+v", cand)
 						}
-					} else if cand.FinishReason != genai.FinishReasonStop {
-						t.Errorf("generation finished unexpectedly with reason: %s", cand.FinishReason)
-					} else {
-						t.Errorf("candidate has no usable content: %+v", cand)
 					}
 				}
 			}
 		}
-	}
-	if failed {
-		t.Errorf("iterated speech generation with text prompt failed with no usable result")
+		if failed {
+			t.Errorf("iterated speech generation with text prompt failed with no usable result")
+		}
 	}
 }
 
@@ -1539,54 +1760,70 @@ func TestGrounding(t *testing.T) {
 	defer func() { _ = gtc.Close() }()
 
 	// text-only prompt (non-streamed)
-	if res, err := gtc.Generate(
+	if contents, err := gtc.PromptsToContents(
 		context.TODO(),
 		[]Prompt{
 			PromptFromText(`Tell me the final ranking of the 2002 World Cup`),
 		},
-		&GenerationOptions{
-			Tools: []*genai.Tool{
-				{
-					GoogleSearch: &genai.GoogleSearch{},
-				},
-			},
-			HarmBlockThreshold: ptr(genai.HarmBlockThresholdBlockOnlyHigh),
-		},
+		nil,
 	); err != nil {
-		t.Errorf("generation with grounding with google search (non-streamed) failed: %s", ErrToStr(err))
+		t.Errorf("failed to convert prompts to contents: %s", err)
 	} else {
-		if res.PromptFeedback != nil {
-			t.Errorf("generation with grounding with google search (non-streamed) failed with finish reason: %s", res.PromptFeedback.BlockReasonMessage)
-		} else if res.Candidates != nil {
-			for _, part := range res.Candidates[0].Content.Parts {
-				if part.Text != "" {
-					verbose(">>> iterating response text: %s", part.Text)
-				}
-			}
+		if res, err := gtc.Generate(
+			context.TODO(),
+			contents,
+			&GenerationOptions{
+				Tools: []*genai.Tool{
+					{
+						GoogleSearch: &genai.GoogleSearch{},
+					},
+				},
+				HarmBlockThreshold: ptr(genai.HarmBlockThresholdBlockOnlyHigh),
+			},
+		); err != nil {
+			t.Errorf("generation with grounding with google search (non-streamed) failed: %s", ErrToStr(err))
 		} else {
-			t.Errorf("generation with grounding with google search failed with no usable result")
+			if res.PromptFeedback != nil {
+				t.Errorf("generation with grounding with google search (non-streamed) failed with finish reason: %s", res.PromptFeedback.BlockReasonMessage)
+			} else if res.Candidates != nil {
+				for _, part := range res.Candidates[0].Content.Parts {
+					if part.Text != "" {
+						verbose(">>> iterating response text: %s", part.Text)
+					}
+				}
+			} else {
+				t.Errorf("generation with grounding with google search failed with no usable result")
+			}
 		}
 	}
 
 	// text-only prompt (iterated)
-	for it, err := range gtc.GenerateStreamIterated(
+	if contents, err := gtc.PromptsToContents(
 		context.TODO(),
 		[]Prompt{
 			PromptFromText(`Tell me about the US govermental coup on 2025`),
 		},
-		&GenerationOptions{
-			Tools: []*genai.Tool{
-				{
-					GoogleSearch: &genai.GoogleSearch{},
+		nil,
+	); err != nil {
+		t.Errorf("failed to convert prompts to contents: %s", err)
+	} else {
+		for it, err := range gtc.GenerateStreamIterated(
+			context.TODO(),
+			contents,
+			&GenerationOptions{
+				Tools: []*genai.Tool{
+					{
+						GoogleSearch: &genai.GoogleSearch{},
+					},
 				},
+				HarmBlockThreshold: ptr(genai.HarmBlockThresholdBlockOnlyHigh),
 			},
-			HarmBlockThreshold: ptr(genai.HarmBlockThresholdBlockOnlyHigh),
-		},
-	) {
-		if err != nil {
-			t.Errorf("generation with grounding with google search failed: %s", ErrToStr(err))
-		} else {
-			verbose(">>> iterating response: %s", prettify(it.Candidates[0]))
+		) {
+			if err != nil {
+				t.Errorf("generation with grounding with google search failed: %s", ErrToStr(err))
+			} else {
+				verbose(">>> iterating response: %s", prettify(it.Candidates[0]))
+			}
 		}
 	}
 }
@@ -1613,17 +1850,26 @@ func TestRecursiveToolCalls(t *testing.T) {
 	ctx, cancel = context.WithTimeout(ctx, 15*time.Second) // FIXME: not to recurse forever
 	defer cancel()
 
-	if res, err := gtc.GenerateWithRecursiveToolCalls(
-		ctx,
-		map[string]FunctionCallHandler{
-			`list_files_info_in_dir`: func(args map[string]any) (string, error) {
-				dir, err := FuncArg[string](args, "directory")
+	if contents, err := gtc.PromptsToContents(
+		context.TODO(),
+		[]Prompt{
+			PromptFromText(`count the number of lines of the largest .sh file in /home/ubuntu/tmp/`),
+		},
+		nil,
+	); err != nil {
+		t.Errorf("failed to convert prompts to contents: %s", err)
+	} else {
+		if res, err := gtc.GenerateWithRecursiveToolCalls(
+			ctx,
+			map[string]FunctionCallHandler{
+				`list_files_info_in_dir`: func(args map[string]any) (string, error) {
+					dir, err := FuncArg[string](args, "directory")
 
-				verbose(">>> directory: %s", *dir)
+					verbose(">>> directory: %s", *dir)
 
-				if err == nil {
-					// FIXME: hard-coded
-					return `total 192
+					if err == nil {
+						// FIXME: hard-coded
+						return `total 192
 drwxrwxr-x  4 ubuntu ubuntu  4096 Jun 16 16:53 ./
 drwxr-xr-x 28 ubuntu ubuntu  4096 Jun 17 15:42 ../
 -rwxrwxr-x  1 ubuntu ubuntu  1256 Jun  1 16:57 categorize_image.sh*
@@ -1631,68 +1877,67 @@ drwxr-xr-x 28 ubuntu ubuntu  4096 Jun 17 15:42 ../
 -rw-r--r--  1 ubuntu ubuntu 66145 Jan 13 17:11 test1.jpg
 -rw-r--r--  1 ubuntu ubuntu 85336 Jan 13 17:11 test2.jpg
 `, nil
-				}
-				return "", fmt.Errorf("failed to get directory: %w", err)
-			},
-			`count_lines`: func(args map[string]any) (string, error) {
-				filepath, err := FuncArg[string](args, "filepath")
+					}
+					return "", fmt.Errorf("failed to get directory: %w", err)
+				},
+				`count_lines`: func(args map[string]any) (string, error) {
+					filepath, err := FuncArg[string](args, "filepath")
 
-				verbose(">>> filepath: %s", *filepath)
+					verbose(">>> filepath: %s", *filepath)
 
-				if err == nil {
-					// FIXME: hard-coded
-					return `55
+					if err == nil {
+						// FIXME: hard-coded
+						return `55
 `, nil
-				}
-				return "", fmt.Errorf("failed to count lines: %w", err)
+					}
+					return "", fmt.Errorf("failed to count lines: %w", err)
+				},
 			},
-		},
-		[]Prompt{
-			PromptFromText(`count the number of lines of the largest .sh file in /home/ubuntu/tmp/`),
-		},
-		&GenerationOptions{
-			Tools: []*genai.Tool{
-				{
-					FunctionDeclarations: []*genai.FunctionDeclaration{
-						{
-							Name:        `list_files_info_in_dir`,
-							Description: `this function lists files' info in the given directory`,
-							Parameters: &genai.Schema{
-								Type: genai.TypeObject,
-								Properties: map[string]*genai.Schema{
-									"directory": {
-										Type:        genai.TypeString,
-										Description: `the absolute path of a directory`,
+			contents,
+			&GenerationOptions{
+				Tools: []*genai.Tool{
+					{
+						FunctionDeclarations: []*genai.FunctionDeclaration{
+							{
+								Name:        `list_files_info_in_dir`,
+								Description: `this function lists files' info in the given directory`,
+								Parameters: &genai.Schema{
+									Type: genai.TypeObject,
+									Properties: map[string]*genai.Schema{
+										"directory": {
+											Type:        genai.TypeString,
+											Description: `the absolute path of a directory`,
+										},
 									},
 								},
 							},
-						},
-						{
-							Name:        `count_lines`,
-							Description: `this function counts the number of lines of given file`,
-							Parameters: &genai.Schema{
-								Type: genai.TypeObject,
-								Properties: map[string]*genai.Schema{
-									"filepath": {
-										Type:        genai.TypeString,
-										Description: `the absolute path of a file`,
+							{
+								Name:        `count_lines`,
+								Description: `this function counts the number of lines of given file`,
+								Parameters: &genai.Schema{
+									Type: genai.TypeObject,
+									Properties: map[string]*genai.Schema{
+										"filepath": {
+											Type:        genai.TypeString,
+											Description: `the absolute path of a file`,
+										},
 									},
 								},
 							},
 						},
 					},
 				},
-			},
-			ToolConfig: &genai.ToolConfig{
-				FunctionCallingConfig: &genai.FunctionCallingConfig{
-					Mode: genai.FunctionCallingConfigModeAuto,
+				ToolConfig: &genai.ToolConfig{
+					FunctionCallingConfig: &genai.FunctionCallingConfig{
+						Mode: genai.FunctionCallingConfigModeAuto,
+					},
 				},
 			},
-		},
-	); err != nil {
-		t.Errorf("failed to generate with recursive tool calls: %s", err)
-	} else {
-		verbose(">>> response: %s", prettify(res))
+		); err != nil {
+			t.Errorf("failed to generate with recursive tool calls: %s", err)
+		} else {
+			verbose(">>> response: %s", prettify(res))
+		}
 	}
 }
 
@@ -1890,44 +2135,52 @@ func TestFileSearch(t *testing.T) {
 		}
 
 		// generate with file search
-		if generated, err := gtc.Generate(context.TODO(), []Prompt{
-			PromptFromText(`how many test cases are there in the 'generation_test.go' file?`),
-		}, &GenerationOptions{
-			Tools: []*genai.Tool{
-				{
-					FileSearch: &genai.FileSearch{
-						FileSearchStoreNames: []string{
-							store.Name,
+		if contents, err := gtc.PromptsToContents(
+			context.TODO(),
+			[]Prompt{
+				PromptFromText(`how many test cases are there in the 'generation_test.go' file?`),
+			},
+			nil,
+		); err != nil {
+			t.Errorf("failed to convert prompts to contents: %s", err)
+		} else {
+			if generated, err := gtc.Generate(context.TODO(), contents, &GenerationOptions{
+				Tools: []*genai.Tool{
+					{
+						FileSearch: &genai.FileSearch{
+							FileSearchStoreNames: []string{
+								store.Name,
+							},
 						},
 					},
 				},
-			},
-		}); err == nil {
-			var promptTokenCount int32 = 0
-			var cachedContentTokenCount int32 = 0
-			if generated.UsageMetadata != nil {
-				if generated.UsageMetadata.PromptTokenCount != 0 {
-					promptTokenCount = generated.UsageMetadata.PromptTokenCount
+			}); err == nil {
+				var promptTokenCount int32 = 0
+				var cachedContentTokenCount int32 = 0
+				if generated.UsageMetadata != nil {
+					if generated.UsageMetadata.PromptTokenCount != 0 {
+						promptTokenCount = generated.UsageMetadata.PromptTokenCount
+					}
+					if generated.UsageMetadata.CachedContentTokenCount != 0 {
+						cachedContentTokenCount = generated.UsageMetadata.CachedContentTokenCount
+					}
 				}
-				if generated.UsageMetadata.CachedContentTokenCount != 0 {
-					cachedContentTokenCount = generated.UsageMetadata.CachedContentTokenCount
-				}
+
+				verbose(">>> input tokens: %d, output tokens: %d, cached tokens: %d (usage metadata)",
+					promptTokenCount,
+					generated.UsageMetadata.TotalTokenCount-promptTokenCount,
+					cachedContentTokenCount,
+				)
+
+				verbose(">>> generated: %s", prettify(generated.Candidates[0]))
+			} else {
+				t.Errorf("generation with file search (non-streamed) failed: %s", ErrToStr(err))
 			}
 
-			verbose(">>> input tokens: %d, output tokens: %d, cached tokens: %d (usage metadata)",
-				promptTokenCount,
-				generated.UsageMetadata.TotalTokenCount-promptTokenCount,
-				cachedContentTokenCount,
-			)
-
-			verbose(">>> generated: %s", prettify(generated.Candidates[0]))
-		} else {
-			t.Errorf("generation with file search (non-streamed) failed: %s", ErrToStr(err))
-		}
-
-		// delete file search store
-		if err := gtc.DeleteFileSearchStore(context.TODO(), store.Name); err != nil {
-			t.Errorf("failed to delete file search store: %s", ErrToStr(err))
+			// delete file search store
+			if err := gtc.DeleteFileSearchStore(context.TODO(), store.Name); err != nil {
+				t.Errorf("failed to delete file search store: %s", ErrToStr(err))
+			}
 		}
 	}
 }

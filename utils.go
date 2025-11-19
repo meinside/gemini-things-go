@@ -428,10 +428,11 @@ func FuncArg[T any](from map[string]any, key string) (*T, error) {
 	return nil, nil // not found
 }
 
-// buildPromptContents is an internal helper function that constructs the `[]*genai.Content` slice
-// required for generation API calls. It processes input prompts (including file uploads via UploadFilesAndWait),
-// and prepends any provided history.
-func (c *Client) buildPromptContents(ctx context.Context, prompts []Prompt, histories []genai.Content) (contents []*genai.Content, err error) {
+// PromptsToContents constructs a `[]*genai.Content` slice with given `prompts` and `histories`.
+func (c *Client) PromptsToContents(
+	ctx context.Context,
+	prompts []Prompt, histories []genai.Content,
+) (contents []*genai.Content, err error) {
 	// Process prompts (uploads files, etc.) and get updated prompts
 	// where FilePrompt.data is populated and BytesPrompt (if uploaded) is converted to FilePrompt.
 	processedPromptsAfterUpload, err := c.UploadFilesAndWait(ctx, prompts)
