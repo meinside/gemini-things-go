@@ -59,9 +59,9 @@ func main() {
 ## Test
 
 ```bash
-$ API_KEY="AIabcdefghijklmnopqrstuvwxyz_ABCDEFG-00000000-00" go test
+$ API_KEY="AIabcdefghijklmnopqrstuvwxyz_ABCDEFG-00000000-00" go test -timeout 0
 
 # for verbose output:
-$ API_KEY="AIabcdefghijklmnopqrstuvwxyz_ABCDEFG-00000000-00" VERBOSE=true go test
+$ API_KEY="AIabcdefghijklmnopqrstuvwxyz_ABCDEFG-00000000-00" VERBOSE=true go test -timeout 0
 ```
 
