@@ -1270,7 +1270,7 @@ func (c *Client) ListFilesInFileSearchStore(
 	ctx context.Context,
 	fileSearchStoreName string,
 ) iter.Seq2[*genai.Document, error] {
-	return c.client.FileSearchStores.Documents.All(fileSearchStoreName, ctx) // FIXME: `ctx` should be ahead of `fileSearchStoreName`...
+	return c.client.FileSearchStores.Documents.All(ctx, fileSearchStoreName)
 }
 
 // DeleteFileInFileSearchStore deletes a file in a file search store.
