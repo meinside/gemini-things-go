@@ -50,7 +50,6 @@ func TestContextCachingFree(t *testing.T) {
 	gtc, err := NewClient(
 		apiKey,
 		WithModel(modelForContextCachingFree),
-		WithTimeoutSeconds(timeoutSecondsForTesting),
 	)
 	if err != nil {
 		t.Fatalf("failed to create client: %s", err)
@@ -81,7 +80,7 @@ func TestContextCachingFree(t *testing.T) {
 		"./utils.go",
 		"./generation_test.go",
 		"./generation_free_test.go",
-		"./generation_billed_test.go",
+		"./generation_paid_test.go",
 		"./utils_test.go",
 	} {
 		if file, err := os.Open(fpath); err == nil {
@@ -102,9 +101,12 @@ func TestContextCachingFree(t *testing.T) {
 		prompts = append(prompts, PromptFromFile(file.Name(), file))
 	}
 
+	ctxCache, cancelCache := ctxWithTimeout()
+	defer cancelCache()
+
 	// cache context,
 	if cachedContextName, err := gtc.CacheContext(
-		context.TODO(),
+		ctxCache,
 		&cachedSystemInstruction,
 		prompts,
 		nil,
@@ -123,8 +125,11 @@ func TestContextCachingFree(t *testing.T) {
 		); err != nil {
 			t.Errorf("failed to convert prompts to contents: %s", err)
 		} else {
+			ctxGenerate, cancelGenerate := ctxWithTimeout()
+			defer cancelGenerate()
+
 			for it, err := range gtc.GenerateStreamIterated(
-				context.TODO(),
+				ctxGenerate,
 				contents,
 				&GenerationOptions{
 					CachedContent: cachedContextName,
@@ -148,8 +153,11 @@ func TestContextCachingFree(t *testing.T) {
 		); err != nil {
 			t.Errorf("failed to convert prompts to contents: %s", err)
 		} else {
+			ctxGenerate, cancelGenerate := ctxWithTimeout()
+			defer cancelGenerate()
+
 			if err := gtc.GenerateStreamed(
-				context.TODO(),
+				ctxGenerate,
 				contents,
 				func(data StreamCallbackData) {
 					if data.TextDelta != nil {
@@ -184,8 +192,11 @@ func TestContextCachingFree(t *testing.T) {
 		); err != nil {
 			t.Errorf("failed to convert prompts to contents: %s", err)
 		} else {
+			ctxGenerate, cancelGenerate := ctxWithTimeout()
+			defer cancelGenerate()
+
 			if generated, err := gtc.Generate(
-				context.TODO(),
+				ctxGenerate,
 				contents,
 				&GenerationOptions{
 					CachedContent: cachedContextName,
@@ -215,8 +226,11 @@ func TestContextCachingFree(t *testing.T) {
 		}
 	}
 
+	ctxList, cancelList := ctxWithTimeout()
+	defer cancelList()
+
 	// list all cached contexts
-	if _, err := gtc.ListAllCachedContexts(context.TODO()); err != nil {
+	if _, err := gtc.ListAllCachedContexts(ctxList); err != nil {
 		t.Errorf("failed to list all cached contexts: %s", ErrToStr(err))
 	}
 
@@ -232,7 +246,6 @@ func TestGenerationFree(t *testing.T) {
 	gtc, err := NewClient(
 		apiKey,
 		WithModel(modelForTextGenerationFree),
-		WithTimeoutSeconds(timeoutSecondsForTesting),
 	)
 	if err != nil {
 		t.Fatalf("failed to create client: %s", err)
@@ -251,8 +264,11 @@ func TestGenerationFree(t *testing.T) {
 	); err != nil {
 		t.Errorf("failed to convert prompts to contents: %s", err)
 	} else {
+		ctxGenerate, cancelGenerate := ctxWithTimeout()
+		defer cancelGenerate()
+
 		if generated, err := gtc.Generate(
-			context.TODO(),
+			ctxGenerate,
 			contents,
 		); err != nil {
 			t.Errorf("generation with text prompt failed: %s", ErrToStr(err))
@@ -265,8 +281,11 @@ func TestGenerationFree(t *testing.T) {
 	if file, err := os.Open("./client.go"); err == nil {
 		defer func() { _ = file.Close() }()
 
+		ctxContents, cancelContents := ctxWithTimeout()
+		defer cancelContents()
+
 		if contents, err := gtc.PromptsToContents(
-			context.TODO(),
+			ctxContents,
 			[]Prompt{
 				PromptFromText(`What's the golang package name of this file? Can you give me a short sample code of using this file?`),
 				PromptFromFile("client.go", file),
@@ -275,8 +294,11 @@ func TestGenerationFree(t *testing.T) {
 		); err != nil {
 			t.Errorf("failed to convert prompts to contents: %s", err)
 		} else {
+			ctxGenerate, cancelGenerate := ctxWithTimeout()
+			defer cancelGenerate()
+
 			if generated, err := gtc.Generate(
-				context.TODO(),
+				ctxGenerate,
 				contents,
 			); err != nil {
 				t.Errorf("generation with text & file prompt failed: %s", ErrToStr(err))
@@ -309,9 +331,12 @@ func TestGenerationFree(t *testing.T) {
 		t.Errorf("failed to open file for generation: %s", err)
 	}
 
+	ctxContents, cancelContents := ctxWithTimeout()
+	defer cancelContents()
+
 	// prompt with specific BytesPrompt (non-streamed) - this will be uploaded
 	if contents, err := gtc.PromptsToContents(
-		context.TODO(),
+		ctxContents,
 		[]Prompt{
 			PromptFromText(`Translate the text in the given file into English.`),
 			PromptFromFile("some lyrics", strings.NewReader(`동해물과 백두산이 마르고 닳도록 하느님이 보우하사 우리나라 만세`)),
@@ -320,8 +345,11 @@ func TestGenerationFree(t *testing.T) {
 	); err != nil {
 		t.Errorf("failed to convert prompts to contents: %s", err)
 	} else {
+		ctxGenerate, cancelGenerate := ctxWithTimeout()
+		defer cancelGenerate()
+
 		if generated, err := gtc.Generate(
-			context.TODO(),
+			ctxGenerate,
 			contents,
 		); err != nil {
 			t.Errorf("generation with text & file prompt failed: %s", ErrToStr(err))
@@ -364,7 +392,6 @@ func TestGenerationIteratedFree(t *testing.T) {
 	gtc, err := NewClient(
 		apiKey,
 		WithModel(modelForTextGenerationFree),
-		WithTimeoutSeconds(timeoutSecondsForTesting),
 	)
 	if err != nil {
 		t.Fatalf("failed to create client: %s", err)
@@ -373,9 +400,12 @@ func TestGenerationIteratedFree(t *testing.T) {
 	gtc.Verbose = _isVerbose
 	defer func() { _ = gtc.Close() }()
 
+	ctxContents, cancelContents := ctxWithTimeout()
+	defer cancelContents()
+
 	// text-only prompt (iterated)
 	if contents, err := gtc.PromptsToContents(
-		context.TODO(),
+		ctxContents,
 		[]Prompt{
 			PromptFromText(`What is the answer to life, the universe, and everything?`),
 		},
@@ -383,8 +413,11 @@ func TestGenerationIteratedFree(t *testing.T) {
 	); err != nil {
 		t.Errorf("failed to convert prompts to contents: %s", err)
 	} else {
+		ctxGenerate, cancelGenerate := ctxWithTimeout()
+		defer cancelGenerate()
+
 		for it, err := range gtc.GenerateStreamIterated(
-			context.TODO(),
+			ctxGenerate,
 			contents,
 		) {
 			if err != nil {
@@ -404,8 +437,11 @@ func TestGenerationIteratedFree(t *testing.T) {
 		// prompt with forced MIME-types
 		promptFromFile := PromptFromFile("client.go", file, "text/plain")
 
+		ctxContents, cancelContents := ctxWithTimeout()
+		defer cancelContents()
+
 		if contents, err := gtc.PromptsToContents(
-			context.TODO(),
+			ctxContents,
 			[]Prompt{
 				promptFromText,
 				promptFromFile,
@@ -414,8 +450,11 @@ func TestGenerationIteratedFree(t *testing.T) {
 		); err != nil {
 			t.Errorf("failed to convert prompts to contents: %s", err)
 		} else {
+			ctxGenerate, cancelGenerate := ctxWithTimeout()
+			defer cancelGenerate()
+
 			for it, err := range gtc.GenerateStreamIterated(
-				context.TODO(),
+				ctxGenerate,
 				contents,
 			) {
 				if err != nil {
@@ -429,9 +468,12 @@ func TestGenerationIteratedFree(t *testing.T) {
 		t.Errorf("failed to open file for iterated generation: %s", err)
 	}
 
+	ctxContents2, cancelContents2 := ctxWithTimeout()
+	defer cancelContents2()
+
 	// prompt with bytes array
 	if contents, err := gtc.PromptsToContents(
-		context.TODO(),
+		ctxContents2,
 		[]Prompt{
 			PromptFromText(`Translate the text in the given file into English.`),
 			PromptFromFile("some lyrics", strings.NewReader(`동해물과 백두산이 마르고 닳도록 하느님이 보우하사 우리나라 만세`)),
@@ -440,8 +482,11 @@ func TestGenerationIteratedFree(t *testing.T) {
 	); err != nil {
 		t.Errorf("failed to convert prompts to contents: %s", err)
 	} else {
+		ctxGenerate, cancelGenerate := ctxWithTimeout()
+		defer cancelGenerate()
+
 		for it, err := range gtc.GenerateStreamIterated(
-			context.TODO(),
+			ctxGenerate,
 			contents,
 		) {
 			if err != nil {
@@ -452,9 +497,12 @@ func TestGenerationIteratedFree(t *testing.T) {
 		}
 	}
 
+	ctxContents3, cancelContents3 := ctxWithTimeout()
+	defer cancelContents3()
+
 	// prompt with youtube URI (iterated)
 	if contents, err := gtc.PromptsToContents(
-		context.TODO(),
+		ctxContents3,
 		[]Prompt{
 			PromptFromText(`Summarize this youtube video.`),
 			PromptFromURI(`https://www.youtube.com/watch?v=I44_zbEwz_w`),
@@ -463,8 +511,11 @@ func TestGenerationIteratedFree(t *testing.T) {
 	); err != nil {
 		t.Errorf("failed to convert prompts to contents: %s", err)
 	} else {
+		ctxGenerate, cancelGenerate := ctxWithTimeout()
+		defer cancelGenerate()
+
 		for it, err := range gtc.GenerateStreamIterated(
-			context.TODO(),
+			ctxGenerate,
 			contents,
 		) {
 			if err != nil {
@@ -487,7 +538,6 @@ func TestGenerationStreamedFree(t *testing.T) {
 	gtc, err := NewClient(
 		apiKey,
 		WithModel(modelForTextGenerationFree),
-		WithTimeoutSeconds(timeoutSecondsForTesting),
 	)
 	if err != nil {
 		t.Fatalf("failed to create client: %s", err)
@@ -506,8 +556,11 @@ func TestGenerationStreamedFree(t *testing.T) {
 	); err != nil {
 		t.Errorf("failed to convert prompts to contents: %s", err)
 	} else {
+		ctxGenerate, cancelGenerate := ctxWithTimeout()
+		defer cancelGenerate()
+
 		if err := gtc.GenerateStreamed(
-			context.TODO(),
+			ctxGenerate,
 			contents,
 			func(data StreamCallbackData) {
 				if data.TextDelta != nil {
@@ -533,8 +586,11 @@ func TestGenerationStreamedFree(t *testing.T) {
 	if file, err := os.Open("./client.go"); err == nil {
 		defer func() { _ = file.Close() }()
 
+		ctxContents, cancelContents := ctxWithTimeout()
+		defer cancelContents()
+
 		if contents, err := gtc.PromptsToContents(
-			context.TODO(),
+			ctxContents,
 			[]Prompt{
 				PromptFromText(`What's the golang package name of this file? Can you give me a short sample code of using this file?`),
 				PromptFromFile("client.go", file),
@@ -543,8 +599,11 @@ func TestGenerationStreamedFree(t *testing.T) {
 		); err != nil {
 			t.Errorf("failed to convert prompts to contents: %s", err)
 		} else {
+			ctxGenerate, cancelGenerate := ctxWithTimeout()
+			defer cancelGenerate()
+
 			if err := gtc.GenerateStreamed(
-				context.TODO(),
+				ctxGenerate,
 				contents,
 				func(data StreamCallbackData) {
 					if data.TextDelta != nil {
@@ -569,9 +628,12 @@ func TestGenerationStreamedFree(t *testing.T) {
 		t.Errorf("failed to open file for streamed generation: %s", err)
 	}
 
+	ctxContents, cancelContents := ctxWithTimeout()
+	defer cancelContents()
+
 	// prompt with bytes array (streamed)
 	if contents, err := gtc.PromptsToContents(
-		context.TODO(),
+		ctxContents,
 		[]Prompt{
 			PromptFromText(`Translate the text in the given file into English.`),
 			PromptFromFile("some lyrics", strings.NewReader(`동해물과 백두산이 마르고 닳도록 하느님이 보우하사 우리나라 만세`)),
@@ -580,8 +642,11 @@ func TestGenerationStreamedFree(t *testing.T) {
 	); err != nil {
 		t.Errorf("failed to convert prompts to contents: %s", err)
 	} else {
+		ctxGenerate, cancelGenerate := ctxWithTimeout()
+		defer cancelGenerate()
+
 		if err := gtc.GenerateStreamed(
-			context.TODO(),
+			ctxGenerate,
 			contents,
 			func(data StreamCallbackData) {
 				if data.TextDelta != nil {
@@ -617,7 +682,6 @@ func TestGenerationWithCustomRetriesFree(t *testing.T) {
 	gtc, err := NewClient(
 		apiKey,
 		WithModel(modelForTextGenerationFree),
-		WithTimeoutSeconds(timeoutSecondsForTesting),
 		WithMaxRetryCount(1),
 	)
 	if err != nil {
@@ -626,9 +690,12 @@ func TestGenerationWithCustomRetriesFree(t *testing.T) {
 	gtc.Verbose = _isVerbose
 	defer func() { _ = gtc.Close() }()
 
+	ctxContents, cancelContents := ctxWithTimeout()
+	defer cancelContents()
+
 	// Attempt a standard text generation
 	if contents, err := gtc.PromptsToContents(
-		context.TODO(),
+		ctxContents,
 		[]Prompt{
 			PromptFromText(`What is the answer to life, the universe, and everything?`),
 		},
@@ -636,8 +703,11 @@ func TestGenerationWithCustomRetriesFree(t *testing.T) {
 	); err != nil {
 		t.Errorf("failed to convert prompts to contents: %s", err)
 	} else {
+		ctxGenerate, cancelGenerate := ctxWithTimeout()
+		defer cancelGenerate()
+
 		if generated, err := gtc.Generate(
-			context.TODO(),
+			ctxGenerate,
 			contents,
 		); err != nil {
 			t.Errorf("generation with custom retry count failed: %s", ErrToStr(err))
@@ -657,7 +727,6 @@ func TestGenerationWithCustomTimeoutFree(t *testing.T) {
 	gtc, err := NewClient(
 		apiKey,
 		WithModel(modelForTextGenerationFree),
-		WithTimeoutSeconds(1),
 	)
 	if err != nil {
 		t.Fatalf("failed to create client: %s", err)
@@ -666,8 +735,8 @@ func TestGenerationWithCustomTimeoutFree(t *testing.T) {
 	defer func() { _ = gtc.Close() }()
 
 	// Create a context that times out very quickly (e.g., 1 millisecond) to ensure it's the dominant timeout.
-	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Millisecond)
-	defer cancel()
+	ctxShort, cancelShort := context.WithTimeout(context.Background(), 1*time.Millisecond)
+	defer cancelShort()
 
 	// Attempt a text generation that should take longer than 1ms
 	var contents []*genai.Content
@@ -681,7 +750,7 @@ func TestGenerationWithCustomTimeoutFree(t *testing.T) {
 		t.Errorf("failed to convert prompts to contents: %s", err)
 	} else {
 		_, err = gtc.Generate(
-			ctx, // Pass the short-lived context
+			ctxShort, // Pass the short-lived context
 			contents,
 		)
 	}
@@ -709,7 +778,6 @@ func TestGenerationWithFileConverterFree(t *testing.T) {
 	gtc, err := NewClient(
 		apiKey,
 		WithModel(modelForTextGenerationFree),
-		WithTimeoutSeconds(timeoutSecondsForTesting),
 	)
 	if err != nil {
 		t.Fatalf("failed to create client: %s", err)
@@ -743,8 +811,11 @@ func TestGenerationWithFileConverterFree(t *testing.T) {
 {"name": "Janet Doe", "age": 42, "gender": "f"}
 {"name": "Jane Doe", "age": 15, "gender": "f"}`
 
+	ctxContents, cancelContents := ctxWithTimeout()
+	defer cancelContents()
+
 	if contents, err := gtc.PromptsToContents(
-		context.TODO(),
+		ctxContents,
 		[]Prompt{
 			PromptFromText(`Infer the relationships between the characters from the given information.`),
 			PromptFromBytes([]byte(jsonlForTest)),
@@ -753,8 +824,11 @@ func TestGenerationWithFileConverterFree(t *testing.T) {
 	); err != nil {
 		t.Errorf("failed to convert prompts to contents: %s", err)
 	} else {
+		ctxGenerate, cancelGenerate := ctxWithTimeout()
+		defer cancelGenerate()
+
 		if generated, err := gtc.Generate(
-			context.TODO(),
+			ctxGenerate,
 			contents,
 			&GenerationOptions{},
 		); err != nil {
@@ -880,7 +954,6 @@ func TestGenerationWithFunctionCallFree(t *testing.T) {
 	gtc, err := NewClient(
 		apiKey,
 		WithModel(modelForTextGenerationFree),
-		WithTimeoutSeconds(timeoutSecondsForTesting),
 	)
 	if err != nil {
 		t.Fatalf("failed to create client: %s", err)
@@ -890,9 +963,12 @@ func TestGenerationWithFunctionCallFree(t *testing.T) {
 
 	const prompt = `Generate an image file which shows a man standing in front of a vast dessert. The man is watching an old pyramid completely destroyed by a giant sandstorm. The mood should be sad and gloomy.`
 
+	ctxContents, cancelContents := ctxWithTimeout()
+	defer cancelContents()
+
 	// prompt with function calls (streamed)
 	if contents, err := gtc.PromptsToContents(
-		context.TODO(),
+		ctxContents,
 		[]Prompt{
 			PromptFromText(prompt),
 		},
@@ -900,8 +976,11 @@ func TestGenerationWithFunctionCallFree(t *testing.T) {
 	); err != nil {
 		t.Errorf("failed to convert prompts to contents: %s", err)
 	} else {
+		ctxGenerate, cancelGenerate := ctxWithTimeout()
+		defer cancelGenerate()
+
 		if err := gtc.GenerateStreamed(
-			context.TODO(),
+			ctxGenerate,
 			contents,
 			func(data StreamCallbackData) {
 				if data.FunctionCall != nil {
@@ -948,16 +1027,19 @@ func TestGenerationWithFunctionCallFree(t *testing.T) {
 								},
 							}
 
+							ctxContents, cancelContents := ctxWithTimeout()
+							defer cancelContents()
+
 							// generate again with a function response
 							if contents, err := gtc.PromptsToContents(
-								context.TODO(),
+								ctxContents,
 								nil,
 								pastGenerations,
 							); err != nil {
 								t.Errorf("failed to convert prompts to contents: %s", err)
 							} else {
 								if err := gtc.GenerateStreamed(
-									context.TODO(),
+									ctxGenerate,
 									contents,
 									func(data StreamCallbackData) {
 										if data.TextDelta != nil {
@@ -1030,7 +1112,6 @@ func TestGenerationWithStructuredOutputFree(t *testing.T) {
 	gtc, err := NewClient(
 		apiKey,
 		WithModel(modelForTextGenerationFree),
-		WithTimeoutSeconds(timeoutSecondsForTesting),
 	)
 	if err != nil {
 		t.Fatalf("failed to create client: %s", err)
@@ -1038,9 +1119,12 @@ func TestGenerationWithStructuredOutputFree(t *testing.T) {
 	gtc.Verbose = _isVerbose
 	defer func() { _ = gtc.Close() }()
 
+	ctxContents, cancelContents := ctxWithTimeout()
+	defer cancelContents()
+
 	// prompt with function calls (non-streamed)
 	if contents, err := gtc.PromptsToContents(
-		context.TODO(),
+		ctxContents,
 		[]Prompt{
 			PromptFromText(prompt),
 		},
@@ -1048,8 +1132,11 @@ func TestGenerationWithStructuredOutputFree(t *testing.T) {
 	); err != nil {
 		t.Errorf("failed to convert prompts to contents: %s", err)
 	} else {
+		ctxGenerate, cancelGenerate := ctxWithTimeout()
+		defer cancelGenerate()
+
 		if generated, err := gtc.Generate(
-			context.TODO(),
+			ctxGenerate,
 			contents,
 			&GenerationOptions{
 				Config: &genai.GenerationConfig{
@@ -1112,7 +1199,6 @@ func TestGenerationWithCodeExecutionFree(t *testing.T) {
 	gtc, err := NewClient(
 		apiKey,
 		WithModel(modelForTextGenerationFree),
-		WithTimeoutSeconds(timeoutSecondsForTesting),
 	)
 	if err != nil {
 		t.Fatalf("failed to create client: %s", err)
@@ -1121,9 +1207,12 @@ func TestGenerationWithCodeExecutionFree(t *testing.T) {
 	gtc.Verbose = _isVerbose
 	defer func() { _ = gtc.Close() }()
 
+	ctxContents, cancelContents := ctxWithTimeout()
+	defer cancelContents()
+
 	// prompt with code execution (non-streamed)
 	if contents, err := gtc.PromptsToContents(
-		context.TODO(),
+		ctxContents,
 		[]Prompt{
 			PromptFromText(`Generate 6 unique random numbers between 1 and 45. Make sure there is no duplicated number, and list the numbers in ascending order.`),
 		},
@@ -1131,8 +1220,11 @@ func TestGenerationWithCodeExecutionFree(t *testing.T) {
 	); err != nil {
 		t.Errorf("failed to convert prompts to contents: %s", err)
 	} else {
+		ctxGenerate, cancelGenerate := ctxWithTimeout()
+		defer cancelGenerate()
+
 		if generated, err := gtc.Generate(
-			context.TODO(),
+			ctxGenerate,
 			contents,
 			&GenerationOptions{
 				Tools: []*genai.Tool{
@@ -1162,9 +1254,12 @@ func TestGenerationWithCodeExecutionFree(t *testing.T) {
 		}
 	}
 
+	ctxContents2, cancelContents2 := ctxWithTimeout()
+	defer cancelContents2()
+
 	// prompt and file with code execution (non-streamed)
 	if contents, err := gtc.PromptsToContents(
-		context.TODO(),
+		ctxContents2,
 		[]Prompt{
 			PromptFromText(`Calculate the total and median of all values in the csv file. Also generate a nice graph from the csv file.`),
 			PromptFromFile("test.csv", strings.NewReader(`year,value\n1981,0\n2021,40\n2024,43\n2025,44`)),
@@ -1173,8 +1268,11 @@ func TestGenerationWithCodeExecutionFree(t *testing.T) {
 	); err != nil {
 		t.Errorf("failed to convert prompts to contents: %s", err)
 	} else {
+		ctxGenerate, cancelGenerate := ctxWithTimeout()
+		defer cancelGenerate()
+
 		if generated, err := gtc.Generate(
-			context.TODO(),
+			ctxGenerate,
 			contents,
 			&GenerationOptions{
 				Tools: []*genai.Tool{
@@ -1216,7 +1314,6 @@ func TestGenerationWithHistoryFree(t *testing.T) {
 	gtc, err := NewClient(
 		apiKey,
 		WithModel(modelForTextGenerationFree),
-		WithTimeoutSeconds(timeoutSecondsForTesting),
 	)
 	if err != nil {
 		t.Fatalf("failed to create client: %s", err)
@@ -1224,9 +1321,12 @@ func TestGenerationWithHistoryFree(t *testing.T) {
 	gtc.Verbose = _isVerbose
 	defer func() { _ = gtc.Close() }()
 
+	ctxContents, cancelContents := ctxWithTimeout()
+	defer cancelContents()
+
 	// text-only prompt with history (streamed)
 	if contents, err := gtc.PromptsToContents(
-		context.TODO(),
+		ctxContents,
 		[]Prompt{
 			PromptFromText(`Isn't that 42?`),
 		},
@@ -1251,8 +1351,11 @@ func TestGenerationWithHistoryFree(t *testing.T) {
 	); err != nil {
 		t.Errorf("failed to convert prompts to contents: %s", err)
 	} else {
+		ctxGenerate, cancelGenerate := ctxWithTimeout()
+		defer cancelGenerate()
+
 		if err := gtc.GenerateStreamed(
-			context.TODO(),
+			ctxGenerate,
 			contents,
 			func(data StreamCallbackData) {
 				if data.TextDelta != nil {
@@ -1301,8 +1404,11 @@ func TestGenerationWithHistoryFree(t *testing.T) {
 	); err != nil {
 		t.Errorf("failed to convert prompts to contents: %s", err)
 	} else {
+		ctxGenerate, cancelGenerate := ctxWithTimeout()
+		defer cancelGenerate()
+
 		if generated, err := gtc.Generate(
-			context.TODO(),
+			ctxGenerate,
 			contents,
 		); err != nil {
 			t.Errorf("generation with text prompt and history failed: %s", ErrToStr(err))
@@ -1342,7 +1448,6 @@ func TestEmbeddingsFree(t *testing.T) {
 	gtc, err := NewClient(
 		apiKey,
 		WithModel(modelForEmbeddingsFree),
-		WithTimeoutSeconds(timeoutSecondsForTesting),
 	)
 	if err != nil {
 		t.Fatalf("failed to create client: %s", err)
@@ -1350,9 +1455,12 @@ func TestEmbeddingsFree(t *testing.T) {
 	gtc.Verbose = _isVerbose
 	defer func() { _ = gtc.Close() }()
 
+	ctxGenerate, cancelGenerate := ctxWithTimeout()
+	defer cancelGenerate()
+
 	// without title (task type: RETRIEVAL_QUERY)
 	if v, err := gtc.GenerateEmbeddings(
-		context.TODO(),
+		ctxGenerate,
 		"",
 		[]*genai.Content{
 			genai.NewContentFromText(`The quick brown fox jumps over the lazy dog.`, RoleUser),
@@ -1366,7 +1474,7 @@ func TestEmbeddingsFree(t *testing.T) {
 
 	// with title (task type: RETRIEVAL_DOCUMENT)
 	if v, err := gtc.GenerateEmbeddings(
-		context.TODO(),
+		ctxGenerate,
 		"A short story",
 		[]*genai.Content{
 			genai.NewContentFromText(`The quick brown fox jumps over the lazy dog.`, RoleUser),
@@ -1388,7 +1496,6 @@ func TestImageGenerationsFree(t *testing.T) {
 	gtc, err := NewClient(
 		apiKey,
 		WithModel(modelForImageGenerationFree),
-		WithTimeoutSeconds(timeoutSecondsForTesting),
 	)
 	if err != nil {
 		t.Fatalf("failed to create client: %s", err)
@@ -1414,8 +1521,11 @@ func TestImageGenerationsFree(t *testing.T) {
 	); err != nil {
 		t.Errorf("failed to convert prompts to contents: %s", err)
 	} else {
+		ctxGenerate, cancelGenerate := ctxWithTimeout()
+		defer cancelGenerate()
+
 		if res, err := gtc.Generate(
-			context.TODO(),
+			ctxGenerate,
 			contents,
 			&GenerationOptions{
 				HarmBlockThreshold: ptr(genai.HarmBlockThresholdBlockOnlyHigh),
@@ -1455,9 +1565,12 @@ func TestImageGenerationsFree(t *testing.T) {
 	); err != nil {
 		t.Errorf("failed to convert prompts to contents: %s", err)
 	} else {
+		ctxGenerate, cancelGenerate := ctxWithTimeout()
+		defer cancelGenerate()
+
 		failed := true
 		for it, err := range gtc.GenerateStreamIterated(
-			context.TODO(),
+			ctxGenerate,
 			contents,
 			&GenerationOptions{
 				HarmBlockThreshold: ptr(genai.HarmBlockThresholdBlockOnlyHigh),
@@ -1502,9 +1615,12 @@ func TestImageGenerationsFree(t *testing.T) {
 	); err != nil {
 		t.Errorf("failed to convert prompts to contents: %s", err)
 	} else {
+		ctxGenerate, cancelGenerate := ctxWithTimeout()
+		defer cancelGenerate()
+
 		failed := true
 		if err := gtc.GenerateStreamed(
-			context.TODO(),
+			ctxGenerate,
 			contents,
 			func(data StreamCallbackData) {
 				if data.Error != nil {
@@ -1540,9 +1656,12 @@ func TestImageGenerationsFree(t *testing.T) {
 		}
 	}
 
+	ctxGenerate, cancelGenerate := ctxWithTimeout()
+	defer cancelGenerate()
+
 	// test `GenerateImages`
 	if res, err := gtc.GenerateImages(
-		context.TODO(),
+		ctxGenerate,
 		prompt,
 	); err != nil {
 		t.Errorf("image generation with `GenerateImages` failed: %s", ErrToStr(err))
@@ -1580,7 +1699,6 @@ func TestSpeechGenerationsFree(t *testing.T) {
 	gtc, err := NewClient(
 		apiKey,
 		WithModel(modelForSpeechGenerationFree),
-		WithTimeoutSeconds(timeoutSecondsForTesting),
 	)
 	if err != nil {
 		t.Fatalf("failed to create client: %s", err)
@@ -1600,8 +1718,11 @@ func TestSpeechGenerationsFree(t *testing.T) {
 	); err != nil {
 		t.Errorf("failed to convert prompts to contents: %s", err)
 	} else {
+		ctxGenerate, cancelGenerate := ctxWithTimeout()
+		defer cancelGenerate()
+
 		if res, err := gtc.Generate(
-			context.TODO(),
+			ctxGenerate,
 			contents,
 			&GenerationOptions{
 				HarmBlockThreshold: ptr(genai.HarmBlockThresholdBlockOnlyHigh),
@@ -1648,9 +1769,12 @@ Jane: Not too bad, how about you?`
 	); err != nil {
 		t.Errorf("failed to convert prompts to contents: %s", err)
 	} else {
+		ctxGenerate, cancelGenerate := ctxWithTimeout()
+		defer cancelGenerate()
+
 		failed := true
 		for it, err := range gtc.GenerateStreamIterated(
-			context.TODO(),
+			ctxGenerate,
 			contents,
 			&GenerationOptions{
 				HarmBlockThreshold: ptr(genai.HarmBlockThresholdBlockOnlyHigh),
@@ -1720,7 +1844,6 @@ func TestGroundingFree(t *testing.T) {
 	gtc, err := NewClient(
 		apiKey,
 		WithModel(modelForTextGenerationWithGroundingFree),
-		WithTimeoutSeconds(timeoutSecondsForTesting),
 	)
 	if err != nil {
 		t.Fatalf("failed to create client: %s", err)
@@ -1738,8 +1861,11 @@ func TestGroundingFree(t *testing.T) {
 	); err != nil {
 		t.Errorf("failed to convert prompts to contents: %s", err)
 	} else {
+		ctxGenerate, cancelGenerate := ctxWithTimeout()
+		defer cancelGenerate()
+
 		if res, err := gtc.Generate(
-			context.TODO(),
+			ctxGenerate,
 			contents,
 			&GenerationOptions{
 				Tools: []*genai.Tool{
@@ -1776,8 +1902,11 @@ func TestGroundingFree(t *testing.T) {
 	); err != nil {
 		t.Errorf("failed to convert prompts to contents: %s", err)
 	} else {
+		ctxGenerate, cancelGenerate := ctxWithTimeout()
+		defer cancelGenerate()
+
 		for it, err := range gtc.GenerateStreamIterated(
-			context.TODO(),
+			ctxGenerate,
 			contents,
 			&GenerationOptions{
 				Tools: []*genai.Tool{
@@ -1806,18 +1935,12 @@ func TestRecursiveToolCallsFree(t *testing.T) {
 	gtc, err := NewClient(
 		apiKey,
 		WithModel(modelForTextGenerationWithRecursiveToolCallsFree),
-		WithTimeoutSeconds(timeoutSecondsForTesting),
 	)
 	if err != nil {
 		t.Fatalf("failed to create client: %s", err)
 	}
 	gtc.Verbose = _isVerbose
 	defer func() { _ = gtc.Close() }()
-
-	ctx := context.TODO()
-	var cancel context.CancelFunc
-	ctx, cancel = context.WithTimeout(ctx, 15*time.Second) // FIXME: not to recurse forever
-	defer cancel()
 
 	if contents, err := gtc.PromptsToContents(
 		context.TODO(),
@@ -1828,8 +1951,11 @@ func TestRecursiveToolCallsFree(t *testing.T) {
 	); err != nil {
 		t.Errorf("failed to convert prompts to contents: %s", err)
 	} else {
+		ctxGenerate, cancelGenerate := context.WithTimeout(context.TODO(), 15*time.Second) // FIXME: not to recurse forever
+		defer cancelGenerate()
+
 		if res, err := gtc.GenerateWithRecursiveToolCalls(
-			ctx,
+			ctxGenerate,
 			map[string]FunctionCallHandler{
 				`list_files_info_in_dir`: func(args map[string]any) (string, error) {
 					dir, err := FuncArg[string](args, "directory")
@@ -1919,7 +2045,6 @@ func TestCountingTokensFree(t *testing.T) {
 	gtc, err := NewClient(
 		apiKey,
 		WithModel(modelForTextGenerationFree),
-		WithTimeoutSeconds(timeoutSecondsForTesting),
 	)
 	if err != nil {
 		t.Fatalf("failed to create client: %s", err)
@@ -1938,8 +2063,11 @@ func TestCountingTokensFree(t *testing.T) {
 		t.Fatalf("failed to read file for counting tokens")
 	}
 
+	ctxToken, cancelToken := ctxWithTimeout()
+	defer cancelToken()
+
 	if res, err := gtc.CountTokens(
-		context.TODO(),
+		ctxToken,
 		[]*genai.Content{
 			genai.NewContentFromText("Analyze this file.", RoleUser),
 			genai.NewContentFromText("Provide a file for analysis.", RoleModel),
@@ -1962,7 +2090,6 @@ func TestFileSearchFree(t *testing.T) {
 	gtc, err := NewClient(
 		apiKey,
 		WithModel(modelForTextGenerationFree),
-		WithTimeoutSeconds(timeoutSecondsForTesting),
 	)
 	if err != nil {
 		t.Fatalf("failed to create client: %s", err)
@@ -1970,16 +2097,25 @@ func TestFileSearchFree(t *testing.T) {
 	gtc.Verbose = _isVerbose
 	defer func() { _ = gtc.Close() }()
 
+	ctxStore, cancelStore := ctxWithTimeout()
+	defer cancelStore()
+
 	// create a file search store
-	if store, err := gtc.CreateFileSearchStore(context.TODO(), "file-search-store-for-test"); err != nil {
+	if store, err := gtc.CreateFileSearchStore(
+		ctxStore,
+		"file-search-store-for-test",
+	); err != nil {
 		t.Errorf("failed to create file search store: %s", err)
 	} else {
 		// upload a file to file search store
 		if file, err := os.Open(`./generation_free_test.go`); err == nil {
 			defer func() { _ = file.Close() }()
 
+			ctxUpload, cancelUpload := ctxWithTimeout()
+			defer cancelUpload()
+
 			if _, err := gtc.UploadFileForSearch(
-				context.TODO(),
+				ctxUpload,
 				store.Name,
 				file,
 				"golang test file for gmn (generation_free_test.go)",
@@ -2004,14 +2140,20 @@ func TestFileSearchFree(t *testing.T) {
 		if file, err := os.Open(`./utils_test.go`); err == nil {
 			defer func() { _ = file.Close() }()
 
+			ctxUpload, cancelUpload := ctxWithTimeout()
+			defer cancelUpload()
+
 			if uploaded, err := gtc.UploadFile(
-				context.TODO(),
+				ctxUpload,
 				file,
 				"golang test file for gmn (utils_test.go)",
 			); err == nil {
+				ctxImport, cancelImport := ctxWithTimeout()
+				defer cancelImport()
+
 				// import to file search store
 				if _, err := gtc.ImportFileForSearch(
-					context.TODO(),
+					ctxImport,
 					store.Name,
 					uploaded.Name,
 					[]*genai.CustomMetadata{
@@ -2034,9 +2176,12 @@ func TestFileSearchFree(t *testing.T) {
 			t.Fatalf("failed to open file: %s", err)
 		}
 
+		ctxList, cancelList := ctxWithTimeout()
+		defer cancelList()
+
 		// list files in a search store
 		for file, err := range gtc.ListFilesInFileSearchStore(
-			context.TODO(),
+			ctxList,
 			store.Name,
 		) {
 			if err != nil {
@@ -2050,8 +2195,11 @@ func TestFileSearchFree(t *testing.T) {
 		if file, err := os.Open(`./utils.go`); err == nil {
 			defer func() { _ = file.Close() }()
 
+			ctxUpload, cancelUpload := ctxWithTimeout()
+			defer cancelUpload()
+
 			if uploaded, err := gtc.UploadFileForSearch(
-				context.TODO(),
+				ctxUpload,
 				store.Name,
 				file,
 				"utils for gmn (utils.go)",
@@ -2066,8 +2214,11 @@ func TestFileSearchFree(t *testing.T) {
 				// gtc.waitForFilesForSearch(context.TODO(), []string{uploaded.Name}) // FIXME: not working yet
 				time.Sleep(10 * time.Second)
 
+				ctxDelete, cancelDelete := ctxWithTimeout()
+				defer cancelDelete()
+
 				if err := gtc.DeleteFileInFileSearchStore(
-					context.TODO(),
+					ctxDelete,
 					uploaded.Response.DocumentName,
 				); err != nil {
 					t.Errorf("failed to delete file in file search store: %s", ErrToStr(err))
@@ -2089,17 +2240,24 @@ func TestFileSearchFree(t *testing.T) {
 		); err != nil {
 			t.Errorf("failed to convert prompts to contents: %s", err)
 		} else {
-			if generated, err := gtc.Generate(context.TODO(), contents, &GenerationOptions{
-				Tools: []*genai.Tool{
-					{
-						FileSearch: &genai.FileSearch{
-							FileSearchStoreNames: []string{
-								store.Name,
+			ctxGenerate, cancelGenerate := ctxWithTimeout()
+			defer cancelGenerate()
+
+			if generated, err := gtc.Generate(
+				ctxGenerate,
+				contents,
+				&GenerationOptions{
+					Tools: []*genai.Tool{
+						{
+							FileSearch: &genai.FileSearch{
+								FileSearchStoreNames: []string{
+									store.Name,
+								},
 							},
 						},
 					},
 				},
-			}); err == nil {
+			); err == nil {
 				var promptTokenCount int32 = 0
 				var cachedContentTokenCount int32 = 0
 				if generated.UsageMetadata != nil {
@@ -2122,8 +2280,14 @@ func TestFileSearchFree(t *testing.T) {
 				t.Errorf("generation with file search (non-streamed) failed: %s", ErrToStr(err))
 			}
 
+			ctxDelete, cancelDelete := ctxWithTimeout()
+			defer cancelDelete()
+
 			// delete file search store
-			if err := gtc.DeleteFileSearchStore(context.TODO(), store.Name); err != nil {
+			if err := gtc.DeleteFileSearchStore(
+				ctxDelete,
+				store.Name,
+			); err != nil {
 				t.Errorf("failed to delete file search store: %s", ErrToStr(err))
 			}
 		}
@@ -2146,7 +2310,6 @@ func TestBatchRequestsFree(t *testing.T) {
 	gtc, err := NewClient(
 		apiKey,
 		WithModel(modelForBatchesFree),
-		WithTimeoutSeconds(timeoutSecondsForTesting),
 	)
 	if err != nil {
 		t.Fatalf("failed to create client: %s", err)
@@ -2155,9 +2318,12 @@ func TestBatchRequestsFree(t *testing.T) {
 	gtc.DeleteFilesOnClose = true
 	defer func() { _ = gtc.Close() }()
 
+	ctxRequest, cancelRequest := ctxWithTimeout()
+	defer cancelRequest()
+
 	// inlined request
 	if batch, err := gtc.RequestBatch(
-		context.TODO(),
+		ctxRequest,
 		&genai.BatchJobSource{
 			InlinedRequests: []*genai.InlinedRequest{
 				{
@@ -2214,24 +2380,33 @@ func TestBatchRequestsFree(t *testing.T) {
 	} else {
 		verbose(">>> batch request: %s", prettify(batch))
 
+		ctxBatch, cancelBatch := ctxWithTimeout()
+		defer cancelBatch()
+
 		if got, err := gtc.Batch(
-			context.TODO(),
+			ctxBatch,
 			batch.Name,
 		); err != nil {
 			t.Errorf("failed to get batch: %s", ErrToStr(err))
 		} else {
 			verbose(">>> batch status: %s", prettify(got.State))
 
+			ctxCancel, cancelCancel := ctxWithTimeout()
+			defer cancelCancel()
+
 			if err := gtc.CancelBatch(
-				context.TODO(),
+				ctxCancel,
 				got.Name,
 			); err != nil {
 				t.Errorf("failed to cancel batch: %s", ErrToStr(err))
 			} else {
 				verbose(">>> batch canceled")
 
+				ctxDelete, cancelDelete := ctxWithTimeout()
+				defer cancelDelete()
+
 				if err := gtc.DeleteBatch(
-					context.TODO(),
+					ctxDelete,
 					got.Name,
 				); err != nil {
 					t.Errorf("failed to delete batch: %s", ErrToStr(err))
@@ -2261,8 +2436,11 @@ func TestBatchRequestsFree(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("failed to marshal jsonl: %s", err)
 	} else {
+		ctxUpload, cancelUpload := ctxWithTimeout()
+		defer cancelUpload()
+
 		if uploaded, err := gtc.UploadFilesAndWait(
-			context.TODO(),
+			ctxUpload,
 			[]Prompt{
 				PromptFromBytes(bytes),
 			},
@@ -2279,8 +2457,11 @@ func TestBatchRequestsFree(t *testing.T) {
 			}
 
 			if filename != "" {
+				ctxRequest, cancelRequest := ctxWithTimeout()
+				defer cancelRequest()
+
 				if batch, err := gtc.RequestBatch(
-					context.TODO(),
+					ctxRequest,
 					&genai.BatchJobSource{
 						// Format:   "jsonl", // FIXME: not supported in gemini?
 						FileName: filename,
@@ -2291,24 +2472,33 @@ func TestBatchRequestsFree(t *testing.T) {
 				} else {
 					verbose(">>> batch request: %s", prettify(batch))
 
+					ctxBatch, cancelBatch := ctxWithTimeout()
+					defer cancelBatch()
+
 					if got, err := gtc.Batch(
-						context.TODO(),
+						ctxBatch,
 						batch.Name,
 					); err != nil {
 						t.Errorf("failed to get batch: %s", ErrToStr(err))
 					} else {
 						verbose(">>> batch status: %s", prettify(got.State))
 
+						ctxCancel, cancelCancel := ctxWithTimeout()
+						defer cancelCancel()
+
 						if err := gtc.CancelBatch(
-							context.TODO(),
+							ctxCancel,
 							got.Name,
 						); err != nil {
 							t.Errorf("failed to cancel batch: %s", ErrToStr(err))
 						} else {
 							verbose(">>> batch canceled")
 
+							ctxDelete, cancelDelete := ctxWithTimeout()
+							defer cancelDelete()
+
 							if err := gtc.DeleteBatch(
-								context.TODO(),
+								ctxDelete,
 								got.Name,
 							); err != nil {
 								t.Errorf("failed to delete batch: %s", ErrToStr(err))
@@ -2324,10 +2514,13 @@ func TestBatchRequestsFree(t *testing.T) {
 		}
 	}
 
+	ctxRequest2, cancelRequest2 := ctxWithTimeout()
+	defer cancelRequest2()
+
 	// embeddings batch request
 	gtc.model = modelForEmbeddingsFree
 	if batch, err := gtc.RequestBatchEmbeddings(
-		context.TODO(),
+		ctxRequest2,
 		&genai.EmbeddingsBatchJobSource{
 			InlinedRequests: &genai.EmbedContentBatch{
 				Contents: []*genai.Content{
@@ -2348,24 +2541,33 @@ func TestBatchRequestsFree(t *testing.T) {
 	} else {
 		verbose(">>> embeddings batch request: %s", prettify(batch))
 
+		ctxBatch, cancelBatch := ctxWithTimeout()
+		defer cancelBatch()
+
 		if got, err := gtc.Batch(
-			context.TODO(),
+			ctxBatch,
 			batch.Name,
 		); err != nil {
 			t.Errorf("failed to get batch: %s", ErrToStr(err))
 		} else {
 			verbose(">>> batch status: %s", prettify(got.State))
 
+			ctxCancel, cancelCancel := ctxWithTimeout()
+			defer cancelCancel()
+
 			if err := gtc.CancelBatch(
-				context.TODO(),
+				ctxCancel,
 				got.Name,
 			); err != nil {
 				t.Errorf("failed to cancel batch: %s", ErrToStr(err))
 			} else {
 				verbose(">>> batch canceled")
 
+				ctxDelete, cancelDelete := ctxWithTimeout()
+				defer cancelDelete()
+
 				if err := gtc.DeleteBatch(
-					context.TODO(),
+					ctxDelete,
 					got.Name,
 				); err != nil {
 					t.Errorf("failed to delete batch: %s", ErrToStr(err))

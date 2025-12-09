@@ -25,6 +25,11 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
+// create context with timeout for testing
+func ctxWithTimeout() (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.Background(), timeoutSecondsForTesting*time.Second)
+}
+
 // sleep between each test case to not be rate limited by the API
 func sleepForNotBeingRateLimited() {
 	verbose(">>> sleeping for a while...")
@@ -58,7 +63,6 @@ func TestListingModelsFree(t *testing.T) {
 	gtc, err := NewClient(
 		apiKey,
 		// WithModel(modelForTextGeneration), // NOTE: `model` is not needed for some tasks (eg. listing models)
-		WithTimeoutSeconds(timeoutSecondsForTesting),
 	)
 	if err != nil {
 		t.Fatalf("failed to create client: %s", err)
@@ -66,7 +70,10 @@ func TestListingModelsFree(t *testing.T) {
 	gtc.Verbose = _isVerbose
 	defer func() { _ = gtc.Close() }()
 
-	if models, err := gtc.ListModels(context.TODO()); err != nil {
+	ctx, cancel := ctxWithTimeout()
+	defer cancel()
+
+	if models, err := gtc.ListModels(ctx); err != nil {
 		t.Errorf("listing models failed: %s", ErrToStr(err))
 	} else {
 		verbose(">>> listed models: %s", prettify(models))

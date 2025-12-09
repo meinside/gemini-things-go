@@ -44,7 +44,6 @@ type Client struct {
 	model                 string                    // model to be used for generation.
 	systemInstructionFunc FnSystemInstruction       // Function that returns the system instruction string.
 	fileConvertFuncs      map[string]FnConvertBytes // Map of MIME types to custom file conversion functions.
-	timeoutSeconds        int                       // timeout in seconds for API calls like Generate, GenerateStreamed.
 	maxRetryCount         uint                      // maximum retry count for retriable API errors (e.g., 5xx).
 
 	DeleteFilesOnClose  bool // If true, automatically deletes all uploaded files when Close is called.
@@ -64,14 +63,6 @@ func WithModel(model string) ClientOption {
 	}
 }
 
-// WithTimeoutSeconds is a ClientOption that sets the default timeout in seconds
-// for API calls that support it (e.g., Generate, GenerateStreamed, GenerateImages).
-func WithTimeoutSeconds(seconds int) ClientOption {
-	return func(c *Client) {
-		c.timeoutSeconds = seconds
-	}
-}
-
 // WithMaxRetryCount is a ClientOption that sets the default maximum retry count
 // for retriable API errors (typically 5xx server errors).
 func WithMaxRetryCount(count uint) ClientOption {
@@ -85,13 +76,13 @@ func WithMaxRetryCount(count uint) ClientOption {
 //
 // Example:
 //
-//	client, err := gt.NewClient("YOUR_API_KEY",
-//	    gt.WithModel("gemini-2.0-flash"),
-//	    gt.WithTimeoutSeconds(60),
-//	    gt.WithMaxRetryCount(5),
+//	client, err := gt.NewClient(
+//		"YOUR_API_KEY",
+//		gt.WithModel("gemini-2.5-flash"),
+//		gt.WithMaxRetryCount(5),
 //	)
 //	if err != nil {
-//	    log.Fatal(err)
+//		log.Fatal(err)
 //	}
 //	defer client.Close()
 func NewClient(apiKey string, opts ...ClientOption) (*Client, error) {
@@ -183,13 +174,6 @@ func (c *Client) SetFileConverter(mimeType string, fn FnConvertBytes) {
 	c.fileConvertFuncs[mimeType] = fn
 }
 
-// SetTimeoutSeconds sets the default timeout in seconds for API calls like Generate,
-// GenerateStreamed, and GenerateImages. This timeout is applied to the context
-// used for these operations.
-func (c *Client) SetTimeoutSeconds(seconds int) {
-	c.timeoutSeconds = seconds
-}
-
 // SetMaxRetryCount sets the default maximum number of retries for retriable API errors
 // (typically 5xx server errors) encountered during operations like Generate.
 func (c *Client) SetMaxRetryCount(count uint) {
@@ -236,6 +220,9 @@ func (c *Client) generateStream(
 //
 // Example:
 //
+//	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+//	defer cancel()
+//
 //	if contents, err := client.PromptsToContents(ctx, []gt.Prompt{gt.PromptFromText("Tell me a story.")}, nil); err == nil {
 //		iter := client.GenerateStreamIterated(ctx, []gt.Prompt{gt.PromptFromText("Tell me a story.")})
 //		for resp, err := range iter {
@@ -262,12 +249,11 @@ func (c *Client) GenerateStreamIterated(
 //
 // A `model` must be set in the Client before calling.
 //
+// This function itself does not implement a timeout. If a timeout is required,
+// it should be managed by passing a context with a deadline (`context.WithTimeout`).
+//
 // The function processes the stream and invokes `fnStreamCallback` for each piece of data received.
 // It typically processes only the first candidate from the response.
-//
-// This method includes a timeout mechanism based on `c.timeoutSeconds`.
-// (configurable via `WithTimeoutSeconds“ or `SetTimeoutSeconds`).
-// If `c.timeoutSeconds` is bigger than 0, timeout will be applied to the passed context `ctx`.
 //
 // Note: For more granular control or to avoid potential hangs with malformed server responses,
 // using GenerateStreamIterated directly is recommended.
@@ -280,13 +266,6 @@ func (c *Client) GenerateStreamed(
 	// check if model is set
 	if c.model == "" {
 		return fmt.Errorf("model is not set for generating stream")
-	}
-
-	// set timeout if configured
-	var cancel context.CancelFunc
-	if c.timeoutSeconds > 0 {
-		ctx, cancel = context.WithTimeout(ctx, time.Duration(c.timeoutSeconds)*time.Second)
-		defer cancel()
 	}
 
 	// number of tokens
@@ -434,9 +413,8 @@ func (c *Client) GenerateStreamed(
 //
 // A `model` must be set in the Client before calling.
 //
-// The function includes a timeout mechanism based on `c.timeoutSeconds`
-// (configurable via `WithTimeoutSeconds“ or `SetTimeoutSeconds`).
-// If `c.timeoutSeconds` is bigger than 0, timeout will be applied to the passed context `ctx`.
+// This function itself does not implement a timeout. If a timeout is required,
+// it should be managed by passing a context with a deadline (`context.WithTimeout`).
 //
 // It also implements a retry mechanism for 5xx server errors, configured by `c.maxRetryCount`
 // (configurable via `WithMaxRetryCount` or `SetMaxRetryCount`).
@@ -448,13 +426,6 @@ func (c *Client) Generate(
 	// check if model is set
 	if c.model == "" {
 		return nil, fmt.Errorf("model is not set for generation")
-	}
-
-	// set timeout if configured
-	var cancel context.CancelFunc
-	if c.timeoutSeconds > 0 {
-		ctx, cancel = context.WithTimeout(ctx, time.Duration(c.timeoutSeconds)*time.Second)
-		defer cancel()
 	}
 
 	// generation options
@@ -547,9 +518,8 @@ type ImageGenerationOptions struct {
 //
 // A `model` (specifically an image generation model) must be set in the Client before calling.
 //
-// This method includes a timeout mechanism based on `c.timeoutSeconds`.
-// (configurable via `WithTimeoutSeconds“ or `SetTimeoutSeconds`).
-// If `c.timeoutSeconds` is bigger than 0, timeout will be applied to the passed context `ctx`.
+// This function itself does not implement a timeout. If a timeout is required,
+// it should be managed by passing a context with a deadline (`context.WithTimeout`).
 func (c *Client) GenerateImages(
 	ctx context.Context,
 	prompt string, // The text prompt describing the images to generate.
@@ -558,13 +528,6 @@ func (c *Client) GenerateImages(
 	// check if model is set
 	if c.model == "" {
 		return nil, fmt.Errorf("model is not set for generating images")
-	}
-
-	// set timeout if configured
-	var cancel context.CancelFunc
-	if c.timeoutSeconds > 0 {
-		ctx, cancel = context.WithTimeout(ctx, time.Duration(c.timeoutSeconds)*time.Second)
-		defer cancel()
 	}
 
 	// generation options
