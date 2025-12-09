@@ -14,6 +14,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"time"
 
 	gt "github.com/meinside/gemini-things-go"
 )
@@ -21,28 +22,37 @@ import (
 const (
 	apiKey = `AIabcdefghijklmnopqrstuvwxyz_ABCDEFG-00000000-00` // Your API key here
 	model  = "gemini-2.5-flash"
+
+	contentsBuildupTimeoutSeconds = 60
+	generationTimeoutSeconds      = 30
 )
 
 func main() {
 	if client, err := gt.NewClient(
 		apiKey,
-		gt.WithModel(model),       // Specify the model
-		gt.WithTimeoutSeconds(60), // Set a 60-second timeout for operations
-		gt.WithMaxRetryCount(5),   // Configure a maximum of 5 retries on 5xx server errors
+		gt.WithModel(model),     // Specify the model
+		gt.WithMaxRetryCount(5), // Configure a maximum of 5 retries on 5xx server errors
 	); err == nil {
+		ctxContents, cancelContents := context.WithTimeout(context.TODO(), contentsBuildupTimeoutSeconds*time.Second)
+		defer cancelContents()
+
 		// convert prompts and histories to contents for generation
 		if contents, err := client.PromptsToContents(
-			context.TODO(),
+			ctxContents,
 			[]gt.Prompt{
 				gt.PromptFromText(`What is the answer to life, the universe, and everything?`),
 			},
 			nil,
 		); err == nil {
+			ctxGenerate, cancelGenerate := context.WithTimeout(context.TODO(), generationTimeoutSeconds*time.Second)
+			defer cancelGenerate()
+
+			// generate with contents
 			if res, err := client.Generate(
-				context.TODO(),
+				ctxGenerate,
 				contents,
 			); err == nil {
-				// do something with `client`
+				// do something with the generated response
 				fmt.Printf("response: %+v\n", res)
 			} else {
 				panic(fmt.Errorf("failed to generate: %w", err))
