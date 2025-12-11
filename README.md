@@ -73,5 +73,11 @@ $ API_KEY="AIabcdefghijklmnopqrstuvwxyz_ABCDEFG-00000000-00" go test -timeout 0
 
 # for verbose output:
 $ API_KEY="AIabcdefghijklmnopqrstuvwxyz_ABCDEFG-00000000-00" VERBOSE=true go test -timeout 0
+
+# for testing free APIs only
+$ API_KEY="AIabcdefghijklmnopqrstuvwxyz_ABCDEFG-00000000-00" go test -run="Free"
+
+# for testing paid APIs only
+$ API_KEY="AIabcdefghijklmnopqrstuvwxyz_ABCDEFG-00000000-00" go test -run="Paid"
 ```
 
