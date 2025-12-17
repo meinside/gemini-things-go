@@ -13,6 +13,7 @@ import (
 	"log"
 	"time"
 
+	"cloud.google.com/go/auth"
 	"github.com/gabriel-vasile/mimetype"
 	"google.golang.org/genai"
 )
@@ -38,7 +39,6 @@ Respond to the user according to the following principles:
 // Client provides methods for interacting with the Google Generative AI API.
 // It encapsulates a genai.Client and adds higher-level functionalities.
 type Client struct {
-	apiKey string        // API key for authentication.
 	client *genai.Client // Underlying Google Generative AI client.
 
 	model                 string                    // model to be used for generation.
@@ -71,7 +71,8 @@ func WithMaxRetryCount(count uint) ClientOption {
 	}
 }
 
-// NewClient creates and returns a new Client instance.
+// NewClient creates and returns a new Client instance which uses Gemini API.
+//
 // It requires an API key and accepts optional ClientOption functions to customize the client.
 //
 // Example:
@@ -79,7 +80,7 @@ func WithMaxRetryCount(count uint) ClientOption {
 //	client, err := gt.NewClient(
 //		"YOUR_API_KEY",
 //		gt.WithModel("gemini-2.5-flash"),
-//		gt.WithMaxRetryCount(5),
+//		gt.WithMaxRetryCount(3),
 //	)
 //	if err != nil {
 //		log.Fatal(err)
@@ -99,7 +100,76 @@ func NewClient(apiKey string, opts ...ClientOption) (*Client, error) {
 	}
 
 	c := &Client{
-		apiKey: apiKey,
+		client: client,
+		systemInstructionFunc: func() string {
+			return defaultSystemInstruction
+		},
+		fileConvertFuncs:    make(map[string]FnConvertBytes),
+		maxRetryCount:       defaultMaxRetryCount,
+		DeleteFilesOnClose:  false,
+		DeleteCachesOnClose: false,
+		Verbose:             false,
+	}
+
+	for _, opt := range opts {
+		opt(c)
+	}
+
+	return c, nil
+}
+
+// NewVertextClient creates and returns a new Client instance which uses Vertex AI API.
+//
+// It requires a project ID, location, and credentials and accepts optional ClientOption functions to customize the client.
+//
+// Example:
+//
+//	if credentials, err := credentials.NewCredentialsFromJSON(
+//	  credentials.ServiceAccount,
+//	  jsonBytes,
+//	  &credentials.DetectOptions{
+//	    Scopes: []string{"https://www.googleapis.com/auth/cloud-platform"},
+//	  },
+//	); err == nil {
+//	  client, err := gt.NewVertextClient(
+//	    "YOUR_PROJECT_ID",
+//	    "global",
+//	    credentials,
+//	    gt.WithModel("gemini-2.5-flash"),
+//	    gt.WithMaxRetryCount(3),
+//	  )
+//	  if err != nil {
+//	    log.Fatal(err)
+//	  }
+//	  defer client.Close()
+//	} else {
+//	  log.Fatal(err)
+//	}
+func NewVertextClient(
+	projectID string,
+	location string,
+	credentials *auth.Credentials,
+	opts ...ClientOption,
+) (*Client, error) {
+	var err error
+
+	// genai client
+	var client *genai.Client
+	client, err = genai.NewClient(
+		context.TODO(),
+		&genai.ClientConfig{
+			Backend:     genai.BackendVertexAI,
+			Project:     projectID,
+			Location:    location,
+			Credentials: credentials,
+			// HTTPOptions: genai.HTTPOptions{APIVersion: "v1"},
+		},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create genai client: %w", err)
+	}
+
+	c := &Client{
 		client: client,
 		systemInstructionFunc: func() string {
 			return defaultSystemInstruction
