@@ -143,45 +143,6 @@ func TestContextCachingFree(t *testing.T) {
 			}
 		}
 
-		// generate streamed response with the cached context
-		if contents, err := gtc.PromptsToContents(
-			context.TODO(),
-			[]Prompt{
-				PromptFromText("Can you give me any insight about these files?"),
-			},
-			nil,
-		); err != nil {
-			t.Errorf("failed to convert prompts to contents: %s", err)
-		} else {
-			ctxGenerate, cancelGenerate := ctxWithTimeout()
-			defer cancelGenerate()
-
-			if err := gtc.GenerateStreamed(
-				ctxGenerate,
-				contents,
-				func(data StreamCallbackData) {
-					if data.TextDelta != nil {
-						if _isVerbose {
-							fmt.Print(*data.TextDelta) // print text stream
-						}
-					} else if data.NumTokens != nil {
-						verbose(">>> input tokens: %d, output tokens: %d, cached tokens: %d", data.NumTokens.Input, data.NumTokens.Output, data.NumTokens.Cached)
-					} else if data.FinishReason != nil {
-						if *data.FinishReason != genai.FinishReasonStop {
-							t.Errorf("generation finished unexpectedly with reason: %s", *data.FinishReason)
-						}
-					} else if data.Error != nil {
-						t.Errorf("error while processing generation with cached context: %s", data.Error)
-					}
-				},
-				&GenerationOptions{
-					CachedContent: cachedContextName,
-				},
-			); err != nil {
-				t.Errorf("generation with cached context (streamed) failed: %s", ErrToStr(err))
-			}
-		}
-
 		// generate with the cached context
 		if contents, err := gtc.PromptsToContents(
 			context.TODO(),
@@ -529,148 +490,6 @@ func TestGenerationIteratedFree(t *testing.T) {
 	// NOTE: files will be deleted on close
 }
 
-// TestGenerationStreamedFree tests various types of generations (streamed, free).
-func TestGenerationStreamedFree(t *testing.T) {
-	sleepForNotBeingRateLimited()
-
-	apiKey := mustHaveEnvVar(t, "API_KEY")
-
-	gtc, err := NewClient(
-		apiKey,
-		WithModel(modelForTextGenerationFree),
-	)
-	if err != nil {
-		t.Fatalf("failed to create client: %s", err)
-	}
-	gtc.DeleteFilesOnClose = true
-	gtc.Verbose = _isVerbose
-	defer func() { _ = gtc.Close() }()
-
-	// text-only prompt (streamed)
-	if contents, err := gtc.PromptsToContents(
-		context.TODO(),
-		[]Prompt{
-			PromptFromText(`What is the answer to life, the universe, and everything?`),
-		},
-		nil,
-	); err != nil {
-		t.Errorf("failed to convert prompts to contents: %s", err)
-	} else {
-		ctxGenerate, cancelGenerate := ctxWithTimeout()
-		defer cancelGenerate()
-
-		if err := gtc.GenerateStreamed(
-			ctxGenerate,
-			contents,
-			func(data StreamCallbackData) {
-				if data.TextDelta != nil {
-					if _isVerbose {
-						fmt.Print(*data.TextDelta) // print text stream
-					}
-				} else if data.NumTokens != nil {
-					verbose(">>> input tokens: %d, output tokens: %d, cached tokens: %d", data.NumTokens.Input, data.NumTokens.Output, data.NumTokens.Cached)
-				} else if data.FinishReason != nil {
-					if *data.FinishReason != genai.FinishReasonStop {
-						t.Errorf("generation finished unexpectedly with reason: %s", *data.FinishReason)
-					}
-				} else if data.Error != nil {
-					t.Errorf("error while processing text generation: %s", data.Error)
-				}
-			},
-		); err != nil {
-			t.Errorf("generation with text prompt failed: %s", ErrToStr(err))
-		}
-	}
-
-	// prompt with files (streamed)
-	if file, err := os.Open("./client.go"); err == nil {
-		defer func() { _ = file.Close() }()
-
-		ctxContents, cancelContents := ctxWithTimeout()
-		defer cancelContents()
-
-		if contents, err := gtc.PromptsToContents(
-			ctxContents,
-			[]Prompt{
-				PromptFromText(`What's the golang package name of this file? Can you give me a short sample code of using this file?`),
-				PromptFromFile("client.go", file),
-			},
-			nil,
-		); err != nil {
-			t.Errorf("failed to convert prompts to contents: %s", err)
-		} else {
-			ctxGenerate, cancelGenerate := ctxWithTimeout()
-			defer cancelGenerate()
-
-			if err := gtc.GenerateStreamed(
-				ctxGenerate,
-				contents,
-				func(data StreamCallbackData) {
-					if data.TextDelta != nil {
-						if _isVerbose {
-							fmt.Print(*data.TextDelta) // print text stream
-						}
-					} else if data.NumTokens != nil {
-						verbose(">>> input tokens: %d, output tokens: %d, cached tokens: %d", data.NumTokens.Input, data.NumTokens.Output, data.NumTokens.Cached)
-					} else if data.FinishReason != nil {
-						if *data.FinishReason != genai.FinishReasonStop {
-							t.Errorf("generation finished unexpectedly with reason: %s", *data.FinishReason)
-						}
-					} else if data.Error != nil {
-						t.Errorf("error while processing generation with files: %s", data.Error)
-					}
-				},
-			); err != nil {
-				t.Errorf("generation with text & file prompt failed: %s", ErrToStr(err))
-			}
-		}
-	} else {
-		t.Errorf("failed to open file for streamed generation: %s", err)
-	}
-
-	ctxContents, cancelContents := ctxWithTimeout()
-	defer cancelContents()
-
-	// prompt with bytes array (streamed)
-	if contents, err := gtc.PromptsToContents(
-		ctxContents,
-		[]Prompt{
-			PromptFromText(`Translate the text in the given file into English.`),
-			PromptFromFile("some lyrics", strings.NewReader(`동해물과 백두산이 마르고 닳도록 하느님이 보우하사 우리나라 만세`)),
-		},
-		nil,
-	); err != nil {
-		t.Errorf("failed to convert prompts to contents: %s", err)
-	} else {
-		ctxGenerate, cancelGenerate := ctxWithTimeout()
-		defer cancelGenerate()
-
-		if err := gtc.GenerateStreamed(
-			ctxGenerate,
-			contents,
-			func(data StreamCallbackData) {
-				if data.TextDelta != nil {
-					if _isVerbose {
-						fmt.Print(*data.TextDelta) // print text stream
-					}
-				} else if data.NumTokens != nil {
-					verbose(">>> input tokens: %d, output tokens: %d, cached tokens: %d", data.NumTokens.Input, data.NumTokens.Output, data.NumTokens.Cached)
-				} else if data.FinishReason != nil {
-					if *data.FinishReason != genai.FinishReasonStop {
-						t.Errorf("generation finished unexpectedly with reason: %s", *data.FinishReason)
-					}
-				} else if data.Error != nil {
-					t.Errorf("error while processing generation with bytes (streamed): %s", data.Error)
-				}
-			},
-		); err != nil {
-			t.Errorf("generation with text & bytes prompt (streamed) failed: %s", ErrToStr(err))
-		}
-	}
-
-	// NOTE: files will be deleted on close
-}
-
 // TestGenerationWithCustomRetriesFree tests generation with a custom retry count. (free)
 func TestGenerationWithCustomRetriesFree(t *testing.T) {
 	sleepForNotBeingRateLimited()
@@ -966,7 +785,7 @@ func TestGenerationWithFunctionCallFree(t *testing.T) {
 	ctxContents, cancelContents := ctxWithTimeout()
 	defer cancelContents()
 
-	// prompt with function calls (streamed)
+	// prompt with function calls (stream iterated)
 	if contents, err := gtc.PromptsToContents(
 		ctxContents,
 		[]Prompt{
@@ -979,100 +798,9 @@ func TestGenerationWithFunctionCallFree(t *testing.T) {
 		ctxGenerate, cancelGenerate := ctxWithTimeout()
 		defer cancelGenerate()
 
-		if err := gtc.GenerateStreamed(
+		for it, err := range gtc.GenerateStreamIterated(
 			ctxGenerate,
 			contents,
-			func(data StreamCallbackData) {
-				if data.FunctionCall != nil {
-					if data.FunctionCall.Name == fnNameExtractPrompts {
-						positivePrompt, _ := FuncArg[string](data.FunctionCall.Args, fnParamNamePositivePrompt)
-						negativePrompt, _ := FuncArg[string](data.FunctionCall.Args, fnParamNameNegativePrompt)
-
-						if positivePrompt != nil {
-							verbose(">>> positive prompt: %s", *positivePrompt)
-
-							if negativePrompt != nil {
-								verbose(">>> negative prompt: %s", *negativePrompt)
-							}
-
-							pastGenerations := []genai.Content{
-								{
-									Parts: []*genai.Part{
-										genai.NewPartFromText(prompt),
-									},
-									Role: string(RoleUser),
-								},
-								{
-									Parts: []*genai.Part{
-										genai.NewPartFromFunctionCall(data.FunctionCall.Name, map[string]any{
-											fnParamNamePositivePrompt: positivePrompt,
-											fnParamNameNegativePrompt: negativePrompt,
-										}),
-									},
-									Role: string(RoleModel),
-								},
-								{
-									Parts: []*genai.Part{
-										// NOTE:
-										// run your own function with the parameters returned from function call,
-										// then send a function response built with the result of your function.
-										genai.NewPartFromFunctionResponse(fnNameImageGenerationFinished, map[string]any{
-											fnParamNameGeneratedSuccessfully: true,
-											fnParamNameGeneratedSize:         424242,
-											fnParamNameGeneratedResolution:   "800x800",
-											fnParamNameGeneratedFilepath:     `/home/marvin/generated.jpg`,
-										}),
-									},
-									Role: string(RoleUser),
-								},
-							}
-
-							ctxContents, cancelContents := ctxWithTimeout()
-							defer cancelContents()
-
-							// generate again with a function response
-							if contents, err := gtc.PromptsToContents(
-								ctxContents,
-								nil,
-								pastGenerations,
-							); err != nil {
-								t.Errorf("failed to convert prompts to contents: %s", err)
-							} else {
-								if err := gtc.GenerateStreamed(
-									ctxGenerate,
-									contents,
-									func(data StreamCallbackData) {
-										if data.TextDelta != nil {
-											verbose(">>> generated from function response: %s", *data.TextDelta)
-										}
-									},
-									&GenerationOptions{
-										Tools: []*genai.Tool{
-											{
-												FunctionDeclarations: fnDeclarations,
-											},
-										},
-									},
-								); err != nil {
-									t.Errorf("failed to generate with function response: %s", ErrToStr(err))
-								}
-							}
-						} else {
-							t.Errorf("failed to parse function args (%s)", prettify(data.FunctionCall.Args))
-						}
-					} else {
-						t.Errorf("function name does not match '%s': %s", fnNameExtractPrompts, prettify(data.FunctionCall))
-					}
-				} else if data.NumTokens != nil {
-					verbose(">>> input tokens: %d, output tokens: %d, cached tokens: %d", data.NumTokens.Input, data.NumTokens.Output, data.NumTokens.Cached)
-				} else if data.Error != nil {
-					t.Errorf("generation with function calls failed: %s", data.Error)
-				} else {
-					if data.FinishReason == nil {
-						t.Fatalf("should not reach here; data: %s", prettify(data))
-					}
-				}
-			},
 			&GenerationOptions{
 				Tools: []*genai.Tool{
 					{
@@ -1088,8 +816,101 @@ func TestGenerationWithFunctionCallFree(t *testing.T) {
 					},
 				},
 			},
-		); err != nil {
-			t.Errorf("generation with function calls failed: %s", ErrToStr(err))
+		) {
+			if err != nil {
+				t.Errorf("generation with function calls failed: %s", ErrToStr(err))
+			} else {
+				for _, candidate := range it.Candidates {
+					for _, part := range candidate.Content.Parts {
+						if part.FunctionCall != nil {
+							if part.FunctionCall.Name == fnNameExtractPrompts {
+								positivePrompt, _ := FuncArg[string](part.FunctionCall.Args, fnParamNamePositivePrompt)
+								negativePrompt, _ := FuncArg[string](part.FunctionCall.Args, fnParamNameNegativePrompt)
+
+								if positivePrompt != nil {
+									verbose(">>> positive prompt: %s", *positivePrompt)
+
+									if negativePrompt != nil {
+										verbose(">>> negative prompt: %s", *negativePrompt)
+									}
+
+									pastGenerations := []genai.Content{
+										{
+											Parts: []*genai.Part{
+												genai.NewPartFromText(prompt),
+											},
+											Role: string(RoleUser),
+										},
+										{
+											Parts: []*genai.Part{
+												genai.NewPartFromFunctionCall(part.FunctionCall.Name, map[string]any{
+													fnParamNamePositivePrompt: positivePrompt,
+													fnParamNameNegativePrompt: negativePrompt,
+												}),
+											},
+											Role: string(RoleModel),
+										},
+										{
+											Parts: []*genai.Part{
+												// NOTE:
+												// run your own function with the parameters returned from function call,
+												// then send a function response built with the result of your function.
+												genai.NewPartFromFunctionResponse(fnNameImageGenerationFinished, map[string]any{
+													fnParamNameGeneratedSuccessfully: true,
+													fnParamNameGeneratedSize:         424242,
+													fnParamNameGeneratedResolution:   "800x800",
+													fnParamNameGeneratedFilepath:     `/home/marvin/generated.jpg`,
+												}),
+											},
+											Role: string(RoleUser),
+										},
+									}
+
+									ctxContents, cancelContents := ctxWithTimeout()
+									defer cancelContents()
+
+									// generate again with a function response
+									if contents, err := gtc.PromptsToContents(
+										ctxContents,
+										nil,
+										pastGenerations,
+									); err != nil {
+										t.Errorf("failed to convert prompts to contents: %s", err)
+									} else {
+										for it, err := range gtc.GenerateStreamIterated(
+											ctxGenerate,
+											contents,
+											&GenerationOptions{
+												Tools: []*genai.Tool{
+													{
+														FunctionDeclarations: fnDeclarations,
+													},
+												},
+											},
+										) {
+											if err != nil {
+												t.Errorf("failed to generate with function response: %s", ErrToStr(err))
+											} else {
+												for _, candidate := range it.Candidates {
+													for _, part := range candidate.Content.Parts {
+														if part.Text != "" {
+															verbose(">>> generated from function response: %s", part.Text)
+														}
+													}
+												}
+											}
+										}
+									}
+								} else {
+									t.Errorf("failed to parse function args (%s)", prettify(part.FunctionCall.Args))
+								}
+							} else {
+								t.Errorf("function name does not match '%s': %s", fnNameExtractPrompts, prettify(part.FunctionCall))
+							}
+						}
+					}
+				}
+			}
 		}
 	}
 }
@@ -1324,7 +1145,7 @@ func TestGenerationWithHistoryFree(t *testing.T) {
 	ctxContents, cancelContents := ctxWithTimeout()
 	defer cancelContents()
 
-	// text-only prompt with history (streamed)
+	// text-only prompt with history (streame iterated)
 	if contents, err := gtc.PromptsToContents(
 		ctxContents,
 		[]Prompt{
@@ -1354,26 +1175,27 @@ func TestGenerationWithHistoryFree(t *testing.T) {
 		ctxGenerate, cancelGenerate := ctxWithTimeout()
 		defer cancelGenerate()
 
-		if err := gtc.GenerateStreamed(
+		for it, err := range gtc.GenerateStreamIterated(
 			ctxGenerate,
 			contents,
-			func(data StreamCallbackData) {
-				if data.TextDelta != nil {
-					if _isVerbose {
-						fmt.Print(*data.TextDelta) // print text stream
+		) {
+			if err != nil {
+				t.Errorf("generation with text prompt and history failed: %s", ErrToStr(err))
+			} else {
+				for _, candidate := range it.Candidates {
+					if candidate.Content != nil {
+						for _, part := range candidate.Content.Parts {
+							if len(part.Text) > 0 {
+								fmt.Print(part.Text) // print text stream
+							}
+						}
+					} else if candidate.FinishReason != genai.FinishReasonStop {
+						t.Errorf("generation finished unexpectedly with reason: %s", candidate.FinishReason)
+					} else {
+						t.Errorf("candidate has no usable content: %+v", candidate)
 					}
-				} else if data.NumTokens != nil {
-					verbose(">>> input tokens: %d, output tokens: %d, cached tokens: %d", data.NumTokens.Input, data.NumTokens.Output, data.NumTokens.Cached)
-				} else if data.FinishReason != nil {
-					if *data.FinishReason != genai.FinishReasonStop {
-						t.Errorf("generation finished unexpectedly with reason: %s", *data.FinishReason)
-					}
-				} else if data.Error != nil {
-					t.Errorf("error while processing text generation: %s", data.Error)
 				}
-			},
-		); err != nil {
-			t.Errorf("generation with text prompt and history failed: %s", ErrToStr(err))
+			}
 		}
 	}
 
@@ -1605,57 +1427,6 @@ func TestImageGenerationsFree(t *testing.T) {
 		}
 	}
 
-	// text-only prompt (streamed)
-	if contents, err := gtc.PromptsToContents(
-		context.TODO(),
-		[]Prompt{
-			PromptFromText(prompt),
-		},
-		nil,
-	); err != nil {
-		t.Errorf("failed to convert prompts to contents: %s", err)
-	} else {
-		ctxGenerate, cancelGenerate := ctxWithTimeout()
-		defer cancelGenerate()
-
-		failed := true
-		if err := gtc.GenerateStreamed(
-			ctxGenerate,
-			contents,
-			func(data StreamCallbackData) {
-				if data.Error != nil {
-					t.Errorf("error while processing image generation with text prompt (streamed): %s", data.Error)
-				} else if data.FinishReason != nil {
-					if *data.FinishReason != genai.FinishReasonStop {
-						t.Errorf("image generation with text prompt (streamed) failed with finish reason: %s", *data.FinishReason)
-					}
-				} else if data.TextDelta != nil {
-					if _isVerbose {
-						fmt.Print(*data.TextDelta) // print text stream
-					}
-				} else if data.InlineData != nil {
-					verbose(">>> response image: %s (%d bytes)", data.InlineData.MIMEType, len(data.InlineData.Data))
-
-					failed = false
-				} else if data.NumTokens != nil {
-					verbose(">>> input tokens: %d, output tokens: %d, cached tokens: %d", data.NumTokens.Input, data.NumTokens.Output, data.NumTokens.Cached)
-				}
-			},
-			&GenerationOptions{
-				HarmBlockThreshold: ptr(genai.HarmBlockThresholdBlockOnlyHigh),
-				ResponseModalities: []genai.Modality{
-					genai.ModalityText, // FIXME: when not given, error: 'Code: 400, Message: Model does not support the requested response modalities: image, Status: INVALID_ARGUMENT'
-					genai.ModalityImage,
-				},
-			},
-		); err != nil {
-			t.Errorf("image generation with text prompt (streamed) failed: %s", ErrToStr(err))
-		}
-		if failed {
-			t.Errorf("streamed image generation with text prompt failed with no usable result")
-		}
-	}
-
 	ctxGenerate, cancelGenerate := ctxWithTimeout()
 	defer cancelGenerate()
 
@@ -1811,19 +1582,19 @@ Jane: Not too bad, how about you?`
 				if it.PromptFeedback != nil {
 					t.Errorf("speech generation with text prompt (iterated) failed with finish reason: %s", it.PromptFeedback.BlockReasonMessage)
 				} else if it.Candidates != nil {
-					for i, cand := range it.Candidates {
-						if cand.Content != nil {
-							for _, part := range cand.Content.Parts {
+					for i, candidate := range it.Candidates {
+						if candidate.Content != nil {
+							for _, part := range candidate.Content.Parts {
 								if part.InlineData != nil {
 									verbose(">>> iterating response audio from candidate[%d]: %s (%d bytes)", i, part.InlineData.MIMEType, len(part.InlineData.Data))
 
 									failed = false
 								}
 							}
-						} else if cand.FinishReason != genai.FinishReasonStop {
-							t.Errorf("generation finished unexpectedly with reason: %s", cand.FinishReason)
+						} else if candidate.FinishReason != genai.FinishReasonStop {
+							t.Errorf("generation finished unexpectedly with reason: %s", candidate.FinishReason)
 						} else {
-							t.Errorf("candidate has no usable content: %+v", cand)
+							t.Errorf("candidate has no usable content: %+v", candidate)
 						}
 					}
 				}

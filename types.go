@@ -318,8 +318,4 @@ type (
 	// the converted byte slice, the new MIME type string, and an error if conversion fails.
 	// This is used by the Client's SetFileConverter method to handle custom file type conversions.
 	FnConvertBytes func(bytes []byte) ([]byte, string, error)
-
-	// FnStreamCallback is a function type used as a callback for processing streamed generation responses.
-	// It receives StreamCallbackData containing different parts of the response as they arrive from the model.
-	FnStreamCallback func(callbackData StreamCallbackData)
 )
