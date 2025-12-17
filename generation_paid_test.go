@@ -38,10 +38,7 @@ const (
 func TestContextCachingPaid(t *testing.T) {
 	sleepForNotBeingRateLimited()
 
-	apiKey := mustHaveEnvVar(t, "API_KEY")
-
-	gtc, err := NewClient(
-		apiKey,
+	gtc, err := newClient(
 		WithModel(modelForContextCachingPaid),
 	)
 	if err != nil {
@@ -149,29 +146,32 @@ func TestContextCachingPaid(t *testing.T) {
 			ctxGenerate, cancelGenerate := ctxWithTimeout()
 			defer cancelGenerate()
 
-			if err := gtc.GenerateStreamed(
+			for it, err := range gtc.GenerateStreamIterated(
 				ctxGenerate,
 				contents,
-				func(data StreamCallbackData) {
-					if data.TextDelta != nil {
-						if _isVerbose {
-							fmt.Print(*data.TextDelta) // print text stream
-						}
-					} else if data.NumTokens != nil {
-						verbose(">>> input tokens: %d, output tokens: %d, cached tokens: %d", data.NumTokens.Input, data.NumTokens.Output, data.NumTokens.Cached)
-					} else if data.FinishReason != nil {
-						if *data.FinishReason != genai.FinishReasonStop {
-							t.Errorf("generation finished unexpectedly with reason: %s", *data.FinishReason)
-						}
-					} else if data.Error != nil {
-						t.Errorf("error while processing generation with cached context: %s", data.Error)
-					}
-				},
 				&GenerationOptions{
 					CachedContent: cachedContextName,
 				},
-			); err != nil {
-				t.Errorf("generation with cached context (streamed) failed: %s", ErrToStr(err))
+			) {
+				if err != nil {
+					t.Errorf("generation with cached context (stream iterated) failed: %s", ErrToStr(err))
+				} else {
+					for _, candidate := range it.Candidates {
+						if candidate.Content != nil {
+							for _, part := range candidate.Content.Parts {
+								if part.Text != "" {
+									if _isVerbose {
+										fmt.Print(part.Text) // print text stream
+									}
+								}
+							}
+						} else if candidate.FinishReason != genai.FinishReasonStop {
+							t.Errorf("generation finished unexpectedly with reason: %s", candidate.FinishReason)
+						} else {
+							t.Errorf("candidate has no usable content: %+v", candidate)
+						}
+					}
+				}
 			}
 		}
 
@@ -234,10 +234,7 @@ func TestContextCachingPaid(t *testing.T) {
 func TestGenerationPaid(t *testing.T) {
 	sleepForNotBeingRateLimited()
 
-	apiKey := mustHaveEnvVar(t, "API_KEY")
-
-	gtc, err := NewClient(
-		apiKey,
+	gtc, err := newClient(
 		WithModel(modelForTextGenerationPaid),
 	)
 	if err != nil {
@@ -380,10 +377,7 @@ func TestGenerationPaid(t *testing.T) {
 func TestGenerationIteratedPaid(t *testing.T) {
 	sleepForNotBeingRateLimited()
 
-	apiKey := mustHaveEnvVar(t, "API_KEY")
-
-	gtc, err := NewClient(
-		apiKey,
+	gtc, err := newClient(
 		WithModel(modelForTextGenerationPaid),
 	)
 	if err != nil {
@@ -513,155 +507,13 @@ func TestGenerationIteratedPaid(t *testing.T) {
 	// NOTE: files will be deleted on close
 }
 
-// TestGenerationStreamedPaid tests various types of generations (streamed, paid).
-func TestGenerationStreamedPaid(t *testing.T) {
-	sleepForNotBeingRateLimited()
-
-	apiKey := mustHaveEnvVar(t, "API_KEY")
-
-	gtc, err := NewClient(
-		apiKey,
-		WithModel(modelForTextGenerationPaid),
-	)
-	if err != nil {
-		t.Fatalf("failed to create client: %s", err)
-	}
-	gtc.DeleteFilesOnClose = true
-	gtc.Verbose = _isVerbose
-	defer func() { _ = gtc.Close() }()
-
-	ctxContents, cancelContents := ctxWithTimeout()
-	defer cancelContents()
-
-	// text-only prompt (streamed)
-	if contents, err := gtc.PromptsToContents(
-		ctxContents,
-		[]Prompt{
-			PromptFromText(`What is the answer to life, the universe, and everything?`),
-		},
-		nil,
-	); err != nil {
-		t.Errorf("failed to convert prompts to contents: %s", err)
-	} else {
-		ctxGenerate, cancelGenerate := ctxWithTimeout()
-		defer cancelGenerate()
-
-		if err := gtc.GenerateStreamed(
-			ctxGenerate,
-			contents,
-			func(data StreamCallbackData) {
-				if data.TextDelta != nil {
-					if _isVerbose {
-						fmt.Print(*data.TextDelta) // print text stream
-					}
-				} else if data.NumTokens != nil {
-					verbose(">>> input tokens: %d, output tokens: %d, cached tokens: %d", data.NumTokens.Input, data.NumTokens.Output, data.NumTokens.Cached)
-				} else if data.FinishReason != nil {
-					if *data.FinishReason != genai.FinishReasonStop {
-						t.Errorf("generation finished unexpectedly with reason: %s", *data.FinishReason)
-					}
-				} else if data.Error != nil {
-					t.Errorf("error while processing text generation: %s", data.Error)
-				}
-			},
-		); err != nil {
-			t.Errorf("generation with text prompt failed: %s", ErrToStr(err))
-		}
-	}
-
-	// prompt with files (streamed)
-	if file, err := os.Open("./client.go"); err == nil {
-		defer func() { _ = file.Close() }()
-
-		if contents, err := gtc.PromptsToContents(
-			ctxContents,
-			[]Prompt{
-				PromptFromText(`What's the golang package name of this file? Can you give me a short sample code of using this file?`),
-				PromptFromFile("client.go", file),
-			},
-			nil,
-		); err != nil {
-			t.Errorf("failed to convert prompts to contents: %s", err)
-		} else {
-			ctxGenerate, cancelGenerate := ctxWithTimeout()
-			defer cancelGenerate()
-
-			if err := gtc.GenerateStreamed(
-				ctxGenerate,
-				contents,
-				func(data StreamCallbackData) {
-					if data.TextDelta != nil {
-						if _isVerbose {
-							fmt.Print(*data.TextDelta) // print text stream
-						}
-					} else if data.NumTokens != nil {
-						verbose(">>> input tokens: %d, output tokens: %d, cached tokens: %d", data.NumTokens.Input, data.NumTokens.Output, data.NumTokens.Cached)
-					} else if data.FinishReason != nil {
-						if *data.FinishReason != genai.FinishReasonStop {
-							t.Errorf("generation finished unexpectedly with reason: %s", *data.FinishReason)
-						}
-					} else if data.Error != nil {
-						t.Errorf("error while processing generation with files: %s", data.Error)
-					}
-				},
-			); err != nil {
-				t.Errorf("generation with text & file prompt failed: %s", ErrToStr(err))
-			}
-		}
-	} else {
-		t.Errorf("failed to open file for streamed generation: %s", err)
-	}
-
-	// prompt with bytes array (streamed)
-	if contents, err := gtc.PromptsToContents(
-		ctxContents,
-		[]Prompt{
-			PromptFromText(`Translate the text in the given file into English.`),
-			PromptFromFile("some lyrics", strings.NewReader(`동해물과 백두산이 마르고 닳도록 하느님이 보우하사 우리나라 만세`)),
-		},
-		nil,
-	); err != nil {
-		t.Errorf("failed to convert prompts to contents: %s", err)
-	} else {
-		ctxGenerate, cancelGenerate := ctxWithTimeout()
-		defer cancelGenerate()
-
-		if err := gtc.GenerateStreamed(
-			ctxGenerate,
-			contents,
-			func(data StreamCallbackData) {
-				if data.TextDelta != nil {
-					if _isVerbose {
-						fmt.Print(*data.TextDelta) // print text stream
-					}
-				} else if data.NumTokens != nil {
-					verbose(">>> input tokens: %d, output tokens: %d, cached tokens: %d", data.NumTokens.Input, data.NumTokens.Output, data.NumTokens.Cached)
-				} else if data.FinishReason != nil {
-					if *data.FinishReason != genai.FinishReasonStop {
-						t.Errorf("generation finished unexpectedly with reason: %s", *data.FinishReason)
-					}
-				} else if data.Error != nil {
-					t.Errorf("error while processing generation with bytes (streamed): %s", data.Error)
-				}
-			},
-		); err != nil {
-			t.Errorf("generation with text & bytes prompt (streamed) failed: %s", ErrToStr(err))
-		}
-	}
-
-	// NOTE: files will be deleted on close
-}
-
 // TestGenerationWithCustomRetriesPaid tests generation with a custom retry count. (paid)
 func TestGenerationWithCustomRetriesPaid(t *testing.T) {
 	sleepForNotBeingRateLimited()
 
-	apiKey := mustHaveEnvVar(t, "API_KEY")
-
 	// Initialize client with maxRetryCount = 1
 	// This test primarily ensures the client initializes correctly and a call can be made.
-	gtc, err := NewClient(
-		apiKey,
+	gtc, err := newClient(
 		WithModel(modelForTextGenerationPaid),
 		WithMaxRetryCount(1),
 	)
@@ -702,11 +554,8 @@ func TestGenerationWithCustomRetriesPaid(t *testing.T) {
 func TestGenerationWithCustomTimeoutPaid(t *testing.T) {
 	sleepForNotBeingRateLimited()
 
-	apiKey := mustHaveEnvVar(t, "API_KEY")
-
 	// Initialize client with a client-side timeout of 1 second.
-	gtc, err := NewClient(
-		apiKey,
+	gtc, err := newClient(
 		WithModel(modelForTextGenerationPaid),
 	)
 	if err != nil {
@@ -754,10 +603,7 @@ func TestGenerationWithCustomTimeoutPaid(t *testing.T) {
 func TestGenerationWithFileConverterPaid(t *testing.T) {
 	sleepForNotBeingRateLimited()
 
-	apiKey := mustHaveEnvVar(t, "API_KEY")
-
-	gtc, err := NewClient(
-		apiKey,
+	gtc, err := newClient(
 		WithModel(modelForTextGenerationPaid),
 	)
 	if err != nil {
@@ -930,10 +776,7 @@ func TestGenerationWithFunctionCallPaid(t *testing.T) {
 		},
 	}
 
-	apiKey := mustHaveEnvVar(t, "API_KEY")
-
-	gtc, err := NewClient(
-		apiKey,
+	gtc, err := newClient(
 		WithModel(modelForTextGenerationPaid),
 	)
 	if err != nil {
@@ -960,97 +803,9 @@ func TestGenerationWithFunctionCallPaid(t *testing.T) {
 		ctxGenerate, cancelGenerate := ctxWithTimeout()
 		defer cancelGenerate()
 
-		if err := gtc.GenerateStreamed(
+		for it, err := range gtc.GenerateStreamIterated(
 			ctxGenerate,
 			contents,
-			func(data StreamCallbackData) {
-				if data.FunctionCall != nil {
-					if data.FunctionCall.Name == fnNameExtractPrompts {
-						positivePrompt, _ := FuncArg[string](data.FunctionCall.Args, fnParamNamePositivePrompt)
-						negativePrompt, _ := FuncArg[string](data.FunctionCall.Args, fnParamNameNegativePrompt)
-
-						if positivePrompt != nil {
-							verbose(">>> positive prompt: %s", *positivePrompt)
-
-							if negativePrompt != nil {
-								verbose(">>> negative prompt: %s", *negativePrompt)
-							}
-
-							pastGenerations := []genai.Content{
-								{
-									Parts: []*genai.Part{
-										genai.NewPartFromText(prompt),
-									},
-									Role: string(RoleUser),
-								},
-								{
-									Parts: []*genai.Part{
-										genai.NewPartFromFunctionCall(data.FunctionCall.Name, map[string]any{
-											fnParamNamePositivePrompt: positivePrompt,
-											fnParamNameNegativePrompt: negativePrompt,
-										}),
-									},
-									Role: string(RoleModel),
-								},
-								{
-									Parts: []*genai.Part{
-										// NOTE:
-										// run your own function with the parameters returned from function call,
-										// then send a function response built with the result of your function.
-										genai.NewPartFromFunctionResponse(fnNameImageGenerationFinished, map[string]any{
-											fnParamNameGeneratedSuccessfully: true,
-											fnParamNameGeneratedSize:         424242,
-											fnParamNameGeneratedResolution:   "800x800",
-											fnParamNameGeneratedFilepath:     `/home/marvin/generated.jpg`,
-										}),
-									},
-									Role: string(RoleUser),
-								},
-							}
-
-							// generate again with a function response
-							if contents, err := gtc.PromptsToContents(
-								ctxContents,
-								nil,
-								pastGenerations,
-							); err != nil {
-								t.Errorf("failed to convert prompts to contents: %s", err)
-							} else {
-								if err := gtc.GenerateStreamed(
-									ctxGenerate,
-									contents,
-									func(data StreamCallbackData) {
-										if data.TextDelta != nil {
-											verbose(">>> generated from function response: %s", *data.TextDelta)
-										}
-									},
-									&GenerationOptions{
-										Tools: []*genai.Tool{
-											{
-												FunctionDeclarations: fnDeclarations,
-											},
-										},
-									},
-								); err != nil {
-									t.Errorf("failed to generate with function response: %s", ErrToStr(err))
-								}
-							}
-						} else {
-							t.Errorf("failed to parse function args (%s)", prettify(data.FunctionCall.Args))
-						}
-					} else {
-						t.Errorf("function name does not match '%s': %s", fnNameExtractPrompts, prettify(data.FunctionCall))
-					}
-				} else if data.NumTokens != nil {
-					verbose(">>> input tokens: %d, output tokens: %d, cached tokens: %d", data.NumTokens.Input, data.NumTokens.Output, data.NumTokens.Cached)
-				} else if data.Error != nil {
-					t.Errorf("generation with function calls failed: %s", data.Error)
-				} else {
-					if data.FinishReason == nil {
-						t.Fatalf("should not reach here; data: %s", prettify(data))
-					}
-				}
-			},
 			&GenerationOptions{
 				Tools: []*genai.Tool{
 					{
@@ -1066,8 +821,106 @@ func TestGenerationWithFunctionCallPaid(t *testing.T) {
 					},
 				},
 			},
-		); err != nil {
-			t.Errorf("generation with function calls failed: %s", ErrToStr(err))
+		) {
+			if err != nil {
+				t.Errorf("generation with function calls failed: %s", ErrToStr(err))
+			} else {
+				for _, candidate := range it.Candidates {
+					if candidate.Content != nil {
+						for _, part := range candidate.Content.Parts {
+							if part.FunctionCall != nil {
+								if part.FunctionCall.Name == fnNameExtractPrompts {
+									positivePrompt, _ := FuncArg[string](part.FunctionCall.Args, fnParamNamePositivePrompt)
+									negativePrompt, _ := FuncArg[string](part.FunctionCall.Args, fnParamNameNegativePrompt)
+
+									if positivePrompt != nil {
+										verbose(">>> positive prompt: %s", *positivePrompt)
+
+										if negativePrompt != nil {
+											verbose(">>> negative prompt: %s", *negativePrompt)
+										}
+
+										pastGenerations := []genai.Content{
+											{
+												Parts: []*genai.Part{
+													genai.NewPartFromText(prompt),
+												},
+												Role: string(RoleUser),
+											},
+											{
+												Parts: []*genai.Part{
+													genai.NewPartFromFunctionCall(part.FunctionCall.Name, map[string]any{
+														fnParamNamePositivePrompt: positivePrompt,
+														fnParamNameNegativePrompt: negativePrompt,
+													}),
+												},
+												Role: string(RoleModel),
+											},
+											{
+												Parts: []*genai.Part{
+													// NOTE:
+													// run your own function with the parameters returned from function call,
+													// then send a function response built with the result of your function.
+													genai.NewPartFromFunctionResponse(fnNameImageGenerationFinished, map[string]any{
+														fnParamNameGeneratedSuccessfully: true,
+														fnParamNameGeneratedSize:         424242,
+														fnParamNameGeneratedResolution:   "800x800",
+														fnParamNameGeneratedFilepath:     `/home/marvin/generated.jpg`,
+													}),
+												},
+												Role: string(RoleUser),
+											},
+										}
+
+										// generate again with a function response
+										if contents, err := gtc.PromptsToContents(
+											ctxContents,
+											nil,
+											pastGenerations,
+										); err != nil {
+											t.Errorf("failed to convert prompts to contents: %s", err)
+										} else {
+											for it, err := range gtc.GenerateStreamIterated(
+												ctxGenerate,
+												contents,
+												&GenerationOptions{
+													Tools: []*genai.Tool{
+														{
+															FunctionDeclarations: fnDeclarations,
+														},
+													},
+												},
+											) {
+												if err != nil {
+													t.Errorf("failed to generate with function response: %s", ErrToStr(err))
+												} else {
+													for _, candidate := range it.Candidates {
+														if candidate.Content != nil {
+															for _, part := range candidate.Content.Parts {
+																if part.Text != "" {
+																	verbose(">>> generated from function response: %s", part.Text)
+																}
+															}
+														} else if candidate.FinishReason != genai.FinishReasonStop {
+															t.Errorf("generation finished unexpectedly with reason: %s", candidate.FinishReason)
+														} else {
+															t.Errorf("candidate has no usable content: %+v", candidate)
+														}
+													}
+												}
+											}
+										}
+									} else {
+										t.Errorf("failed to parse function args (%s)", prettify(part.FunctionCall.Args))
+									}
+								} else {
+									t.Errorf("function name does not match '%s': %s", fnNameExtractPrompts, prettify(part.FunctionCall))
+								}
+							}
+						}
+					}
+				}
+			}
 		}
 	}
 }
@@ -1085,10 +938,7 @@ func TestGenerationWithStructuredOutputPaid(t *testing.T) {
 
 	const prompt = `Extract and optimize positive and/or negative prompts from the following text for generating beautiful images: "Please generate an image which shows a man standing in front of a vast dessert. The man is watching an old pyramid completely destroyed by a giant sandstorm. The mood is sad and gloomy".`
 
-	apiKey := mustHaveEnvVar(t, "API_KEY")
-
-	gtc, err := NewClient(
-		apiKey,
+	gtc, err := newClient(
 		WithModel(modelForTextGenerationPaid),
 	)
 	if err != nil {
@@ -1172,10 +1022,7 @@ func TestGenerationWithStructuredOutputPaid(t *testing.T) {
 func TestGenerationWithCodeExecutionPaid(t *testing.T) {
 	sleepForNotBeingRateLimited()
 
-	apiKey := mustHaveEnvVar(t, "API_KEY")
-
-	gtc, err := NewClient(
-		apiKey,
+	gtc, err := newClient(
 		WithModel(modelForTextGenerationPaid),
 	)
 	if err != nil {
@@ -1284,10 +1131,7 @@ func TestGenerationWithCodeExecutionPaid(t *testing.T) {
 func TestGenerationWithHistoryPaid(t *testing.T) {
 	sleepForNotBeingRateLimited()
 
-	apiKey := mustHaveEnvVar(t, "API_KEY")
-
-	gtc, err := NewClient(
-		apiKey,
+	gtc, err := newClient(
 		WithModel(modelForTextGenerationPaid),
 	)
 	if err != nil {
@@ -1329,26 +1173,29 @@ func TestGenerationWithHistoryPaid(t *testing.T) {
 		ctxGenerate, cancelGenerate := ctxWithTimeout()
 		defer cancelGenerate()
 
-		if err := gtc.GenerateStreamed(
+		for it, err := range gtc.GenerateStreamIterated(
 			ctxGenerate,
 			contents,
-			func(data StreamCallbackData) {
-				if data.TextDelta != nil {
-					if _isVerbose {
-						fmt.Print(*data.TextDelta) // print text stream
+		) {
+			if err != nil {
+				t.Errorf("generation with text prompt and history failed: %s", ErrToStr(err))
+			} else {
+				for _, candidate := range it.Candidates {
+					if candidate.Content != nil {
+						for _, part := range candidate.Content.Parts {
+							if part.Text != "" {
+								if _isVerbose {
+									fmt.Print(part.Text) // print text stream
+								}
+							}
+						}
+					} else if candidate.FinishReason != genai.FinishReasonStop {
+						t.Errorf("generation finished unexpectedly with reason: %s", candidate.FinishReason)
+					} else {
+						t.Errorf("candidate has no usable content: %+v", candidate)
 					}
-				} else if data.NumTokens != nil {
-					verbose(">>> input tokens: %d, output tokens: %d, cached tokens: %d", data.NumTokens.Input, data.NumTokens.Output, data.NumTokens.Cached)
-				} else if data.FinishReason != nil {
-					if *data.FinishReason != genai.FinishReasonStop {
-						t.Errorf("generation finished unexpectedly with reason: %s", *data.FinishReason)
-					}
-				} else if data.Error != nil {
-					t.Errorf("error while processing text generation: %s", data.Error)
 				}
-			},
-		); err != nil {
-			t.Errorf("generation with text prompt and history failed: %s", ErrToStr(err))
+			}
 		}
 	}
 
@@ -1418,10 +1265,7 @@ func TestGenerationWithHistoryPaid(t *testing.T) {
 func TestEmbeddingsPaid(t *testing.T) {
 	sleepForNotBeingRateLimited()
 
-	apiKey := mustHaveEnvVar(t, "API_KEY")
-
-	gtc, err := NewClient(
-		apiKey,
+	gtc, err := newClient(
 		WithModel(modelForEmbeddingsPaid),
 	)
 	if err != nil {
@@ -1469,10 +1313,7 @@ func TestEmbeddingsPaid(t *testing.T) {
 func TestImageGenerationsPaid(t *testing.T) {
 	sleepForNotBeingRateLimited()
 
-	apiKey := mustHaveEnvVar(t, "API_KEY")
-
-	gtc, err := NewClient(
-		apiKey,
+	gtc, err := newClient(
 		WithModel(modelForImageGenerationPaid),
 	)
 	if err != nil {
@@ -1586,57 +1427,6 @@ func TestImageGenerationsPaid(t *testing.T) {
 		}
 	}
 
-	// text-only prompt (streamed)
-	if contents, err := gtc.PromptsToContents(
-		ctxContents,
-		[]Prompt{
-			PromptFromText(prompt),
-		},
-		nil,
-	); err != nil {
-		t.Errorf("failed to convert prompts to contents: %s", err)
-	} else {
-		ctxGenerate, cancelGenerate := ctxWithTimeout()
-		defer cancelGenerate()
-
-		failed := true
-		if err := gtc.GenerateStreamed(
-			ctxGenerate,
-			contents,
-			func(data StreamCallbackData) {
-				if data.Error != nil {
-					t.Errorf("error while processing image generation with text prompt (streamed): %s", data.Error)
-				} else if data.FinishReason != nil {
-					if *data.FinishReason != genai.FinishReasonStop {
-						t.Errorf("image generation with text prompt (streamed) failed with finish reason: %s", *data.FinishReason)
-					}
-				} else if data.TextDelta != nil {
-					if _isVerbose {
-						fmt.Print(*data.TextDelta) // print text stream
-					}
-				} else if data.InlineData != nil {
-					verbose(">>> response image: %s (%d bytes)", data.InlineData.MIMEType, len(data.InlineData.Data))
-
-					failed = false
-				} else if data.NumTokens != nil {
-					verbose(">>> input tokens: %d, output tokens: %d, cached tokens: %d", data.NumTokens.Input, data.NumTokens.Output, data.NumTokens.Cached)
-				}
-			},
-			&GenerationOptions{
-				HarmBlockThreshold: ptr(genai.HarmBlockThresholdBlockOnlyHigh),
-				ResponseModalities: []genai.Modality{
-					genai.ModalityText, // FIXME: when not given, error: 'Code: 400, Message: Model does not support the requested response modalities: image, Status: INVALID_ARGUMENT'
-					genai.ModalityImage,
-				},
-			},
-		); err != nil {
-			t.Errorf("image generation with text prompt (streamed) failed: %s", ErrToStr(err))
-		}
-		if failed {
-			t.Errorf("streamed image generation with text prompt failed with no usable result")
-		}
-	}
-
 	ctxGenerate, cancelGenerate := ctxWithTimeout()
 	defer cancelGenerate()
 
@@ -1675,10 +1465,7 @@ func TestImageGenerationsPaid(t *testing.T) {
 func TestSpeechGenerationsPaid(t *testing.T) {
 	sleepForNotBeingRateLimited()
 
-	apiKey := mustHaveEnvVar(t, "API_KEY")
-
-	gtc, err := NewClient(
-		apiKey,
+	gtc, err := newClient(
 		WithModel(modelForSpeechGenerationPaid),
 	)
 	if err != nil {
@@ -1823,10 +1610,7 @@ Jane: Not too bad, how about you?`
 func TestGroundingPaid(t *testing.T) {
 	sleepForNotBeingRateLimited()
 
-	apiKey := mustHaveEnvVar(t, "API_KEY")
-
-	gtc, err := NewClient(
-		apiKey,
+	gtc, err := newClient(
 		WithModel(modelForTextGenerationWithGroundingPaid),
 	)
 	if err != nil {
@@ -1917,10 +1701,7 @@ func TestGroundingPaid(t *testing.T) {
 func TestRecursiveToolCallsPaid(t *testing.T) {
 	sleepForNotBeingRateLimited()
 
-	apiKey := mustHaveEnvVar(t, "API_KEY")
-
-	gtc, err := NewClient(
-		apiKey,
+	gtc, err := newClient(
 		WithModel(modelForTextGenerationWithRecursiveToolCallsPaid),
 	)
 	if err != nil {
@@ -2027,10 +1808,7 @@ drwxr-xr-x 28 ubuntu ubuntu  4096 Jun 17 15:42 ../
 func TestCountingTokensPaid(t *testing.T) {
 	sleepForNotBeingRateLimited()
 
-	apiKey := mustHaveEnvVar(t, "API_KEY")
-
-	gtc, err := NewClient(
-		apiKey,
+	gtc, err := newClient(
 		WithModel(modelForTextGenerationPaid),
 	)
 	if err != nil {
@@ -2072,10 +1850,7 @@ func TestCountingTokensPaid(t *testing.T) {
 func TestFileSearchPaid(t *testing.T) {
 	sleepForNotBeingRateLimited()
 
-	apiKey := mustHaveEnvVar(t, "API_KEY")
-
-	gtc, err := NewClient(
-		apiKey,
+	gtc, err := newClient(
 		WithModel(modelForTextGenerationPaid),
 	)
 	if err != nil {
@@ -2285,10 +2060,7 @@ func TestFileSearchPaid(t *testing.T) {
 func TestBatchRequestsPaid(t *testing.T) {
 	sleepForNotBeingRateLimited()
 
-	apiKey := mustHaveEnvVar(t, "API_KEY")
-
-	gtc, err := NewClient(
-		apiKey,
+	gtc, err := newClient(
 		WithModel(modelForBatchesPaid),
 	)
 	if err != nil {
