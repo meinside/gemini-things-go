@@ -38,10 +38,7 @@ const (
 func TestContextCachingPaid(t *testing.T) {
 	sleepForNotBeingRateLimited()
 
-	apiKey := mustHaveEnvVar(t, "API_KEY")
-
-	gtc, err := NewClient(
-		apiKey,
+	gtc, err := newClient(
 		WithModel(modelForContextCachingPaid),
 	)
 	if err != nil {
@@ -237,10 +234,7 @@ func TestContextCachingPaid(t *testing.T) {
 func TestGenerationPaid(t *testing.T) {
 	sleepForNotBeingRateLimited()
 
-	apiKey := mustHaveEnvVar(t, "API_KEY")
-
-	gtc, err := NewClient(
-		apiKey,
+	gtc, err := newClient(
 		WithModel(modelForTextGenerationPaid),
 	)
 	if err != nil {
@@ -383,10 +377,7 @@ func TestGenerationPaid(t *testing.T) {
 func TestGenerationIteratedPaid(t *testing.T) {
 	sleepForNotBeingRateLimited()
 
-	apiKey := mustHaveEnvVar(t, "API_KEY")
-
-	gtc, err := NewClient(
-		apiKey,
+	gtc, err := newClient(
 		WithModel(modelForTextGenerationPaid),
 	)
 	if err != nil {
@@ -520,12 +511,9 @@ func TestGenerationIteratedPaid(t *testing.T) {
 func TestGenerationWithCustomRetriesPaid(t *testing.T) {
 	sleepForNotBeingRateLimited()
 
-	apiKey := mustHaveEnvVar(t, "API_KEY")
-
 	// Initialize client with maxRetryCount = 1
 	// This test primarily ensures the client initializes correctly and a call can be made.
-	gtc, err := NewClient(
-		apiKey,
+	gtc, err := newClient(
 		WithModel(modelForTextGenerationPaid),
 		WithMaxRetryCount(1),
 	)
@@ -566,11 +554,8 @@ func TestGenerationWithCustomRetriesPaid(t *testing.T) {
 func TestGenerationWithCustomTimeoutPaid(t *testing.T) {
 	sleepForNotBeingRateLimited()
 
-	apiKey := mustHaveEnvVar(t, "API_KEY")
-
 	// Initialize client with a client-side timeout of 1 second.
-	gtc, err := NewClient(
-		apiKey,
+	gtc, err := newClient(
 		WithModel(modelForTextGenerationPaid),
 	)
 	if err != nil {
@@ -618,10 +603,7 @@ func TestGenerationWithCustomTimeoutPaid(t *testing.T) {
 func TestGenerationWithFileConverterPaid(t *testing.T) {
 	sleepForNotBeingRateLimited()
 
-	apiKey := mustHaveEnvVar(t, "API_KEY")
-
-	gtc, err := NewClient(
-		apiKey,
+	gtc, err := newClient(
 		WithModel(modelForTextGenerationPaid),
 	)
 	if err != nil {
@@ -794,10 +776,7 @@ func TestGenerationWithFunctionCallPaid(t *testing.T) {
 		},
 	}
 
-	apiKey := mustHaveEnvVar(t, "API_KEY")
-
-	gtc, err := NewClient(
-		apiKey,
+	gtc, err := newClient(
 		WithModel(modelForTextGenerationPaid),
 	)
 	if err != nil {
@@ -959,10 +938,7 @@ func TestGenerationWithStructuredOutputPaid(t *testing.T) {
 
 	const prompt = `Extract and optimize positive and/or negative prompts from the following text for generating beautiful images: "Please generate an image which shows a man standing in front of a vast dessert. The man is watching an old pyramid completely destroyed by a giant sandstorm. The mood is sad and gloomy".`
 
-	apiKey := mustHaveEnvVar(t, "API_KEY")
-
-	gtc, err := NewClient(
-		apiKey,
+	gtc, err := newClient(
 		WithModel(modelForTextGenerationPaid),
 	)
 	if err != nil {
@@ -1046,10 +1022,7 @@ func TestGenerationWithStructuredOutputPaid(t *testing.T) {
 func TestGenerationWithCodeExecutionPaid(t *testing.T) {
 	sleepForNotBeingRateLimited()
 
-	apiKey := mustHaveEnvVar(t, "API_KEY")
-
-	gtc, err := NewClient(
-		apiKey,
+	gtc, err := newClient(
 		WithModel(modelForTextGenerationPaid),
 	)
 	if err != nil {
@@ -1158,10 +1131,7 @@ func TestGenerationWithCodeExecutionPaid(t *testing.T) {
 func TestGenerationWithHistoryPaid(t *testing.T) {
 	sleepForNotBeingRateLimited()
 
-	apiKey := mustHaveEnvVar(t, "API_KEY")
-
-	gtc, err := NewClient(
-		apiKey,
+	gtc, err := newClient(
 		WithModel(modelForTextGenerationPaid),
 	)
 	if err != nil {
@@ -1295,10 +1265,7 @@ func TestGenerationWithHistoryPaid(t *testing.T) {
 func TestEmbeddingsPaid(t *testing.T) {
 	sleepForNotBeingRateLimited()
 
-	apiKey := mustHaveEnvVar(t, "API_KEY")
-
-	gtc, err := NewClient(
-		apiKey,
+	gtc, err := newClient(
 		WithModel(modelForEmbeddingsPaid),
 	)
 	if err != nil {
@@ -1346,10 +1313,7 @@ func TestEmbeddingsPaid(t *testing.T) {
 func TestImageGenerationsPaid(t *testing.T) {
 	sleepForNotBeingRateLimited()
 
-	apiKey := mustHaveEnvVar(t, "API_KEY")
-
-	gtc, err := NewClient(
-		apiKey,
+	gtc, err := newClient(
 		WithModel(modelForImageGenerationPaid),
 	)
 	if err != nil {
@@ -1501,10 +1465,7 @@ func TestImageGenerationsPaid(t *testing.T) {
 func TestSpeechGenerationsPaid(t *testing.T) {
 	sleepForNotBeingRateLimited()
 
-	apiKey := mustHaveEnvVar(t, "API_KEY")
-
-	gtc, err := NewClient(
-		apiKey,
+	gtc, err := newClient(
 		WithModel(modelForSpeechGenerationPaid),
 	)
 	if err != nil {
@@ -1649,10 +1610,7 @@ Jane: Not too bad, how about you?`
 func TestGroundingPaid(t *testing.T) {
 	sleepForNotBeingRateLimited()
 
-	apiKey := mustHaveEnvVar(t, "API_KEY")
-
-	gtc, err := NewClient(
-		apiKey,
+	gtc, err := newClient(
 		WithModel(modelForTextGenerationWithGroundingPaid),
 	)
 	if err != nil {
@@ -1743,10 +1701,7 @@ func TestGroundingPaid(t *testing.T) {
 func TestRecursiveToolCallsPaid(t *testing.T) {
 	sleepForNotBeingRateLimited()
 
-	apiKey := mustHaveEnvVar(t, "API_KEY")
-
-	gtc, err := NewClient(
-		apiKey,
+	gtc, err := newClient(
 		WithModel(modelForTextGenerationWithRecursiveToolCallsPaid),
 	)
 	if err != nil {
@@ -1853,10 +1808,7 @@ drwxr-xr-x 28 ubuntu ubuntu  4096 Jun 17 15:42 ../
 func TestCountingTokensPaid(t *testing.T) {
 	sleepForNotBeingRateLimited()
 
-	apiKey := mustHaveEnvVar(t, "API_KEY")
-
-	gtc, err := NewClient(
-		apiKey,
+	gtc, err := newClient(
 		WithModel(modelForTextGenerationPaid),
 	)
 	if err != nil {
@@ -1898,10 +1850,7 @@ func TestCountingTokensPaid(t *testing.T) {
 func TestFileSearchPaid(t *testing.T) {
 	sleepForNotBeingRateLimited()
 
-	apiKey := mustHaveEnvVar(t, "API_KEY")
-
-	gtc, err := NewClient(
-		apiKey,
+	gtc, err := newClient(
 		WithModel(modelForTextGenerationPaid),
 	)
 	if err != nil {
@@ -2111,10 +2060,7 @@ func TestFileSearchPaid(t *testing.T) {
 func TestBatchRequestsPaid(t *testing.T) {
 	sleepForNotBeingRateLimited()
 
-	apiKey := mustHaveEnvVar(t, "API_KEY")
-
-	gtc, err := NewClient(
-		apiKey,
+	gtc, err := newClient(
 		WithModel(modelForBatchesPaid),
 	)
 	if err != nil {
