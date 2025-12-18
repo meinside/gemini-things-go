@@ -24,14 +24,15 @@ import (
 //
 // https://ai.google.dev/gemini-api/docs/models
 const (
-	modelForContextCachingFree                       = `gemini-2.5-flash`
-	modelForTextGenerationFree                       = `gemini-2.5-flash`
-	modelForTextGenerationWithRecursiveToolCallsFree = `gemini-2.5-flash`
+	modelForContextCachingFree                       = `gemini-3-flash-preview`
+	modelForTextGenerationFree                       = `gemini-3-flash-preview`
+	modelForTextGenerationWithRecursiveToolCallsFree = `gemini-3-flash-preview`
 	modelForImageGenerationFree                      = `gemini-2.0-flash-preview-image-generation`
 	modelForTextGenerationWithGroundingFree          = `gemini-2.5-flash`
+	modelForFileSearchFree                           = `gemini-2.5-flash`
 	modelForSpeechGenerationFree                     = `gemini-2.5-flash-preview-tts`
 	modelForEmbeddingsFree                           = `gemini-embedding-001`
-	modelForBatchesFree                              = `gemini-2.5-flash`
+	modelForBatchesFree                              = `gemini-3-flash-preview`
 )
 
 // TestContextCachingFree tests context caching and generation with the cached context. (free)
@@ -813,6 +814,29 @@ func TestGenerationWithFunctionCallFree(t *testing.T) {
 										verbose(">>> negative prompt: %s", *negativePrompt)
 									}
 
+									fnPart := genai.NewPartFromFunctionCall(part.FunctionCall.Name, map[string]any{
+										fnParamNamePositivePrompt: positivePrompt,
+										fnParamNameNegativePrompt: negativePrompt,
+									})
+									if part.ThoughtSignature != nil {
+										// NOTE: since gemini-3, thought signature is needed for function calls
+										fnPart.ThoughtSignature = part.ThoughtSignature
+									}
+
+									// NOTE:
+									// run your own function with the parameters returned from function call,
+									// then send a function response built with the result of your function.
+									fnResultPart := genai.NewPartFromFunctionResponse(fnNameImageGenerationFinished, map[string]any{
+										fnParamNameGeneratedSuccessfully: true,
+										fnParamNameGeneratedSize:         424242,
+										fnParamNameGeneratedResolution:   "800x800",
+										fnParamNameGeneratedFilepath:     `/home/marvin/generated.jpg`,
+									})
+									if part.ThoughtSignature != nil {
+										// NOTE: since gemini-3, thought signature is needed for function calls
+										fnResultPart.ThoughtSignature = part.ThoughtSignature
+									}
+
 									pastGenerations := []genai.Content{
 										{
 											Parts: []*genai.Part{
@@ -822,24 +846,13 @@ func TestGenerationWithFunctionCallFree(t *testing.T) {
 										},
 										{
 											Parts: []*genai.Part{
-												genai.NewPartFromFunctionCall(part.FunctionCall.Name, map[string]any{
-													fnParamNamePositivePrompt: positivePrompt,
-													fnParamNameNegativePrompt: negativePrompt,
-												}),
+												fnPart,
 											},
 											Role: string(RoleModel),
 										},
 										{
 											Parts: []*genai.Part{
-												// NOTE:
-												// run your own function with the parameters returned from function call,
-												// then send a function response built with the result of your function.
-												genai.NewPartFromFunctionResponse(fnNameImageGenerationFinished, map[string]any{
-													fnParamNameGeneratedSuccessfully: true,
-													fnParamNameGeneratedSize:         424242,
-													fnParamNameGeneratedResolution:   "800x800",
-													fnParamNameGeneratedFilepath:     `/home/marvin/generated.jpg`,
-												}),
+												fnResultPart,
 											},
 											Role: string(RoleUser),
 										},
@@ -1156,7 +1169,9 @@ func TestGenerationWithHistoryFree(t *testing.T) {
 					if candidate.Content != nil {
 						for _, part := range candidate.Content.Parts {
 							if len(part.Text) > 0 {
-								fmt.Print(part.Text) // print text stream
+								if _isVerbose {
+									fmt.Print(part.Text) // print text stream
+								}
 							}
 						}
 					} else if candidate.FinishReason != genai.FinishReasonStop {
@@ -1809,7 +1824,7 @@ func TestFileSearchFree(t *testing.T) {
 	sleepForNotBeingRateLimited()
 
 	gtc, err := newClient(
-		WithModel(modelForTextGenerationFree),
+		WithModel(modelForFileSearchFree),
 	)
 	if err != nil {
 		t.Fatalf("failed to create client: %s", err)

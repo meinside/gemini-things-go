@@ -29,6 +29,7 @@ const (
 	modelForTextGenerationWithRecursiveToolCallsPaid = `gemini-3-pro-preview`
 	modelForImageGenerationPaid                      = `gemini-3-pro-image-preview`
 	modelForTextGenerationWithGroundingPaid          = `gemini-3-pro-preview`
+	modelForFileSearchPaid                           = `gemini-3-pro-preview`
 	modelForSpeechGenerationPaid                     = `gemini-2.5-pro-preview-tts`
 	modelForEmbeddingsPaid                           = `gemini-embedding-001`
 	modelForBatchesPaid                              = `gemini-3-pro-preview`
@@ -840,6 +841,29 @@ func TestGenerationWithFunctionCallPaid(t *testing.T) {
 											verbose(">>> negative prompt: %s", *negativePrompt)
 										}
 
+										fnPart := genai.NewPartFromFunctionCall(part.FunctionCall.Name, map[string]any{
+											fnParamNamePositivePrompt: positivePrompt,
+											fnParamNameNegativePrompt: negativePrompt,
+										})
+										if part.ThoughtSignature != nil {
+											// NOTE: since gemini-3, thought signature is needed for function calls
+											fnPart.ThoughtSignature = part.ThoughtSignature
+										}
+
+										// NOTE:
+										// run your own function with the parameters returned from function call,
+										// then send a function response built with the result of your function.
+										fnResultPart := genai.NewPartFromFunctionResponse(fnNameImageGenerationFinished, map[string]any{
+											fnParamNameGeneratedSuccessfully: true,
+											fnParamNameGeneratedSize:         424242,
+											fnParamNameGeneratedResolution:   "800x800",
+											fnParamNameGeneratedFilepath:     `/home/marvin/generated.jpg`,
+										})
+										if part.ThoughtSignature != nil {
+											// NOTE: since gemini-3, thought signature is needed for function calls
+											fnResultPart.ThoughtSignature = part.ThoughtSignature
+										}
+
 										pastGenerations := []genai.Content{
 											{
 												Parts: []*genai.Part{
@@ -849,24 +873,13 @@ func TestGenerationWithFunctionCallPaid(t *testing.T) {
 											},
 											{
 												Parts: []*genai.Part{
-													genai.NewPartFromFunctionCall(part.FunctionCall.Name, map[string]any{
-														fnParamNamePositivePrompt: positivePrompt,
-														fnParamNameNegativePrompt: negativePrompt,
-													}),
+													fnPart,
 												},
 												Role: string(RoleModel),
 											},
 											{
 												Parts: []*genai.Part{
-													// NOTE:
-													// run your own function with the parameters returned from function call,
-													// then send a function response built with the result of your function.
-													genai.NewPartFromFunctionResponse(fnNameImageGenerationFinished, map[string]any{
-														fnParamNameGeneratedSuccessfully: true,
-														fnParamNameGeneratedSize:         424242,
-														fnParamNameGeneratedResolution:   "800x800",
-														fnParamNameGeneratedFilepath:     `/home/marvin/generated.jpg`,
-													}),
+													fnResultPart,
 												},
 												Role: string(RoleUser),
 											},
@@ -1851,7 +1864,7 @@ func TestFileSearchPaid(t *testing.T) {
 	sleepForNotBeingRateLimited()
 
 	gtc, err := newClient(
-		WithModel(modelForTextGenerationPaid),
+		WithModel(modelForFileSearchPaid),
 	)
 	if err != nil {
 		t.Fatalf("failed to create client: %s", err)
