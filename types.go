@@ -117,15 +117,16 @@ func PromptFromFile(
 // URIPrompt represents a prompt that uses a URI to point to file data
 // (e.g., a gs:// URI for a file in Google Cloud Storage, or a publicly accessible HTTPS URI).
 type URIPrompt struct {
-	URI string // The URI of the file.
+	URI      string // The URI of the file.
+	MIMEType string
 }
 
 // ToPart converts the URIPrompt into a `genai.Part` using the FileData URI.
-// The MIME type is not explicitly set here as the server is expected to infer it or it's set by the URI itself.
 func (p URIPrompt) ToPart() genai.Part {
 	return genai.Part{
 		FileData: &genai.FileData{
-			FileURI: p.URI,
+			FileURI:  p.URI,
+			MIMEType: p.MIMEType,
 		},
 	}
 }
@@ -137,9 +138,10 @@ func (p URIPrompt) String() string {
 
 // PromptFromURI creates a new URIPrompt from the given URI string.
 // It implements the Prompt interface.
-func PromptFromURI(uri string) Prompt {
+func PromptFromURI(uri, mimeType string) Prompt {
 	return URIPrompt{
-		URI: uri,
+		URI:      uri,
+		MIMEType: mimeType,
 	}
 }
 
@@ -246,10 +248,6 @@ type GenerationOptions struct {
 	MediaResolution genai.MediaResolution
 	// SpeechConfig provides configuration for speech synthesis, if applicable.
 	SpeechConfig *genai.SpeechConfig
-
-	// IgnoreUnsupportedType, if true, will cause the streaming callback to ignore
-	// parts of a type that it does not explicitly handle, rather than returning an error.
-	IgnoreUnsupportedType bool
 
 	// ThinkingOn enables the model to output "thoughts" or intermediate steps during generation.
 	ThinkingOn bool
