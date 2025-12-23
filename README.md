@@ -86,6 +86,6 @@ $ GEMINI_API_KEY="AIabcdefghijklmnopqrstuvwxyz_ABCDEFG-00000000-00" go test -run
 or with Google Cloud credential file (for Vertex AI):
 
 ```bash
-$ GOOGLE_APPLICATION_CREDENTIALS="/path/to/credentials.json" PROJECT_ID="my-google-project-id" go test -timeout 0
+$ CREDENTIALS_FILEPATH="/path/to/credentials.json" go test -timeout 0
 ```
 
