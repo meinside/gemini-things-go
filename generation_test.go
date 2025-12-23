@@ -11,9 +11,6 @@ import (
 	"os"
 	"testing"
 	"time"
-
-	"cloud.google.com/go/auth"
-	"cloud.google.com/go/auth/credentials"
 )
 
 const (
@@ -24,7 +21,7 @@ const (
 	keyGeminiAPIKey              = `GEMINI_API_KEY`
 	keyProjectID                 = `PROJECT_ID`
 	keyLocation                  = `LOCATION`
-	KeyVertexCredentialsFilepath = `GOOGLE_APPLICATION_CREDENTIALS`
+	KeyVertexCredentialsFilepath = `CREDENTIALS_FILEPATH`
 
 	defaultLocation = `global`
 )
@@ -93,16 +90,7 @@ func newClient(opts ...ClientOption) (*Client, error) {
 		var err error
 		var bytes []byte
 		if bytes, err = os.ReadFile(_vertexCredentialsFilepath); err == nil {
-			var creds *auth.Credentials
-			if creds, err = credentials.NewCredentialsFromJSON(
-				credentials.ServiceAccount,
-				bytes,
-				&credentials.DetectOptions{
-					Scopes: []string{"https://www.googleapis.com/auth/cloud-platform"},
-				},
-			); err == nil {
-				return NewVertextClient(_projectID, _location, creds, opts...)
-			}
+			return NewVertexClient(context.TODO(), bytes, _location, opts...)
 		}
 
 		return nil, fmt.Errorf("failed to create client with credentials: %w", err)

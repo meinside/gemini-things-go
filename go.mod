@@ -12,7 +12,7 @@ require (
 	github.com/modelcontextprotocol/go-sdk v1.2.0
 	google.golang.org/api v0.258.0
 	google.golang.org/genai v1.40.0
-	google.golang.org/grpc v1.77.0
+	google.golang.org/grpc v1.78.0
 )
 
 require (
