@@ -14,8 +14,13 @@ import (
 	"time"
 
 	"cloud.google.com/go/auth"
+	"cloud.google.com/go/storage"
 	"github.com/gabriel-vasile/mimetype"
+	"github.com/google/uuid"
+	"github.com/googleapis/gax-go/v2/apierror"
+	"google.golang.org/api/googleapi"
 	"google.golang.org/genai"
+	"google.golang.org/grpc/codes"
 )
 
 const (
@@ -36,10 +41,22 @@ Respond to the user according to the following principles:
 	defaultMaxRetryCount uint = 3 // NOTE: will retry only on `5xx` errors
 )
 
+const (
+	defaultBucketName                    = `gemini-things`
+	defaultNumDaysUploadedFilesTTL int64 = 1
+)
+
 // Client provides methods for interacting with the Google Generative AI API.
 // It encapsulates a genai.Client and adds higher-level functionalities.
 type Client struct {
 	client *genai.Client // Underlying Google Generative AI client.
+	Type   genai.Backend
+
+	// for Vertex AI
+	projectID               string          // Google Cloud Project ID
+	storage                 *storage.Client // Google Cloud Storage client
+	bucketName              string          // Google Cloud Storage bucket name
+	numDaysUploadedFilesTTL int64           // Google Cloud Storage objects' TTL (in days)
 
 	model                 string                    // model to be used for generation.
 	systemInstructionFunc FnSystemInstruction       // Function that returns the system instruction string.
@@ -101,6 +118,7 @@ func NewClient(apiKey string, opts ...ClientOption) (*Client, error) {
 
 	c := &Client{
 		client: client,
+		Type:   genai.BackendGeminiAPI,
 		systemInstructionFunc: func() string {
 			return defaultSystemInstruction
 		},
@@ -169,8 +187,19 @@ func NewVertextClient(
 		return nil, fmt.Errorf("failed to create genai client: %w", err)
 	}
 
+	// google cloud storage client
+	var sclient *storage.Client
+	if sclient, err = storage.NewClient(context.TODO()); err != nil {
+		return nil, fmt.Errorf("failed to create google cloud storage client: %w", err)
+	}
+
 	c := &Client{
-		client: client,
+		client:                  client,
+		Type:                    genai.BackendVertexAI,
+		projectID:               projectID,
+		storage:                 sclient,
+		bucketName:              defaultBucketName,
+		numDaysUploadedFilesTTL: defaultNumDaysUploadedFilesTTL,
 		systemInstructionFunc: func() string {
 			return defaultSystemInstruction
 		},
@@ -186,6 +215,70 @@ func NewVertextClient(
 	}
 
 	return c, nil
+}
+
+// SetBucketName sets the name of the Google Cloud Storage bucket to use for
+// (temporary) file uploads.
+func (c *Client) SetBucketName(name string) {
+	c.bucketName = name
+}
+
+// SetNumDaysUploadedFilesTTL sets the number of days for which uploaded files
+// should be retained in the Google Cloud Storage bucket.
+func (c *Client) SetNumDaysUploadedFilesTTL(days int64) {
+	c.numDaysUploadedFilesTTL = days
+}
+
+// Storage returns the Google Cloud Storage client used by the client.
+func (c *Client) Storage() *storage.Client {
+	return c.storage
+}
+
+// CreateBucketForFileUploads creates a Google Cloud Storage bucket for file uploads.
+func (c *Client) CreateBucketForFileUploads(ctx context.Context) error {
+	if c.Type != genai.BackendVertexAI {
+		return fmt.Errorf("`CreateBucketForFileUploads` is only for Vertex AI")
+	}
+
+	if err := c.storage.Bucket(c.bucketName).Create(ctx, c.projectID, &storage.BucketAttrs{
+		PublicAccessPrevention: storage.PublicAccessPreventionEnforced,
+		Lifecycle: storage.Lifecycle{
+			Rules: []storage.LifecycleRule{
+				{
+					Action: storage.LifecycleAction{
+						Type: storage.DeleteAction,
+					},
+					Condition: storage.LifecycleCondition{
+						AgeInDays: c.numDaysUploadedFilesTTL,
+					},
+				},
+			},
+		},
+	}); err != nil {
+		var ae *apierror.APIError
+		if ok := errors.As(err, &ae); ok {
+			if ae.GRPCStatus().Code() != codes.AlreadyExists {
+				return fmt.Errorf("failed to create bucket: %w", err)
+			}
+		}
+		var e *googleapi.Error
+		if ok := errors.As(err, &e); ok {
+			if e.Code != 409 {
+				return fmt.Errorf("failed to create bucket: %w", err)
+			}
+		}
+	}
+
+	return nil
+}
+
+// DeleteBucketForFileUploads deletes a Google Cloud Storage bucket which was created for file uploads.
+func (c *Client) DeleteBucketForFileUploads(ctx context.Context) error {
+	if c.Type != genai.BackendVertexAI {
+		return fmt.Errorf("`DeleteBucketForFileUploads` is only for Vertex AI")
+	}
+
+	return c.storage.Bucket(c.bucketName).Delete(ctx)
 }
 
 // Close releases resources associated with the client.
@@ -264,9 +357,9 @@ func (c *Client) generateStream(
 
 	if c.Verbose {
 		log.Printf(
-			"> generating streamed with contents: %v (options: %s)",
-			contents,
-			prettify(opts),
+			"> generating streamed with contents: %s (options: %s)",
+			prettify(contents, true),
+			prettify(opts, true),
 		)
 	}
 
@@ -308,7 +401,7 @@ func (c *Client) GenerateStreamIterated(
 ) iter.Seq2[*genai.GenerateContentResponse, error] {
 	// check if model is set
 	if c.model == "" {
-		return yieldErrorAndEndIterator(fmt.Errorf("model is not set for generating iterated stream"))
+		return yieldErrorAndEndIterator[genai.GenerateContentResponse](fmt.Errorf("model is not set for generating iterated stream"))
 	}
 
 	return c.generateStream(ctx, contents, options...)
@@ -342,9 +435,9 @@ func (c *Client) Generate(
 
 	if c.Verbose {
 		log.Printf(
-			"> generating with contents: %v (options: %s)",
-			contents,
-			prettify(opts),
+			"> generating with contents: %s (options: %s)",
+			prettify(contents, true),
+			prettify(opts, true),
 		)
 	}
 
@@ -812,6 +905,10 @@ func (c *Client) DeleteCachedContext(
 // Errors during deletion of individual files are aggregated.
 // Consider rate limits if deleting a large number of files.
 func (c *Client) DeleteAllFiles(ctx context.Context) (err error) {
+	if c.Type == genai.BackendVertexAI {
+		return fmt.Errorf("`DeleteAllFiles` not implemented yet for Vertex AI")
+	}
+
 	if c.Verbose {
 		log.Printf("> deleting all uploaded files...")
 	}
@@ -1000,34 +1097,74 @@ func (c *Client) UploadFile(
 	fileDisplayName string,
 	overrideMimeType ...string,
 ) (uploaded *genai.File, err error) {
-	config := &genai.UploadFileConfig{
-		DisplayName: fileDisplayName,
-	}
+	switch c.Type {
+	case genai.BackendGeminiAPI:
+		config := &genai.UploadFileConfig{
+			DisplayName: fileDisplayName,
+		}
 
-	var overridden string
-	if len(overrideMimeType) > 0 {
-		overridden = overrideMimeType[0]
-	}
-	if len(overridden) > 0 {
-		config.MIMEType = overridden
-	} else {
-		var mime *mimetype.MIME
-		if mime, err = mimetype.DetectReader(file); err == nil {
-			if matched, supported := checkMimeTypeForFile(mime); supported {
-				config.MIMEType = matched
-			} else {
-				return nil, fmt.Errorf("unsupported mime type for file: %s", mime.String())
-			}
+		var overridden string
+		if len(overrideMimeType) > 0 {
+			overridden = overrideMimeType[0]
+		}
+		if len(overridden) > 0 {
+			config.MIMEType = overridden
 		} else {
-			return nil, fmt.Errorf("failed to detect mimetype: %w", err)
+			var mime *mimetype.MIME
+			if mime, err = mimetype.DetectReader(file); err == nil {
+				if matched, supported := checkMimeTypeForFile(mime); supported {
+					config.MIMEType = matched
+				} else {
+					return nil, fmt.Errorf("unsupported mime type for file: %s", mime.String())
+				}
+			} else {
+				return nil, fmt.Errorf("failed to detect mimetype: %w", err)
+			}
+		}
+
+		return c.client.Files.Upload(
+			ctx,
+			file,
+			config,
+		)
+	case genai.BackendVertexAI:
+		if c.storage != nil {
+			bucket := c.storage.Bucket(c.bucketName)
+			// mimetype
+			var mimeType *mimetype.MIME
+			var mimeTypeString, overridden string
+			if len(overrideMimeType) > 0 {
+				overridden = overrideMimeType[0]
+			}
+			if len(overridden) > 0 {
+				mimeTypeString = overridden
+			} else {
+				if mimeType, file, err = readMimeAndRecycle(file); err != nil {
+					return nil, fmt.Errorf("failed to read mimetype: %w", err)
+				}
+				mimeTypeString = mimeType.String()
+			}
+
+			filename := fmt.Sprintf("%s_%s", uuid.New().String(), fileDisplayName)
+
+			// upload
+			obj := bucket.Object(filename)
+			w := obj.NewWriter(ctx)
+			defer func() { _ = w.Close() }()
+			if _, err := io.Copy(w, file); err != nil {
+				return nil, fmt.Errorf("failed to upload file: %w", err)
+			}
+			return &genai.File{
+				DisplayName: fileDisplayName,
+				URI:         fmt.Sprintf("gs://%s/%s", c.bucketName, filename),
+				MIMEType:    mimeTypeString,
+			}, nil
+		} else {
+			return nil, fmt.Errorf("storage client is not initialized")
 		}
 	}
 
-	return c.client.Files.Upload(
-		ctx,
-		file,
-		config,
-	)
+	return nil, fmt.Errorf("unsupported backend type: %s", c.Type)
 }
 
 // CreateFileSearchStore creates a new file search store.
@@ -1035,6 +1172,10 @@ func (c *Client) CreateFileSearchStore(
 	ctx context.Context,
 	displayName string,
 ) (store *genai.FileSearchStore, err error) {
+	if c.Type == genai.BackendVertexAI {
+		return nil, fmt.Errorf("`CreateFileSearchStore` is not implemented yet for Vertex AI")
+	}
+
 	return c.client.FileSearchStores.Create(ctx, &genai.CreateFileSearchStoreConfig{
 		DisplayName: displayName,
 	})
@@ -1045,6 +1186,10 @@ func (c *Client) DeleteFileSearchStore(
 	ctx context.Context,
 	fileSearchStoreName string,
 ) (err error) {
+	if c.Type == genai.BackendVertexAI {
+		return fmt.Errorf("`DeleteFileSearchStore` is not implemented yet for Vertex AI")
+	}
+
 	return c.client.FileSearchStores.Delete(ctx, fileSearchStoreName, &genai.DeleteFileSearchStoreConfig{
 		Force: ptr(true),
 	})
@@ -1054,6 +1199,10 @@ func (c *Client) DeleteFileSearchStore(
 func (c *Client) ListFileSearchStores(
 	ctx context.Context,
 ) (stores iter.Seq2[*genai.FileSearchStore, error]) {
+	if c.Type == genai.BackendVertexAI {
+		return yieldErrorAndEndIterator[genai.FileSearchStore](fmt.Errorf("`ListFileSearchStores` is not implemented yet for Vertex AI"))
+	}
+
 	return c.client.FileSearchStores.All(ctx)
 }
 
@@ -1062,6 +1211,10 @@ func (c *Client) GetFileSearchStore(
 	ctx context.Context,
 	fileSearchStoreName string,
 ) (store *genai.FileSearchStore, err error) {
+	if c.Type == genai.BackendVertexAI {
+		return nil, fmt.Errorf("`GetFileSearchStore` is not implemented yet for Vertex AI")
+	}
+
 	return c.client.FileSearchStores.Get(ctx, fileSearchStoreName, &genai.GetFileSearchStoreConfig{})
 }
 
@@ -1079,6 +1232,10 @@ func (c *Client) UploadFileForSearch(
 	chunkConfig *genai.ChunkingConfig,
 	overrideMimeType ...string,
 ) (operation *genai.UploadToFileSearchStoreOperation, err error) {
+	if c.Type == genai.BackendVertexAI {
+		return nil, fmt.Errorf("`UploadFileForSearch` is not implemented yet for Vertex AI")
+	}
+
 	config := &genai.UploadToFileSearchStoreConfig{
 		DisplayName: fileDisplayName,
 
@@ -1123,6 +1280,10 @@ func (c *Client) ImportFileForSearch(
 	metadata []*genai.CustomMetadata,
 	chunkConfig *genai.ChunkingConfig,
 ) (operation *genai.ImportFileOperation, err error) {
+	if c.Type == genai.BackendVertexAI {
+		return nil, fmt.Errorf("`ImportFileForSearch` is not implemented yet for Vertex AI")
+	}
+
 	return c.client.FileSearchStores.ImportFile(
 		ctx,
 		fileSearchStoreName,
@@ -1139,6 +1300,10 @@ func (c *Client) ListFilesInFileSearchStore(
 	ctx context.Context,
 	fileSearchStoreName string,
 ) iter.Seq2[*genai.Document, error] {
+	if c.Type == genai.BackendVertexAI {
+		return yieldErrorAndEndIterator[genai.Document](fmt.Errorf("`ListFilesInFileSearchStore` is not implemented yet for Vertex AI"))
+	}
+
 	return c.client.FileSearchStores.Documents.All(ctx, fileSearchStoreName)
 }
 
@@ -1147,6 +1312,10 @@ func (c *Client) DeleteFileInFileSearchStore(
 	ctx context.Context,
 	fileName string,
 ) error {
+	if c.Type == genai.BackendVertexAI {
+		return fmt.Errorf("`DeleteFileInFileSearchStore` is not implemented yet for Vertex AI")
+	}
+
 	return c.client.FileSearchStores.Documents.Delete(
 		ctx,
 		fileName,
@@ -1189,6 +1358,10 @@ func (c *Client) RequestBatchEmbeddings(
 	job *genai.EmbeddingsBatchJobSource,
 	displayName string,
 ) (batch *genai.BatchJob, err error) {
+	if c.Type == genai.BackendVertexAI {
+		return nil, fmt.Errorf("`RequestBatchEmbeddings` is not implemented yet for Vertex AI")
+	}
+
 	// check if model is set
 	if c.model == "" {
 		return nil, fmt.Errorf("model is not set for batch embeddings requests")

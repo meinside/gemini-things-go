@@ -457,8 +457,8 @@ func TestGenerationIteratedFree(t *testing.T) {
 	if contents, err := gtc.PromptsToContents(
 		ctxContents3,
 		[]Prompt{
-			PromptFromText(`Summarize this youtube video.`),
-			PromptFromURI(`https://www.youtube.com/watch?v=I44_zbEwz_w`),
+			PromptFromText(`Summarize this youtube video:`),
+			PromptFromURI(`https://www.youtube.com/watch?v=I44_zbEwz_w`, "video/mp4"),
 		},
 		nil,
 	); err != nil {
@@ -470,6 +470,13 @@ func TestGenerationIteratedFree(t *testing.T) {
 		for it, err := range gtc.GenerateStreamIterated(
 			ctxGenerate,
 			contents,
+			&GenerationOptions{
+				Tools: []*genai.Tool{
+					{
+						URLContext: &genai.URLContext{},
+					},
+				},
+			},
 		) {
 			if err != nil {
 				t.Errorf("generation with uri prompt (youtube) failed: %s", ErrToStr(err))
@@ -2182,66 +2189,70 @@ func TestBatchRequestsFree(t *testing.T) {
 		} else {
 			first := uploaded[0]
 
-			var filename string
+			batchJobSource := genai.BatchJobSource{}
+			var filename, fileURI string
 			switch typ := first.(type) {
 			case FilePrompt:
 				filename = typ.Filename
+				if typ.Data != nil {
+					fileURI = typ.Data.FileURI
+				}
+			}
+			switch gtc.Type {
+			case genai.BackendGeminiAPI:
+				batchJobSource.FileName = filename
+			case genai.BackendVertexAI:
+				batchJobSource.Format = "jsonl"
+				batchJobSource.GCSURI = []string{fileURI}
 			}
 
-			if filename != "" {
-				ctxRequest, cancelRequest := ctxWithTimeout()
-				defer cancelRequest()
+			ctxRequest, cancelRequest := ctxWithTimeout()
+			defer cancelRequest()
 
-				if batch, err := gtc.RequestBatch(
-					ctxRequest,
-					&genai.BatchJobSource{
-						// Format:   "jsonl", // FIXME: not supported in gemini?
-						FileName: filename,
-					},
-					"test-batch-request-with-file",
+			if batch, err := gtc.RequestBatch(
+				ctxRequest,
+				&batchJobSource,
+				"test-batch-request-with-file",
+			); err != nil {
+				t.Errorf("batch request failed: %s", ErrToStr(err))
+			} else {
+				verbose(">>> batch request: %s", prettify(batch))
+
+				ctxBatch, cancelBatch := ctxWithTimeout()
+				defer cancelBatch()
+
+				if got, err := gtc.Batch(
+					ctxBatch,
+					batch.Name,
 				); err != nil {
-					t.Errorf("batch request failed: %s", ErrToStr(err))
+					t.Errorf("failed to get batch: %s", ErrToStr(err))
 				} else {
-					verbose(">>> batch request: %s", prettify(batch))
+					verbose(">>> batch status: %s", prettify(got.State))
 
-					ctxBatch, cancelBatch := ctxWithTimeout()
-					defer cancelBatch()
+					ctxCancel, cancelCancel := ctxWithTimeout()
+					defer cancelCancel()
 
-					if got, err := gtc.Batch(
-						ctxBatch,
-						batch.Name,
+					if err := gtc.CancelBatch(
+						ctxCancel,
+						got.Name,
 					); err != nil {
-						t.Errorf("failed to get batch: %s", ErrToStr(err))
+						t.Errorf("failed to cancel batch: %s", ErrToStr(err))
 					} else {
-						verbose(">>> batch status: %s", prettify(got.State))
+						verbose(">>> batch canceled")
 
-						ctxCancel, cancelCancel := ctxWithTimeout()
-						defer cancelCancel()
+						ctxDelete, cancelDelete := ctxWithTimeout()
+						defer cancelDelete()
 
-						if err := gtc.CancelBatch(
-							ctxCancel,
+						if err := gtc.DeleteBatch(
+							ctxDelete,
 							got.Name,
 						); err != nil {
-							t.Errorf("failed to cancel batch: %s", ErrToStr(err))
+							t.Errorf("failed to delete batch: %s", ErrToStr(err))
 						} else {
-							verbose(">>> batch canceled")
-
-							ctxDelete, cancelDelete := ctxWithTimeout()
-							defer cancelDelete()
-
-							if err := gtc.DeleteBatch(
-								ctxDelete,
-								got.Name,
-							); err != nil {
-								t.Errorf("failed to delete batch: %s", ErrToStr(err))
-							} else {
-								verbose(">>> batch deleted")
-							}
+							verbose(">>> batch deleted")
 						}
 					}
 				}
-			} else {
-				t.Errorf("failed to get uploaded json file, got: %+v", first)
 			}
 		}
 	}

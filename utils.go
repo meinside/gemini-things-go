@@ -118,10 +118,7 @@ func (c *Client) processPromptToPartAndInfo(
 	ignoreMime := len(ignoreMimeType) > 0 && ignoreMimeType[0]
 
 	switch prompt := p.(type) {
-	case TextPrompt:
-		return ptr(prompt.ToPart()), prompt, nil, nil
-
-	case URIPrompt:
+	case TextPrompt, URIPrompt:
 		return ptr(prompt.ToPart()), prompt, nil, nil
 
 	case FilePrompt:
@@ -197,13 +194,11 @@ func (c *Client) processPromptToPartAndInfo(
 			matchedMimeType = convertedMimeType
 		}
 
-		uploadedFile, uploadErr := c.client.Files.Upload(
+		uploadedFile, uploadErr := c.UploadFile(
 			ctx,
 			currentReader,
-			&genai.UploadFileConfig{
-				MIMEType:    matchedMimeType,
-				DisplayName: prompt.Filename, // Use original filename for display
-			},
+			prompt.Filename, // Use original filename for display
+			matchedMimeType,
 		)
 		if uploadErr != nil {
 			return nil, prompt, nil, fmt.Errorf(
@@ -214,14 +209,26 @@ func (c *Client) processPromptToPartAndInfo(
 			)
 		}
 
-		updatedFilePrompt := FilePrompt{
-			Filename: uploadedFile.Name, // Store the server-generated unique name
-			Data: &genai.FileData{
-				// DisplayName: uploadedFile.Name, // FIXME: uncomment this line when Gemini API supports it
-				FileURI:  uploadedFile.URI,
-				MIMEType: uploadedFile.MIMEType,
-			},
-			// reader is not needed in the updated prompt as it's already uploaded
+		var updatedFilePrompt FilePrompt
+		switch c.Type {
+		case genai.BackendGeminiAPI:
+			updatedFilePrompt = FilePrompt{
+				Filename: uploadedFile.Name, // Store the server-generated unique name
+				Data: &genai.FileData{
+					// DisplayName: uploadedFile.Name, // FIXME: uncomment this line when Gemini API supports it
+					FileURI:  uploadedFile.URI,
+					MIMEType: uploadedFile.MIMEType,
+				},
+			}
+		case genai.BackendVertexAI:
+			updatedFilePrompt = FilePrompt{
+				Filename: uploadedFile.DisplayName,
+				Data: &genai.FileData{
+					DisplayName: uploadedFile.DisplayName,
+					FileURI:     uploadedFile.URI,
+					MIMEType:    uploadedFile.MIMEType,
+				},
+			}
 		}
 		return ptr(updatedFilePrompt.ToPart()), updatedFilePrompt, ptr(uploadedFile.Name), nil
 
@@ -275,13 +282,11 @@ func (c *Client) processPromptToPartAndInfo(
 			displayName = fmt.Sprintf("prompts[%d] (%d bytes)", promptIndex, len(currentBytes))
 		}
 
-		uploadedFile, uploadErr := c.client.Files.Upload(
+		uploadedFile, uploadErr := c.UploadFile(
 			ctx,
 			bytes.NewReader(currentBytes),
-			&genai.UploadFileConfig{
-				MIMEType:    matchedMimeType,
-				DisplayName: displayName,
-			},
+			displayName,
+			matchedMimeType,
 		)
 		if uploadErr != nil {
 			return nil, prompt, nil, fmt.Errorf(
@@ -293,12 +298,25 @@ func (c *Client) processPromptToPartAndInfo(
 		}
 
 		// Convert BytesPrompt to FilePrompt after upload
-		fileDataPrompt := FilePrompt{
-			Filename: uploadedFile.Name, // Store the server-generated unique name
-			Data: &genai.FileData{
-				FileURI:  uploadedFile.URI,
-				MIMEType: uploadedFile.MIMEType,
-			},
+		var fileDataPrompt FilePrompt
+		switch c.Type {
+		case genai.BackendGeminiAPI:
+			fileDataPrompt = FilePrompt{
+				Filename: uploadedFile.Name, // Store the server-generated unique name
+				Data: &genai.FileData{
+					FileURI:  uploadedFile.URI,
+					MIMEType: uploadedFile.MIMEType,
+				},
+			}
+		case genai.BackendVertexAI:
+			fileDataPrompt = FilePrompt{
+				Filename: uploadedFile.DisplayName,
+				Data: &genai.FileData{
+					DisplayName: uploadedFile.DisplayName,
+					FileURI:     uploadedFile.URI,
+					MIMEType:    uploadedFile.MIMEType,
+				},
+			}
 		}
 		return ptr(fileDataPrompt.ToPart()), fileDataPrompt, ptr(uploadedFile.Name), nil
 
@@ -377,7 +395,7 @@ func (c *Client) UploadFilesAndWait(
 		}
 	}
 
-	if len(fileNamesToWaitFor) > 0 {
+	if c.Type == genai.BackendGeminiAPI && len(fileNamesToWaitFor) > 0 {
 		if c.Verbose {
 			log.Printf(
 				"> waiting for %d file(s) to become active: %v",
@@ -1083,8 +1101,8 @@ func ChunkText(text string, opts ...TextChunkOption) (ChunkedText, error) {
 }
 
 // for exiting an iterator with an error
-func yieldErrorAndEndIterator(err error) iter.Seq2[*genai.GenerateContentResponse, error] {
-	return func(yield func(*genai.GenerateContentResponse, error) bool) {
+func yieldErrorAndEndIterator[T any](err error) iter.Seq2[*T, error] {
+	return func(yield func(*T, error) bool) {
 		if !yield(nil, err) {
 			return
 		}
