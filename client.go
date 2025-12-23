@@ -14,11 +14,13 @@ import (
 	"time"
 
 	"cloud.google.com/go/auth"
+	"cloud.google.com/go/auth/credentials"
 	"cloud.google.com/go/storage"
 	"github.com/gabriel-vasile/mimetype"
 	"github.com/google/uuid"
 	"github.com/googleapis/gax-go/v2/apierror"
 	"google.golang.org/api/googleapi"
+	"google.golang.org/api/option"
 	"google.golang.org/genai"
 	"google.golang.org/grpc/codes"
 )
@@ -136,85 +138,81 @@ func NewClient(apiKey string, opts ...ClientOption) (*Client, error) {
 	return c, nil
 }
 
-// NewVertextClient creates and returns a new Client instance which uses Vertex AI API.
+// NewVertexClient creates and returns a new Client instance which uses Vertex AI API.
 //
 // It requires a project ID, location, and credentials and accepts optional ClientOption functions to customize the client.
-//
-// Example:
-//
-//	if credentials, err := credentials.NewCredentialsFromJSON(
-//	  credentials.ServiceAccount,
-//	  jsonBytes,
-//	  &credentials.DetectOptions{
-//	    Scopes: []string{"https://www.googleapis.com/auth/cloud-platform"},
-//	  },
-//	); err == nil {
-//	  client, err := gt.NewVertextClient(
-//	    "YOUR_PROJECT_ID",
-//	    "global",
-//	    credentials,
-//	    gt.WithModel("gemini-2.5-flash"),
-//	    gt.WithMaxRetryCount(3),
-//	  )
-//	  if err != nil {
-//	    log.Fatal(err)
-//	  }
-//	  defer client.Close()
-//	} else {
-//	  log.Fatal(err)
-//	}
-func NewVertextClient(
-	projectID string,
+func NewVertexClient(
+	ctx context.Context,
+	credentialsJSON []byte,
 	location string,
-	credentials *auth.Credentials,
 	opts ...ClientOption,
 ) (*Client, error) {
 	var err error
 
-	// genai client
-	var client *genai.Client
-	client, err = genai.NewClient(
-		context.TODO(),
-		&genai.ClientConfig{
-			Backend:     genai.BackendVertexAI,
-			Project:     projectID,
-			Location:    location,
-			Credentials: credentials,
-			// HTTPOptions: genai.HTTPOptions{APIVersion: "v1"},
+	// credentials
+	var creds *auth.Credentials
+	if creds, err = credentials.NewCredentialsFromJSON(
+		credentials.ServiceAccount,
+		credentialsJSON,
+		&credentials.DetectOptions{
+			Scopes: []string{"https://www.googleapis.com/auth/cloud-platform"},
 		},
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create genai client: %w", err)
+	); err == nil {
+		var projectID string
+		projectID, err = creds.ProjectID(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get project ID: %w", err)
+		}
+
+		// genai client
+		var client *genai.Client
+		client, err = genai.NewClient(
+			ctx,
+			&genai.ClientConfig{
+				Backend:     genai.BackendVertexAI,
+				Project:     projectID,
+				Location:    location,
+				Credentials: creds,
+			},
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create genai client: %w", err)
+		}
+
+		// google cloud storage client
+		var sclient *storage.Client
+		if sclient, err = storage.NewClient(
+			ctx,
+			option.WithAuthCredentials(creds),
+		); err != nil {
+			return nil, fmt.Errorf("failed to create google cloud storage client: %w", err)
+		}
+
+		c := &Client{
+			client:                  client,
+			Type:                    genai.BackendVertexAI,
+			projectID:               projectID,
+			storage:                 sclient,
+			bucketName:              defaultBucketName,
+			numDaysUploadedFilesTTL: defaultNumDaysUploadedFilesTTL,
+			systemInstructionFunc: func() string {
+				return defaultSystemInstruction
+			},
+			fileConvertFuncs:    make(map[string]FnConvertBytes),
+			maxRetryCount:       defaultMaxRetryCount,
+			DeleteFilesOnClose:  false,
+			DeleteCachesOnClose: false,
+			Verbose:             false,
+		}
+
+		for _, opt := range opts {
+			opt(c)
+		}
+
+		return c, nil
 	}
 
-	// google cloud storage client
-	var sclient *storage.Client
-	if sclient, err = storage.NewClient(context.TODO()); err != nil {
-		return nil, fmt.Errorf("failed to create google cloud storage client: %w", err)
-	}
-
-	c := &Client{
-		client:                  client,
-		Type:                    genai.BackendVertexAI,
-		projectID:               projectID,
-		storage:                 sclient,
-		bucketName:              defaultBucketName,
-		numDaysUploadedFilesTTL: defaultNumDaysUploadedFilesTTL,
-		systemInstructionFunc: func() string {
-			return defaultSystemInstruction
-		},
-		fileConvertFuncs:    make(map[string]FnConvertBytes),
-		maxRetryCount:       defaultMaxRetryCount,
-		DeleteFilesOnClose:  false,
-		DeleteCachesOnClose: false,
-		Verbose:             false,
-	}
-
-	for _, opt := range opts {
-		opt(c)
-	}
-
-	return c, nil
+	return nil, fmt.Errorf("failed to read credentials from JSON: %w", err)
 }
 
 // SetBucketName sets the name of the Google Cloud Storage bucket to use for
