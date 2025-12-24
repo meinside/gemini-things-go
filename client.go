@@ -592,10 +592,14 @@ func (c *Client) GenerateVideos(
 	for {
 		if status, err = c.client.Operations.GetVideosOperation(ctx, operation, &genai.GetOperationConfig{}); err == nil {
 			if c.Verbose {
-				log.Printf("> videos operation status: %v (%s)", status.Done, prettify(status.Metadata))
+				log.Printf("> videos operation status: %s", prettify(status))
 			}
 
 			if status.Done {
+				if len(status.Error) > 0 {
+					return nil, fmt.Errorf("there was an error in returned status: %s", prettify(status.Error))
+				}
+
 				return status.Response, nil
 			}
 			time.Sleep(generatingVideoFileStateCheckIntervalMilliseconds * time.Millisecond)
