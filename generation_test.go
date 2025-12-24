@@ -14,7 +14,8 @@ import (
 )
 
 const (
-	timeoutSecondsForTesting = 60
+	timeoutSecondsForTesting                = 60
+	timeoutSecondsForTestingVideoGeneration = 60 * 5 // 5 minutes
 
 	// keys for environment variables
 	keyVerbose                   = `VERBOSE`
@@ -54,8 +55,13 @@ func TestMain(m *testing.M) {
 }
 
 // create context with timeout for testing
-func ctxWithTimeout() (context.Context, context.CancelFunc) {
-	return context.WithTimeout(context.Background(), timeoutSecondsForTesting*time.Second)
+func ctxWithTimeout(seconds ...int) (context.Context, context.CancelFunc) {
+	secondsToWait := time.Duration(timeoutSecondsForTesting)
+	if len(seconds) > 0 {
+		secondsToWait = time.Duration(seconds[0])
+	}
+
+	return context.WithTimeout(context.Background(), secondsToWait*time.Second)
 }
 
 // sleep between each test case to not be rate limited by the API
