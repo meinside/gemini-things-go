@@ -28,10 +28,10 @@ const (
 )
 
 const (
-	uploadedFileStateCheckIntervalMilliseconds       = 300  // 300 milliseconds
-	uploadedFileSearchStateCheckIntervalMilliseconds = 1000 // 1000 milliseconds
+	uploadedFileStateCheckIntervalMilliseconds       = 300  // 0.3 second
+	uploadedFileSearchStateCheckIntervalMilliseconds = 1000 // 1.0 second
 
-	generatingVideoFileStateCheckIntervalMilliseconds = 1000 // 1000 milliseconds
+	generatingVideoFileStateCheckIntervalMilliseconds = 5000 // 5.0 seconds
 )
 
 // waitForFiles waits for all specified uploaded files
