@@ -218,6 +218,12 @@ func (c *Client) SetBucketName(name string) {
 	c.bucketName = name
 }
 
+// GetBucketName returns the name of the Google Cloud Storage bucket to use for
+// (temporary) file uploads.
+func (c *Client) GetBucketName() string {
+	return c.bucketName
+}
+
 // SetNumDaysUploadedFilesTTL sets the number of days for which uploaded files
 // should be retained in the Google Cloud Storage bucket.
 func (c *Client) SetNumDaysUploadedFilesTTL(days int64) {
