@@ -27,7 +27,6 @@ const (
 	modelForContextCachingFree                       = `gemini-3-flash-preview`
 	modelForTextGenerationFree                       = `gemini-3-flash-preview`
 	modelForTextGenerationWithRecursiveToolCallsFree = `gemini-3-flash-preview`
-	modelForImageGenerationFree                      = `gemini-2.0-flash-preview-image-generation`
 	modelForTextGenerationWithGroundingFree          = `gemini-2.5-flash`
 	modelForFileSearchFree                           = `gemini-2.5-flash`
 	modelForSpeechGenerationFree                     = `gemini-2.5-flash-preview-tts`
@@ -129,7 +128,7 @@ func TestContextCachingFree(t *testing.T) {
 			for it, err := range gtc.GenerateStreamIterated(
 				ctxGenerate,
 				contents,
-				&GenerationOptions{
+				&genai.GenerateContentConfig{
 					CachedContent: cachedContextName,
 				},
 			) {
@@ -157,7 +156,7 @@ func TestContextCachingFree(t *testing.T) {
 			if generated, err := gtc.Generate(
 				ctxGenerate,
 				contents,
-				&GenerationOptions{
+				&genai.GenerateContentConfig{
 					CachedContent: cachedContextName,
 				},
 			); err != nil {
@@ -470,7 +469,7 @@ func TestGenerationIteratedFree(t *testing.T) {
 		for it, err := range gtc.GenerateStreamIterated(
 			ctxGenerate,
 			contents,
-			&GenerationOptions{
+			&genai.GenerateContentConfig{
 				Tools: []*genai.Tool{
 					{
 						URLContext: &genai.URLContext{},
@@ -639,7 +638,7 @@ func TestGenerationWithFileConverterFree(t *testing.T) {
 		if generated, err := gtc.Generate(
 			ctxGenerate,
 			contents,
-			&GenerationOptions{},
+			&genai.GenerateContentConfig{},
 		); err != nil {
 			t.Errorf("generation with file converter failed: %s", ErrToStr(err))
 		} else {
@@ -788,7 +787,7 @@ func TestGenerationWithFunctionCallFree(t *testing.T) {
 		for it, err := range gtc.GenerateStreamIterated(
 			ctxGenerate,
 			contents,
-			&GenerationOptions{
+			&genai.GenerateContentConfig{
 				Tools: []*genai.Tool{
 					{
 						FunctionDeclarations: fnDeclarations,
@@ -879,7 +878,7 @@ func TestGenerationWithFunctionCallFree(t *testing.T) {
 										for it, err := range gtc.GenerateStreamIterated(
 											ctxGenerate,
 											contents,
-											&GenerationOptions{
+											&genai.GenerateContentConfig{
 												Tools: []*genai.Tool{
 													{
 														FunctionDeclarations: fnDeclarations,
@@ -955,26 +954,24 @@ func TestGenerationWithStructuredOutputFree(t *testing.T) {
 		if generated, err := gtc.Generate(
 			ctxGenerate,
 			contents,
-			&GenerationOptions{
-				Config: &genai.GenerationConfig{
-					ResponseMIMEType: "application/json",
-					ResponseSchema: &genai.Schema{
-						Type:     genai.TypeObject,
-						Nullable: ptr(false),
-						Properties: map[string]*genai.Schema{
-							paramNamePositivePrompt: {
-								Type:        genai.TypeString,
-								Description: paramDescPositivePrompt,
-								Nullable:    ptr(false),
-							},
-							paramNameNegativePrompt: {
-								Type:        genai.TypeString,
-								Description: paramDescNegativePrompt,
-								Nullable:    ptr(true),
-							},
+			&genai.GenerateContentConfig{
+				ResponseMIMEType: "application/json",
+				ResponseSchema: &genai.Schema{
+					Type:     genai.TypeObject,
+					Nullable: ptr(false),
+					Properties: map[string]*genai.Schema{
+						paramNamePositivePrompt: {
+							Type:        genai.TypeString,
+							Description: paramDescPositivePrompt,
+							Nullable:    ptr(false),
 						},
-						Required: []string{paramNamePositivePrompt, paramNameNegativePrompt},
+						paramNameNegativePrompt: {
+							Type:        genai.TypeString,
+							Description: paramDescNegativePrompt,
+							Nullable:    ptr(true),
+						},
 					},
+					Required: []string{paramNamePositivePrompt, paramNameNegativePrompt},
 				},
 			},
 		); err == nil {
@@ -1040,7 +1037,7 @@ func TestGenerationWithCodeExecutionFree(t *testing.T) {
 		if generated, err := gtc.Generate(
 			ctxGenerate,
 			contents,
-			&GenerationOptions{
+			&genai.GenerateContentConfig{
 				Tools: []*genai.Tool{
 					{
 						CodeExecution: &genai.ToolCodeExecution{},
@@ -1088,7 +1085,7 @@ func TestGenerationWithCodeExecutionFree(t *testing.T) {
 		if generated, err := gtc.Generate(
 			ctxGenerate,
 			contents,
-			&GenerationOptions{
+			&genai.GenerateContentConfig{
 				Tools: []*genai.Tool{
 					{
 						CodeExecution: &genai.ToolCodeExecution{},
@@ -1298,155 +1295,6 @@ func TestEmbeddingsFree(t *testing.T) {
 	}
 }
 
-// TestImageGenerationsFree tests image generations. (free)
-func TestImageGenerationsFree(t *testing.T) {
-	sleepForNotBeingRateLimited()
-
-	gtc, err := newClient(
-		WithModel(modelForImageGenerationFree),
-	)
-	if err != nil {
-		t.Fatalf("failed to create client: %s", err)
-	}
-	// Image generation models typically do not support system instructions.
-	// Setting this to nil prevents the client from attempting to send one for other types of calls,
-	// though GenerateImages itself doesn't use the client's systemInstructionFunc.
-	gtc.SetSystemInstructionFunc(nil)
-	gtc.Verbose = _isVerbose
-	defer func() { _ = gtc.Close() }()
-
-	const prompt = `Generate an image of a golden retriever puppy playing with a colorful ball in a grassy park`
-
-	// text-only prompt using the general Generate method
-	// For image generation models, requesting ResponseModalityImage is essential.
-	// Requesting ResponseModalityText is also fine if the model can provide textual descriptions or errors.
-	if contents, err := gtc.PromptsToContents(
-		context.TODO(),
-		[]Prompt{
-			PromptFromText(prompt),
-		},
-		nil,
-	); err != nil {
-		t.Errorf("failed to convert prompts to contents: %s", err)
-	} else {
-		ctxGenerate, cancelGenerate := ctxWithTimeout()
-		defer cancelGenerate()
-
-		if res, err := gtc.Generate(
-			ctxGenerate,
-			contents,
-			&GenerationOptions{
-				HarmBlockThreshold: ptr(genai.HarmBlockThresholdBlockOnlyHigh),
-				ResponseModalities: []genai.Modality{
-					genai.ModalityText, // FIXME: when not given, error: 'Code: 400, Message: Model does not support the requested response modalities: image, Status: INVALID_ARGUMENT'
-					genai.ModalityImage,
-				},
-			},
-		); err != nil {
-			t.Errorf("image generation with text prompt (non-streamed) failed: %s", ErrToStr(err))
-		} else {
-			if res.PromptFeedback != nil {
-				t.Errorf("image generation with text prompt (non-streamed) failed with finish reason: %s", res.PromptFeedback.BlockReasonMessage)
-			} else if res.Candidates != nil {
-				for _, cand := range res.Candidates {
-					for _, part := range cand.Content.Parts {
-						if part.InlineData != nil {
-							verbose(">>> iterating response image: %s (%d bytes)", part.InlineData.MIMEType, len(part.InlineData.Data))
-						} else if part.Text != "" {
-							verbose(">>> iterating response text: %s", part.Text)
-						}
-					}
-				}
-			} else {
-				t.Errorf("image generation with text prompt failed with no usable result")
-			}
-		}
-	}
-
-	// text-only prompt (iterated)
-	if contents, err := gtc.PromptsToContents(
-		context.TODO(),
-		[]Prompt{
-			PromptFromText(prompt),
-		},
-		nil,
-	); err != nil {
-		t.Errorf("failed to convert prompts to contents: %s", err)
-	} else {
-		ctxGenerate, cancelGenerate := ctxWithTimeout()
-		defer cancelGenerate()
-
-		failed := true
-		for it, err := range gtc.GenerateStreamIterated(
-			ctxGenerate,
-			contents,
-			&GenerationOptions{
-				HarmBlockThreshold: ptr(genai.HarmBlockThresholdBlockOnlyHigh),
-				ResponseModalities: []genai.Modality{
-					genai.ModalityText, // FIXME: when not given, error: 'Code: 400, Message: Model does not support the requested response modalities: image, Status: INVALID_ARGUMENT'
-					genai.ModalityImage,
-				},
-			},
-		) {
-			if err != nil {
-				t.Errorf("image generation with text prompt (iterated) failed: %s", ErrToStr(err))
-			} else {
-				if it.PromptFeedback != nil {
-					t.Errorf("image generation with text prompt (iterated) failed with finish reason: %s", it.PromptFeedback.BlockReasonMessage)
-				} else if it.Candidates != nil {
-					for i, cand := range it.Candidates {
-						for _, part := range cand.Content.Parts {
-							if part.InlineData != nil {
-								verbose(">>> iterating response image from candidate[%d]: %s (%d bytes)", i, part.InlineData.MIMEType, len(part.InlineData.Data))
-
-								failed = false
-							} else if part.Text != "" {
-								verbose(">>> iterating response text from candidate[%d]: %s", i, part.Text)
-							}
-						}
-					}
-				}
-			}
-		}
-		if failed {
-			t.Errorf("iterated image generation with text prompt failed with no usable result")
-		}
-	}
-
-	ctxGenerate, cancelGenerate := ctxWithTimeout()
-	defer cancelGenerate()
-
-	// test `GenerateImages`
-	if res, err := gtc.GenerateImages(
-		ctxGenerate,
-		prompt,
-	); err != nil {
-		t.Errorf("image generation with `GenerateImages` failed: %s", ErrToStr(err))
-	} else {
-		if len(res.GeneratedImages) > 0 {
-			for _, image := range res.GeneratedImages {
-				if image.RAIFilteredReason != "" {
-					t.Errorf("image generation with `GenerateImages` failed with filtered reason: %s", image.RAIFilteredReason)
-				} else {
-					if image.EnhancedPrompt != "" {
-						verbose(">>> iterating response image with enhanced prompt: '%s'", image.EnhancedPrompt)
-					}
-
-					if image.Image == nil {
-						t.Errorf("image generation with `GenerateImages` failed with null image")
-					} else {
-						verbose(">>> iterating response image: %s (%d bytes)", image.Image.MIMEType, len(image.Image.ImageBytes))
-					}
-				}
-			}
-		} else {
-			t.Errorf("image generation with `GenerateImages` failed with no usable result")
-		}
-	}
-
-	// TODO: add tests for: prompt with an image file
-}
-
 // TestSpeechGenerationsFree tests various types of speech generations. (free)
 func TestSpeechGenerationsFree(t *testing.T) {
 	sleepForNotBeingRateLimited()
@@ -1478,10 +1326,9 @@ func TestSpeechGenerationsFree(t *testing.T) {
 		if res, err := gtc.Generate(
 			ctxGenerate,
 			contents,
-			&GenerationOptions{
-				HarmBlockThreshold: ptr(genai.HarmBlockThresholdBlockOnlyHigh),
-				ResponseModalities: []genai.Modality{
-					genai.ModalityAudio,
+			&genai.GenerateContentConfig{
+				ResponseModalities: []string{
+					string(genai.ModalityAudio),
 				},
 				SpeechConfig: &genai.SpeechConfig{
 					VoiceConfig: &genai.VoiceConfig{
@@ -1530,10 +1377,9 @@ Jane: Not too bad, how about you?`
 		for it, err := range gtc.GenerateStreamIterated(
 			ctxGenerate,
 			contents,
-			&GenerationOptions{
-				HarmBlockThreshold: ptr(genai.HarmBlockThresholdBlockOnlyHigh),
-				ResponseModalities: []genai.Modality{
-					genai.ModalityAudio,
+			&genai.GenerateContentConfig{
+				ResponseModalities: []string{
+					string(genai.ModalityAudio),
 				},
 				SpeechConfig: &genai.SpeechConfig{
 					MultiSpeakerVoiceConfig: &genai.MultiSpeakerVoiceConfig{
@@ -1618,13 +1464,12 @@ func TestGroundingFree(t *testing.T) {
 		if res, err := gtc.Generate(
 			ctxGenerate,
 			contents,
-			&GenerationOptions{
+			&genai.GenerateContentConfig{
 				Tools: []*genai.Tool{
 					{
 						GoogleSearch: &genai.GoogleSearch{},
 					},
 				},
-				HarmBlockThreshold: ptr(genai.HarmBlockThresholdBlockOnlyHigh),
 			},
 		); err != nil {
 			t.Errorf("generation with grounding with google search (non-streamed) failed: %s", ErrToStr(err))
@@ -1659,13 +1504,12 @@ func TestGroundingFree(t *testing.T) {
 		for it, err := range gtc.GenerateStreamIterated(
 			ctxGenerate,
 			contents,
-			&GenerationOptions{
+			&genai.GenerateContentConfig{
 				Tools: []*genai.Tool{
 					{
 						GoogleSearch: &genai.GoogleSearch{},
 					},
 				},
-				HarmBlockThreshold: ptr(genai.HarmBlockThresholdBlockOnlyHigh),
 			},
 		) {
 			if err != nil {
@@ -1737,7 +1581,7 @@ drwxr-xr-x 28 ubuntu ubuntu  4096 Jun 17 15:42 ../
 				},
 			},
 			contents,
-			&GenerationOptions{
+			&genai.GenerateContentConfig{
 				Tools: []*genai.Tool{
 					{
 						FunctionDeclarations: []*genai.FunctionDeclaration{
@@ -1988,7 +1832,7 @@ func TestFileSearchFree(t *testing.T) {
 			if generated, err := gtc.Generate(
 				ctxGenerate,
 				contents,
-				&GenerationOptions{
+				&genai.GenerateContentConfig{
 					Tools: []*genai.Tool{
 						{
 							FileSearch: &genai.FileSearch{

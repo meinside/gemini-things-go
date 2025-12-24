@@ -36,9 +36,6 @@ Respond to the user according to the following principles:
 - Be as comprehensive and informative as possible.
 `
 
-	// default thinking budget
-	defaultThingkingBudget int32 = 1024
-
 	// default maximum retry count
 	defaultMaxRetryCount uint = 3 // NOTE: will retry only on `5xx` errors
 )
@@ -345,10 +342,10 @@ func (c *Client) SetMaxRetryCount(count uint) {
 func (c *Client) generateStream(
 	ctx context.Context,
 	contents []*genai.Content,
-	options ...*GenerationOptions,
+	options ...*genai.GenerateContentConfig,
 ) iter.Seq2[*genai.GenerateContentResponse, error] {
 	// generation options
-	var opts *GenerationOptions = nil
+	var opts *genai.GenerateContentConfig = nil
 	if len(options) > 0 {
 		opts = options[0]
 	}
@@ -366,7 +363,7 @@ func (c *Client) generateStream(
 		ctx,
 		c.model,
 		contents,
-		c.generateContentConfig(opts),
+		c.alterGenerateContentConfig(opts),
 	)
 }
 
@@ -375,9 +372,6 @@ func (c *Client) generateStream(
 //
 // A `model` must be set in the Client (e.g., via WithModel or by setting c.model directly)
 // before calling this function, otherwise an error will be yielded by the iterator.
-//
-// This function itself does not implement a timeout. If a timeout is required,
-// it should be managed by passing a context with a deadline (`context.WithTimeout`).
 //
 // Example:
 //
@@ -395,7 +389,7 @@ func (c *Client) generateStream(
 func (c *Client) GenerateStreamIterated(
 	ctx context.Context,
 	contents []*genai.Content,
-	options ...*GenerationOptions,
+	options ...*genai.GenerateContentConfig,
 ) iter.Seq2[*genai.GenerateContentResponse, error] {
 	// check if model is set
 	if c.model == "" {
@@ -410,15 +404,12 @@ func (c *Client) GenerateStreamIterated(
 //
 // A `model` must be set in the Client before calling.
 //
-// This function itself does not implement a timeout. If a timeout is required,
-// it should be managed by passing a context with a deadline (`context.WithTimeout`).
-//
 // It also implements a retry mechanism for 5xx server errors, configured by `c.maxRetryCount`
 // (configurable via `WithMaxRetryCount` or `SetMaxRetryCount`).
 func (c *Client) Generate(
 	ctx context.Context,
 	contents []*genai.Content,
-	options ...*GenerationOptions, // Optional GenerationOptions to customize the request.
+	options ...*genai.GenerateContentConfig, // Optional genai.GenerateContentConfig to customize the request.
 ) (res *genai.GenerateContentResponse, err error) {
 	// check if model is set
 	if c.model == "" {
@@ -426,7 +417,7 @@ func (c *Client) Generate(
 	}
 
 	// generation options
-	var opts *GenerationOptions = nil
+	var opts *genai.GenerateContentConfig = nil
 	if len(options) > 0 {
 		opts = options[0]
 	}
@@ -450,7 +441,7 @@ func (c *Client) GenerateWithRecursiveToolCalls(
 	ctx context.Context,
 	fnCallHandlers map[string]FunctionCallHandler,
 	contents []*genai.Content,
-	options ...*GenerationOptions, // Optional GenerationOptions to customize the request.
+	options ...*genai.GenerateContentConfig, // Optional genai.GenerateContentConfig to customize the request.
 ) (res *genai.GenerateContentResponse, err error) {
 	res, err = c.Generate(ctx, contents, options...)
 	if err == nil {
@@ -492,35 +483,13 @@ func (c *Client) GenerateWithRecursiveToolCalls(
 	return res, err
 }
 
-// ImageGenerationOptions defines parameters for image generation requests.
-// These options correspond to the fields in `genai.GenerateImagesConfig`.
-type ImageGenerationOptions struct {
-	NegativePrompt           string                    `json:"negativePrompt,omitempty"`           // Specifies what not to include in the generated images.
-	NumberOfImages           int32                     `json:"numberOfImages,omitempty"`           // The number of images to generate.
-	AspectRatio              string                    `json:"aspectRatio,omitempty"`              // The desired aspect ratio for the generated images (e.g., "16:9", "1:1").
-	GuidanceScale            *float32                  `json:"guidanceScale,omitempty"`            // Controls how closely the image generation follows the prompt.
-	Seed                     *int32                    `json:"seed,omitempty"`                     // A seed for deterministic image generation.
-	SafetyFilterLevel        genai.SafetyFilterLevel   `json:"safetyFilterLevel,omitempty"`        // The safety filtering level to apply.
-	PersonGeneration         genai.PersonGeneration    `json:"personGeneration,omitempty"`         // Controls settings related to person generation.
-	IncludeSafetyAttributes  bool                      `json:"includeSafetyAttributes,omitempty"`  // Whether to include safety attributes in the response.
-	IncludeRAIReason         bool                      `json:"includeRaiReason,omitempty"`         // Whether to include RAI (Responsible AI) reasons in the response.
-	Language                 genai.ImagePromptLanguage `json:"language,omitempty"`                 // The language of the prompt.
-	OutputMIMEType           string                    `json:"outputMimeType,omitempty"`           // The desired MIME type for the output images.
-	OutputCompressionQuality *int32                    `json:"outputCompressionQuality,omitempty"` // The compression quality for the output images.
-	AddWatermark             bool                      `json:"addWatermark,omitempty"`             // Whether to add a watermark to the generated images.
-	EnhancePrompt            bool                      `json:"enhancePrompt,omitempty"`            // Whether to enhance the prompt for better image generation.
-}
-
 // GenerateImages generates images based on the provided text prompt and options.
 //
 // A `model` (specifically an image generation model) must be set in the Client before calling.
-//
-// This function itself does not implement a timeout. If a timeout is required,
-// it should be managed by passing a context with a deadline (`context.WithTimeout`).
 func (c *Client) GenerateImages(
 	ctx context.Context,
 	prompt string, // The text prompt describing the images to generate.
-	options ...*ImageGenerationOptions, // Optional ImageGenerationOptions to customize the request.
+	options ...*genai.GenerateImagesConfig, // Optional genai.GenerateImagesConfig to customize the request.
 ) (res *genai.GenerateImagesResponse, err error) {
 	// check if model is set
 	if c.model == "" {
@@ -529,32 +498,15 @@ func (c *Client) GenerateImages(
 
 	// generation options
 	var config *genai.GenerateImagesConfig = nil
-	var opts *ImageGenerationOptions = nil
 	if len(options) > 0 {
-		opts = options[0]
-		config = &genai.GenerateImagesConfig{
-			NegativePrompt:           opts.NegativePrompt,
-			NumberOfImages:           opts.NumberOfImages,
-			AspectRatio:              opts.AspectRatio,
-			GuidanceScale:            opts.GuidanceScale,
-			Seed:                     opts.Seed,
-			SafetyFilterLevel:        opts.SafetyFilterLevel,
-			PersonGeneration:         opts.PersonGeneration,
-			IncludeSafetyAttributes:  opts.IncludeRAIReason,
-			IncludeRAIReason:         opts.IncludeRAIReason,
-			Language:                 opts.Language,
-			OutputMIMEType:           opts.OutputMIMEType,
-			OutputCompressionQuality: opts.OutputCompressionQuality,
-			AddWatermark:             opts.AddWatermark,
-			EnhancePrompt:            opts.EnhancePrompt,
-		}
+		config = options[0]
 	}
 
 	if c.Verbose {
 		log.Printf(
 			"> generating images with prompt: '%s' (options: %s)",
 			prompt,
-			prettify(opts),
+			prettify(config),
 		)
 	}
 
@@ -570,12 +522,93 @@ func (c *Client) GenerateImages(
 	return res, nil
 }
 
+// GenerateVideos generates videos based on the provided text prompt and options.
+// It will wait for the operation to complete before returning the result.
+//
+// A `model` (specifically a video generation model) must be set in the Client before calling.
+func (c *Client) GenerateVideos(
+	ctx context.Context,
+	prompt *string, // The optional text prompt describing the videos to generate.
+	image *genai.Image, // The optional image prompt for the video.
+	video *genai.Video, // The optional video prompt for the video.
+	options ...*genai.GenerateVideosConfig, // Optional genai.GenerateVideosConfig to customize the request.
+) (res *genai.GenerateVideosResponse, err error) {
+	// check if model is set
+	if c.model == "" {
+		return nil, fmt.Errorf("model is not set for generating videos")
+	}
+
+	// check params
+	if prompt == nil && image == nil && video == nil {
+		return nil, fmt.Errorf("at least one of prompt, image, or video must be provided")
+	}
+
+	// generation options
+	var config *genai.GenerateVideosConfig = nil
+	if len(options) > 0 {
+		config = options[0]
+	}
+
+	if c.Verbose {
+		log.Printf(
+			"> generating videos (options: %s)",
+			prettify(config),
+		)
+	}
+
+	source := genai.GenerateVideosSource{}
+	if prompt != nil {
+		source.Prompt = *prompt
+	}
+	if image != nil {
+		source.Image = image
+	}
+	if video != nil {
+		source.Video = video
+	}
+
+	var operation *genai.GenerateVideosOperation
+	operation, err = c.client.Models.GenerateVideosFromSource(
+		ctx,
+		c.model,
+		&source,
+		config,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate videos: %w", err)
+	}
+
+	if c.Verbose {
+		log.Printf("> waiting for videos generation to complete...")
+	}
+
+	var status *genai.GenerateVideosOperation
+	for {
+		if status, err = c.client.Operations.GetVideosOperation(ctx, operation, &genai.GetOperationConfig{}); err == nil {
+			if c.Verbose {
+				log.Printf("> videos operation status: %v (%s)", status.Done, prettify(status.Metadata))
+			}
+
+			if status.Done {
+				return status.Response, nil
+			}
+			time.Sleep(generatingVideoFileStateCheckIntervalMilliseconds * time.Millisecond)
+		} else {
+			if c.Verbose {
+				log.Printf("> failed to get videos operation status: %s", err)
+			}
+
+			return nil, fmt.Errorf("failed to get videos operation status: %w", err)
+		}
+	}
+}
+
 // generate with retry count
 func (c *Client) generate(
 	ctx context.Context,
 	parts []*genai.Content,
 	retryBudget uint,
-	options ...*GenerationOptions,
+	options ...*genai.GenerateContentConfig,
 ) (res *genai.GenerateContentResponse, err error) {
 	if c.Verbose && retryBudget < c.maxRetryCount { // Compare with the original maxRetryCount from client config
 		log.Printf(
@@ -586,7 +619,7 @@ func (c *Client) generate(
 	}
 
 	// generation options
-	var opts *GenerationOptions = nil
+	var opts *genai.GenerateContentConfig = nil
 	if len(options) > 0 {
 		opts = options[0]
 	}
@@ -595,7 +628,7 @@ func (c *Client) generate(
 		ctx,
 		c.model,
 		parts,
-		c.generateContentConfig(opts),
+		c.alterGenerateContentConfig(opts),
 	)
 	if err != nil {
 		retriable := false
@@ -627,9 +660,13 @@ func (c *Client) generate(
 	return res, nil
 }
 
-// generate config for content generation
-func (c *Client) generateContentConfig(opts *GenerationOptions) (generated *genai.GenerateContentConfig) {
-	generated = &genai.GenerateContentConfig{}
+// alter generate content config for content generation
+func (c *Client) alterGenerateContentConfig(opts *genai.GenerateContentConfig) (generated *genai.GenerateContentConfig) {
+	if opts == nil {
+		generated = &genai.GenerateContentConfig{}
+	} else {
+		generated = opts
+	}
 
 	if c.systemInstructionFunc != nil {
 		generated.SystemInstruction = &genai.Content{
@@ -639,48 +676,6 @@ func (c *Client) generateContentConfig(opts *GenerationOptions) (generated *gena
 					Text: c.systemInstructionFunc(),
 				},
 			},
-		}
-	}
-
-	if opts != nil {
-		if opts.Config != nil {
-			generated.Temperature = opts.Config.Temperature
-			generated.TopP = opts.Config.TopP
-			generated.TopK = opts.Config.TopK
-			generated.CandidateCount = opts.Config.CandidateCount
-			generated.MaxOutputTokens = opts.Config.MaxOutputTokens
-			generated.StopSequences = opts.Config.StopSequences
-			generated.ResponseLogprobs = opts.Config.ResponseLogprobs
-			generated.Logprobs = opts.Config.Logprobs
-			generated.PresencePenalty = opts.Config.PresencePenalty
-			generated.FrequencyPenalty = opts.Config.FrequencyPenalty
-			generated.Seed = opts.Config.Seed
-			generated.ResponseMIMEType = opts.Config.ResponseMIMEType
-			generated.ResponseSchema = opts.Config.ResponseSchema
-			generated.RoutingConfig = opts.Config.RoutingConfig
-		}
-		generated.SafetySettings = safetySettings(opts.HarmBlockThreshold)
-		generated.Tools = opts.Tools
-		generated.ToolConfig = opts.ToolConfig
-		generated.CachedContent = opts.CachedContent
-		if opts.ResponseModalities != nil {
-			generated.ResponseModalities = []string{}
-			for _, modality := range opts.ResponseModalities {
-				generated.ResponseModalities = append(generated.ResponseModalities, string(modality))
-			}
-		}
-		generated.MediaResolution = opts.MediaResolution
-		generated.SpeechConfig = opts.SpeechConfig
-		if opts.ThinkingOn {
-			thinkingBudget := defaultThingkingBudget
-			if opts.ThinkingBudget > 0 {
-				thinkingBudget = opts.ThinkingBudget
-			}
-
-			generated.ThinkingConfig = &genai.ThinkingConfig{
-				IncludeThoughts: true,
-				ThinkingBudget:  &thinkingBudget,
-			}
 		}
 	}
 

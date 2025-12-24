@@ -30,6 +30,8 @@ const (
 const (
 	uploadedFileStateCheckIntervalMilliseconds       = 300  // 300 milliseconds
 	uploadedFileSearchStateCheckIntervalMilliseconds = 1000 // 1000 milliseconds
+
+	generatingVideoFileStateCheckIntervalMilliseconds = 1000 // 1000 milliseconds
 )
 
 // waitForFiles waits for all specified uploaded files
@@ -489,10 +491,10 @@ func (c *Client) PromptsToContents(
 	return contents, nil
 }
 
-// safetySettings creates a slice of *genai.SafetySetting for all supported harm categories,
+// GenerateSafetySettings creates a slice of *genai.SafetySetting for all supported harm categories,
 // applying the given threshold. If threshold is nil, it defaults to HarmBlockThresholdOff.
 // This function is an internal helper.
-func safetySettings(threshold *genai.HarmBlockThreshold) (settings []*genai.SafetySetting) {
+func GenerateSafetySettings(threshold *genai.HarmBlockThreshold) (settings []*genai.SafetySetting) {
 	if threshold == nil {
 		threshold = ptr(genai.HarmBlockThresholdOff)
 	}

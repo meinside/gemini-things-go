@@ -28,6 +28,8 @@ const (
 	modelForTextGenerationPaid                       = `gemini-3-pro-preview`
 	modelForTextGenerationWithRecursiveToolCallsPaid = `gemini-3-pro-preview`
 	modelForImageGenerationPaid                      = `gemini-3-pro-image-preview`
+	modelForImagenPaid                               = `imagen-4.0-generate-001`
+	modelForVideoGenerationPaid                      = `veo-3.1-generate-preview`
 	modelForTextGenerationWithGroundingPaid          = `gemini-3-pro-preview`
 	modelForFileSearchPaid                           = `gemini-3-pro-preview`
 	modelForSpeechGenerationPaid                     = `gemini-2.5-pro-preview-tts`
@@ -122,7 +124,7 @@ func TestContextCachingPaid(t *testing.T) {
 			for it, err := range gtc.GenerateStreamIterated(
 				ctxGenerate,
 				contents,
-				&GenerationOptions{
+				&genai.GenerateContentConfig{
 					CachedContent: cachedContextName,
 				},
 			) {
@@ -150,7 +152,7 @@ func TestContextCachingPaid(t *testing.T) {
 			for it, err := range gtc.GenerateStreamIterated(
 				ctxGenerate,
 				contents,
-				&GenerationOptions{
+				&genai.GenerateContentConfig{
 					CachedContent: cachedContextName,
 				},
 			) {
@@ -192,7 +194,7 @@ func TestContextCachingPaid(t *testing.T) {
 			if generated, err := gtc.Generate(
 				ctxGenerate,
 				contents,
-				&GenerationOptions{
+				&genai.GenerateContentConfig{
 					CachedContent: cachedContextName,
 				},
 			); err != nil {
@@ -496,7 +498,7 @@ func TestGenerationIteratedPaid(t *testing.T) {
 		for it, err := range gtc.GenerateStreamIterated(
 			ctxGenerate,
 			contents,
-			&GenerationOptions{
+			&genai.GenerateContentConfig{
 				Tools: []*genai.Tool{
 					{
 						URLContext: &genai.URLContext{},
@@ -665,7 +667,7 @@ func TestGenerationWithFileConverterPaid(t *testing.T) {
 		if generated, err := gtc.Generate(
 			ctxGenerate,
 			contents,
-			&GenerationOptions{},
+			&genai.GenerateContentConfig{},
 		); err != nil {
 			t.Errorf("generation with file converter failed: %s", ErrToStr(err))
 		} else {
@@ -814,7 +816,7 @@ func TestGenerationWithFunctionCallPaid(t *testing.T) {
 		for it, err := range gtc.GenerateStreamIterated(
 			ctxGenerate,
 			contents,
-			&GenerationOptions{
+			&genai.GenerateContentConfig{
 				Tools: []*genai.Tool{
 					{
 						FunctionDeclarations: fnDeclarations,
@@ -903,7 +905,7 @@ func TestGenerationWithFunctionCallPaid(t *testing.T) {
 											for it, err := range gtc.GenerateStreamIterated(
 												ctxGenerate,
 												contents,
-												&GenerationOptions{
+												&genai.GenerateContentConfig{
 													Tools: []*genai.Tool{
 														{
 															FunctionDeclarations: fnDeclarations,
@@ -986,26 +988,24 @@ func TestGenerationWithStructuredOutputPaid(t *testing.T) {
 		if generated, err := gtc.Generate(
 			ctxGenerate,
 			contents,
-			&GenerationOptions{
-				Config: &genai.GenerationConfig{
-					ResponseMIMEType: "application/json",
-					ResponseSchema: &genai.Schema{
-						Type:     genai.TypeObject,
-						Nullable: ptr(false),
-						Properties: map[string]*genai.Schema{
-							paramNamePositivePrompt: {
-								Type:        genai.TypeString,
-								Description: paramDescPositivePrompt,
-								Nullable:    ptr(false),
-							},
-							paramNameNegativePrompt: {
-								Type:        genai.TypeString,
-								Description: paramDescNegativePrompt,
-								Nullable:    ptr(true),
-							},
+			&genai.GenerateContentConfig{
+				ResponseMIMEType: "application/json",
+				ResponseSchema: &genai.Schema{
+					Type:     genai.TypeObject,
+					Nullable: ptr(false),
+					Properties: map[string]*genai.Schema{
+						paramNamePositivePrompt: {
+							Type:        genai.TypeString,
+							Description: paramDescPositivePrompt,
+							Nullable:    ptr(false),
 						},
-						Required: []string{paramNamePositivePrompt, paramNameNegativePrompt},
+						paramNameNegativePrompt: {
+							Type:        genai.TypeString,
+							Description: paramDescNegativePrompt,
+							Nullable:    ptr(true),
+						},
 					},
+					Required: []string{paramNamePositivePrompt, paramNameNegativePrompt},
 				},
 			},
 		); err == nil {
@@ -1071,7 +1071,7 @@ func TestGenerationWithCodeExecutionPaid(t *testing.T) {
 		if generated, err := gtc.Generate(
 			ctxGenerate,
 			contents,
-			&GenerationOptions{
+			&genai.GenerateContentConfig{
 				Tools: []*genai.Tool{
 					{
 						CodeExecution: &genai.ToolCodeExecution{},
@@ -1116,7 +1116,7 @@ func TestGenerationWithCodeExecutionPaid(t *testing.T) {
 		if generated, err := gtc.Generate(
 			ctxGenerate,
 			contents,
-			&GenerationOptions{
+			&genai.GenerateContentConfig{
 				Tools: []*genai.Tool{
 					{
 						CodeExecution: &genai.ToolCodeExecution{},
@@ -1329,7 +1329,7 @@ func TestEmbeddingsPaid(t *testing.T) {
 	}
 }
 
-// TestImageGenerationsPaid tests image generations. (paid)
+// TestImageGenerationsPaid tests image generations with prompts. (paid)
 func TestImageGenerationsPaid(t *testing.T) {
 	sleepForNotBeingRateLimited()
 
@@ -1369,11 +1369,10 @@ func TestImageGenerationsPaid(t *testing.T) {
 		if res, err := gtc.Generate(
 			ctxGenerate,
 			contents,
-			&GenerationOptions{
-				HarmBlockThreshold: ptr(genai.HarmBlockThresholdBlockOnlyHigh),
-				ResponseModalities: []genai.Modality{
-					genai.ModalityText, // FIXME: when not given, error: 'Code: 400, Message: Model does not support the requested response modalities: image, Status: INVALID_ARGUMENT'
-					genai.ModalityImage,
+			&genai.GenerateContentConfig{
+				ResponseModalities: []string{
+					string(genai.ModalityText), // FIXME: when not given, error: 'Code: 400, Message: Model does not support the requested response modalities: image, Status: INVALID_ARGUMENT'
+					string(genai.ModalityImage),
 				},
 			},
 		); err != nil {
@@ -1414,11 +1413,10 @@ func TestImageGenerationsPaid(t *testing.T) {
 		for it, err := range gtc.GenerateStreamIterated(
 			ctxGenerate,
 			contents,
-			&GenerationOptions{
-				HarmBlockThreshold: ptr(genai.HarmBlockThresholdBlockOnlyHigh),
-				ResponseModalities: []genai.Modality{
-					genai.ModalityText, // FIXME: when not given, error: 'Code: 400, Message: Model does not support the requested response modalities: image, Status: INVALID_ARGUMENT'
-					genai.ModalityImage,
+			&genai.GenerateContentConfig{
+				ResponseModalities: []string{
+					string(genai.ModalityText), // FIXME: when not given, error: 'Code: 400, Message: Model does not support the requested response modalities: image, Status: INVALID_ARGUMENT'
+					string(genai.ModalityImage),
 				},
 			},
 		) {
@@ -1446,6 +1444,28 @@ func TestImageGenerationsPaid(t *testing.T) {
 			t.Errorf("iterated image generation with text prompt failed with no usable result")
 		}
 	}
+
+	// TODO: add tests for: prompt with an image file
+}
+
+// TestImagenPaid tests imagen models. (paid)
+func TestImagenPaid(t *testing.T) {
+	sleepForNotBeingRateLimited()
+
+	gtc, err := newClient(
+		WithModel(modelForImagenPaid),
+	)
+	if err != nil {
+		t.Fatalf("failed to create client: %s", err)
+	}
+	// Image generation models typically do not support system instructions.
+	// Setting this to nil prevents the client from attempting to send one for other types of calls,
+	// though GenerateImages itself doesn't use the client's systemInstructionFunc.
+	gtc.SetSystemInstructionFunc(nil)
+	gtc.Verbose = _isVerbose
+	defer func() { _ = gtc.Close() }()
+
+	const prompt = `Generate an image of a golden retriever puppy playing with a colorful ball in a grassy park`
 
 	ctxGenerate, cancelGenerate := ctxWithTimeout()
 	defer cancelGenerate()
@@ -1477,8 +1497,53 @@ func TestImageGenerationsPaid(t *testing.T) {
 			t.Errorf("image generation with `GenerateImages` failed with no usable result")
 		}
 	}
+}
 
-	// TODO: add tests for: prompt with an image file
+func TestVideoGenerationsPaid(t *testing.T) {
+	sleepForNotBeingRateLimited()
+
+	gtc, err := newClient(
+		WithModel(modelForVideoGenerationPaid),
+	)
+	if err != nil {
+		t.Fatalf("failed to create client: %s", err)
+	}
+	// Video generation models typically do not support system instructions.
+	// Setting this to nil prevents the client from attempting to send one for other types of calls,
+	// though GenerateVideos itself doesn't use the client's systemInstructionFunc.
+	gtc.SetSystemInstructionFunc(nil)
+	gtc.Verbose = _isVerbose
+	defer func() { _ = gtc.Close() }()
+
+	const prompt = `Generate a really short video of a golden retriever puppy playing with a colorful ball in a grassy park`
+
+	ctxGenerate, cancelGenerate := ctxWithTimeout(timeoutSecondsForTestingVideoGeneration)
+	defer cancelGenerate()
+
+	// test `GenerateVideos`
+	if res, err := gtc.GenerateVideos(
+		ctxGenerate,
+		ptr(prompt),
+		nil,
+		nil,
+	); err != nil {
+		t.Errorf("video generation with `GenerateVideos` failed: %s", ErrToStr(err))
+	} else {
+		if len(res.GeneratedVideos) > 0 {
+			if res.RAIMediaFilteredCount > 0 {
+				t.Errorf("video generation with `GenerateVideos` failed with filtered reason: %v", res.RAIMediaFilteredReasons)
+			}
+			for _, video := range res.GeneratedVideos {
+				if video.Video == nil {
+					t.Errorf("video generation with `GenerateVideos` failed with null video")
+				} else {
+					verbose(">>> iterating response video: %s (%d bytes)", video.Video.MIMEType, len(video.Video.VideoBytes))
+				}
+			}
+		} else {
+			t.Errorf("video generation with `GenerateVideos` failed with no usable result")
+		}
+	}
 }
 
 // TestSpeechGenerationsPaid tests various types of speech generations. (paid)
@@ -1515,10 +1580,9 @@ func TestSpeechGenerationsPaid(t *testing.T) {
 		if res, err := gtc.Generate(
 			ctxGenerate,
 			contents,
-			&GenerationOptions{
-				HarmBlockThreshold: ptr(genai.HarmBlockThresholdBlockOnlyHigh),
-				ResponseModalities: []genai.Modality{
-					genai.ModalityAudio,
+			&genai.GenerateContentConfig{
+				ResponseModalities: []string{
+					string(genai.ModalityAudio),
 				},
 				SpeechConfig: &genai.SpeechConfig{
 					VoiceConfig: &genai.VoiceConfig{
@@ -1567,10 +1631,9 @@ Jane: Not too bad, how about you?`
 		for it, err := range gtc.GenerateStreamIterated(
 			ctxGenerate,
 			contents,
-			&GenerationOptions{
-				HarmBlockThreshold: ptr(genai.HarmBlockThresholdBlockOnlyHigh),
-				ResponseModalities: []genai.Modality{
-					genai.ModalityAudio,
+			&genai.GenerateContentConfig{
+				ResponseModalities: []string{
+					string(genai.ModalityAudio),
 				},
 				SpeechConfig: &genai.SpeechConfig{
 					MultiSpeakerVoiceConfig: &genai.MultiSpeakerVoiceConfig{
@@ -1658,13 +1721,12 @@ func TestGroundingPaid(t *testing.T) {
 		if res, err := gtc.Generate(
 			ctxGenerate,
 			contents,
-			&GenerationOptions{
+			&genai.GenerateContentConfig{
 				Tools: []*genai.Tool{
 					{
 						GoogleSearch: &genai.GoogleSearch{},
 					},
 				},
-				HarmBlockThreshold: ptr(genai.HarmBlockThresholdBlockOnlyHigh),
 			},
 		); err != nil {
 			t.Errorf("generation with grounding with google search (non-streamed) failed: %s", ErrToStr(err))
@@ -1699,13 +1761,12 @@ func TestGroundingPaid(t *testing.T) {
 		for it, err := range gtc.GenerateStreamIterated(
 			ctxGenerate,
 			contents,
-			&GenerationOptions{
+			&genai.GenerateContentConfig{
 				Tools: []*genai.Tool{
 					{
 						GoogleSearch: &genai.GoogleSearch{},
 					},
 				},
-				HarmBlockThreshold: ptr(genai.HarmBlockThresholdBlockOnlyHigh),
 			},
 		) {
 			if err != nil {
@@ -1777,7 +1838,7 @@ drwxr-xr-x 28 ubuntu ubuntu  4096 Jun 17 15:42 ../
 				},
 			},
 			contents,
-			&GenerationOptions{
+			&genai.GenerateContentConfig{
 				Tools: []*genai.Tool{
 					{
 						FunctionDeclarations: []*genai.FunctionDeclaration{
@@ -2028,7 +2089,7 @@ func TestFileSearchPaid(t *testing.T) {
 			if generated, err := gtc.Generate(
 				ctxGenerate,
 				contents,
-				&GenerationOptions{
+				&genai.GenerateContentConfig{
 					Tools: []*genai.Tool{
 						{
 							FileSearch: &genai.FileSearch{
