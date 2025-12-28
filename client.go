@@ -11,6 +11,7 @@ import (
 	"io"
 	"iter"
 	"log"
+	"path/filepath"
 	"time"
 
 	"cloud.google.com/go/auth"
@@ -1106,6 +1107,7 @@ func (c *Client) UploadFile(
 			DisplayName: fileDisplayName,
 		}
 
+		// mimetype
 		var overridden string
 		if len(overrideMimeType) > 0 {
 			overridden = overrideMimeType[0]
@@ -1113,18 +1115,19 @@ func (c *Client) UploadFile(
 		if len(overridden) > 0 {
 			config.MIMEType = overridden
 		} else {
-			var mime *mimetype.MIME
-			if mime, err = mimetype.DetectReader(file); err == nil {
-				if matched, supported := checkMimeTypeForFile(mime); supported {
+			var mimeType *mimetype.MIME
+			if mimeType, file, err = readMimeAndRecycle(file); err == nil {
+				if matched, supported := checkMimeTypeForFile(mimeType); supported {
 					config.MIMEType = matched
 				} else {
-					return nil, fmt.Errorf("unsupported mime type for file: %s", mime.String())
+					return nil, fmt.Errorf("unsupported mime type for file: %s", mimeType.String())
 				}
 			} else {
 				return nil, fmt.Errorf("failed to detect mimetype: %w", err)
 			}
 		}
 
+		// upload,
 		return c.client.Files.Upload(
 			ctx,
 			file,
@@ -1133,6 +1136,7 @@ func (c *Client) UploadFile(
 	case genai.BackendVertexAI:
 		if c.storage != nil {
 			bucket := c.storage.Bucket(c.bucketName)
+
 			// mimetype
 			var mimeType *mimetype.MIME
 			var mimeTypeString, overridden string
@@ -1145,18 +1149,28 @@ func (c *Client) UploadFile(
 				if mimeType, file, err = readMimeAndRecycle(file); err != nil {
 					return nil, fmt.Errorf("failed to read mimetype: %w", err)
 				}
+				if _, supported := checkMimeTypeForFile(mimeType); !supported {
+					return nil, fmt.Errorf("unsupported mime type for file: %s", mimeType.String())
+				}
 				mimeTypeString = mimeType.String()
 			}
 
-			filename := fmt.Sprintf("%s_%s", uuid.New().String(), fileDisplayName)
+			// generate filename
+			var filename string
+			if uuid7, err := uuid.NewV7(); err == nil {
+				filename = filepath.Join(uuid7.String(), fileDisplayName)
+			} else {
+				return nil, fmt.Errorf("failed to generate filename for upload: %w", err)
+			}
 
-			// upload
+			// upload,
 			obj := bucket.Object(filename)
 			w := obj.NewWriter(ctx)
 			defer func() { _ = w.Close() }()
 			if _, err := io.Copy(w, file); err != nil {
 				return nil, fmt.Errorf("failed to upload file: %w", err)
 			}
+
 			return &genai.File{
 				DisplayName: fileDisplayName,
 				URI:         fmt.Sprintf("gs://%s/%s", c.bucketName, filename),
