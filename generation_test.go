@@ -22,6 +22,7 @@ const (
 	keyGeminiAPIKey              = `GEMINI_API_KEY`
 	keyProjectID                 = `PROJECT_ID`
 	keyLocation                  = `LOCATION`
+	keyBucketName                = `BUCKET_NAME`
 	KeyVertexCredentialsFilepath = `CREDENTIALS_FILEPATH`
 
 	defaultLocation = `global`
@@ -36,8 +37,8 @@ var (
 	_geminiAPIKey string
 
 	// vertex API
-	_projectID, _location      string
-	_vertexCredentialsFilepath string
+	_projectID, _location, _bucketName string
+	_vertexCredentialsFilepath         string
 )
 
 func TestMain(m *testing.M) {
@@ -49,6 +50,10 @@ func TestMain(m *testing.M) {
 	_location = os.Getenv(keyLocation)
 	if _location == "" {
 		_location = defaultLocation
+	}
+	_bucketName = os.Getenv(keyBucketName)
+	if _bucketName == "" {
+		_bucketName = defaultBucketName
 	}
 
 	os.Exit(m.Run())
@@ -96,7 +101,7 @@ func newClient(opts ...ClientOption) (*Client, error) {
 		var err error
 		var bytes []byte
 		if bytes, err = os.ReadFile(_vertexCredentialsFilepath); err == nil {
-			return NewVertexClient(context.TODO(), bytes, _location, opts...)
+			return NewVertexClient(context.TODO(), bytes, _location, _bucketName, opts...)
 		}
 
 		return nil, fmt.Errorf("failed to create client with credentials: %w", err)
