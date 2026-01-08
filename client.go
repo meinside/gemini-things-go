@@ -143,6 +143,7 @@ func NewVertexClient(
 	ctx context.Context,
 	credentialsJSON []byte,
 	location string,
+	bucketName string,
 	opts ...ClientOption,
 ) (*Client, error) {
 	var err error
@@ -191,7 +192,7 @@ func NewVertexClient(
 			Type:                    genai.BackendVertexAI,
 			projectID:               projectID,
 			storage:                 sclient,
-			bucketName:              defaultBucketName,
+			bucketName:              bucketName,
 			numDaysUploadedFilesTTL: defaultNumDaysUploadedFilesTTL,
 			systemInstructionFunc: func() string {
 				return defaultSystemInstruction
@@ -213,27 +214,21 @@ func NewVertexClient(
 	return nil, fmt.Errorf("failed to read credentials from JSON: %w", err)
 }
 
-// SetBucketName sets the name of the Google Cloud Storage bucket to use for
-// (temporary) file uploads.
-func (c *Client) SetBucketName(name string) {
-	c.bucketName = name
-}
-
 // GetBucketName returns the name of the Google Cloud Storage bucket to use for
 // (temporary) file uploads.
 func (c *Client) GetBucketName() string {
 	return c.bucketName
 }
 
+// Storage returns the Google Cloud Storage client used by the client.
+func (c *Client) Storage() *storage.Client {
+	return c.storage
+}
+
 // SetNumDaysUploadedFilesTTL sets the number of days for which uploaded files
 // should be retained in the Google Cloud Storage bucket.
 func (c *Client) SetNumDaysUploadedFilesTTL(days int64) {
 	c.numDaysUploadedFilesTTL = days
-}
-
-// Storage returns the Google Cloud Storage client used by the client.
-func (c *Client) Storage() *storage.Client {
-	return c.storage
 }
 
 // CreateBucketForFileUploads creates a Google Cloud Storage bucket for file uploads.
