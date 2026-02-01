@@ -5,13 +5,13 @@ go 1.25.0
 require (
 	cloud.google.com/go/auth v0.18.1
 	cloud.google.com/go/storage v1.59.2
-	github.com/gabriel-vasile/mimetype v1.4.12
+	github.com/gabriel-vasile/mimetype v1.4.13
 	github.com/google/jsonschema-go v0.4.2
 	github.com/google/uuid v1.6.0
 	github.com/googleapis/gax-go/v2 v2.16.0
 	github.com/modelcontextprotocol/go-sdk v1.2.0
 	google.golang.org/api v0.264.0
-	google.golang.org/genai v1.43.0
+	google.golang.org/genai v1.44.0
 	google.golang.org/grpc v1.78.0
 )
 
