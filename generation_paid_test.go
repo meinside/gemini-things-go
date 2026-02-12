@@ -729,17 +729,17 @@ func TestGenerationWithFunctionCallPaid(t *testing.T) {
 			Description: fnDescExtractPrompts,
 			Parameters: &genai.Schema{
 				Type:     genai.TypeObject,
-				Nullable: ptr(false),
+				Nullable: new(false),
 				Properties: map[string]*genai.Schema{
 					fnParamNamePositivePrompt: {
 						Type:        genai.TypeString,
 						Description: fnParamDescPositivePrompt,
-						Nullable:    ptr(false),
+						Nullable:    new(false),
 					},
 					fnParamNameNegativePrompt: {
 						Type:        genai.TypeString,
 						Description: fnParamDescNegativePrompt,
-						Nullable:    ptr(true),
+						Nullable:    new(true),
 					},
 				},
 				Required: []string{
@@ -753,27 +753,27 @@ func TestGenerationWithFunctionCallPaid(t *testing.T) {
 			Description: fnDescImageGenerationFinished,
 			Parameters: &genai.Schema{
 				Type:     genai.TypeObject,
-				Nullable: ptr(false),
+				Nullable: new(false),
 				Properties: map[string]*genai.Schema{
 					fnParamNameGeneratedSuccessfully: {
 						Type:        genai.TypeBoolean,
 						Description: fnParamDescGeneratedSuccessfully,
-						Nullable:    ptr(false),
+						Nullable:    new(false),
 					},
 					fnParamNameGeneratedSize: {
 						Type:        genai.TypeNumber,
 						Description: fnParamDescGeneratedSize,
-						Nullable:    ptr(true),
+						Nullable:    new(true),
 					},
 					fnParamNameGeneratedResolution: {
 						Type:        genai.TypeString,
 						Description: fnParamDescGeneratedResolution,
-						Nullable:    ptr(true),
+						Nullable:    new(true),
 					},
 					fnParamNameGeneratedFilepath: {
 						Type:        genai.TypeString,
 						Description: fnParamDescGeneratedFilepath,
-						Nullable:    ptr(true),
+						Nullable:    new(true),
 					},
 				},
 				Required: []string{
@@ -992,17 +992,17 @@ func TestGenerationWithStructuredOutputPaid(t *testing.T) {
 				ResponseMIMEType: "application/json",
 				ResponseSchema: &genai.Schema{
 					Type:     genai.TypeObject,
-					Nullable: ptr(false),
+					Nullable: new(false),
 					Properties: map[string]*genai.Schema{
 						paramNamePositivePrompt: {
 							Type:        genai.TypeString,
 							Description: paramDescPositivePrompt,
-							Nullable:    ptr(false),
+							Nullable:    new(false),
 						},
 						paramNameNegativePrompt: {
 							Type:        genai.TypeString,
 							Description: paramDescNegativePrompt,
-							Nullable:    ptr(true),
+							Nullable:    new(true),
 						},
 					},
 					Required: []string{paramNamePositivePrompt, paramNameNegativePrompt},
@@ -1523,7 +1523,7 @@ func TestVideoGenerationsPaid(t *testing.T) {
 	// test `GenerateVideos`
 	if res, err := gtc.GenerateVideos(
 		ctxGenerate,
-		ptr(prompt),
+		new(prompt),
 		nil,
 		nil,
 	); err != nil {
@@ -2165,7 +2165,7 @@ func TestBatchRequestsPaid(t *testing.T) {
 						{
 							Role: genai.RoleUser,
 							Parts: []*genai.Part{
-								ptr(
+								new(
 									PromptFromText(
 										`Give me a detailed explanation of the terminal velocity.`,
 									).ToPart(),
@@ -2175,7 +2175,7 @@ func TestBatchRequestsPaid(t *testing.T) {
 						{
 							Role: genai.RoleUser,
 							Parts: []*genai.Part{
-								ptr(
+								new(
 									PromptFromText(
 										`Show me how to solve the quadratic equation.`,
 									).ToPart(),
@@ -2185,7 +2185,7 @@ func TestBatchRequestsPaid(t *testing.T) {
 						{
 							Role: genai.RoleUser,
 							Parts: []*genai.Part{
-								ptr(
+								new(
 									PromptFromText(
 										`How can I calculate the escape velocity from the Earth?`,
 									).ToPart(),
@@ -2258,7 +2258,7 @@ func TestBatchRequestsPaid(t *testing.T) {
 			{
 				Role: genai.RoleUser,
 				Parts: []*genai.Part{
-					ptr(
+					new(
 						PromptFromText(
 							`What are the three laws of thermodynamics?`,
 						).ToPart(),

@@ -121,7 +121,7 @@ func (c *Client) processPromptToPartAndInfo(
 
 	switch prompt := p.(type) {
 	case TextPrompt, URIPrompt:
-		return ptr(prompt.ToPart()), prompt, nil, nil
+		return new(prompt.ToPart()), prompt, nil, nil
 
 	case FilePrompt:
 		currentReader := prompt.Reader
@@ -232,7 +232,7 @@ func (c *Client) processPromptToPartAndInfo(
 				},
 			}
 		}
-		return ptr(updatedFilePrompt.ToPart()), updatedFilePrompt, ptr(uploadedFile.Name), nil
+		return new(updatedFilePrompt.ToPart()), updatedFilePrompt, new(uploadedFile.Name), nil
 
 	case BytesPrompt:
 		currentBytes := prompt.Bytes
@@ -320,7 +320,7 @@ func (c *Client) processPromptToPartAndInfo(
 				},
 			}
 		}
-		return ptr(fileDataPrompt.ToPart()), fileDataPrompt, ptr(uploadedFile.Name), nil
+		return new(fileDataPrompt.ToPart()), fileDataPrompt, new(uploadedFile.Name), nil
 
 	default:
 		return nil, p, nil, fmt.Errorf(
@@ -496,7 +496,7 @@ func (c *Client) PromptsToContents(
 // This function is an internal helper.
 func GenerateSafetySettings(threshold *genai.HarmBlockThreshold) (settings []*genai.SafetySetting) {
 	if threshold == nil {
-		threshold = ptr(genai.HarmBlockThresholdOff)
+		threshold = new(genai.HarmBlockThresholdOff)
 	}
 
 	for _, category := range []genai.HarmCategory{
@@ -892,11 +892,6 @@ func prettify(v any, flatten ...bool) string {
 		}
 	}
 	return fmt.Sprintf("%+v", v)
-}
-
-// return pointer to the given value
-func ptr[T any](v T) *T {
-	return &v
 }
 
 // APIError checks if the provided error is a `*genai.APIError`
