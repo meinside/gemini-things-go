@@ -1203,7 +1203,7 @@ func (c *Client) DeleteFileSearchStore(
 	}
 
 	return c.client.FileSearchStores.Delete(ctx, fileSearchStoreName, &genai.DeleteFileSearchStoreConfig{
-		Force: ptr(true),
+		Force: new(true),
 	})
 }
 
@@ -1332,7 +1332,7 @@ func (c *Client) DeleteFileInFileSearchStore(
 		ctx,
 		fileName,
 		&genai.DeleteDocumentConfig{
-			Force: ptr(true),
+			Force: new(true),
 		},
 	)
 }
