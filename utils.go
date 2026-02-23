@@ -550,7 +550,7 @@ func checkMimeTypeForFile(
 		case slices.ContainsFunc([]string{
 			// images
 			//
-			// https://ai.google.dev/gemini-api/docs/vision?lang=go#technical-details-image
+			// https://ai.google.dev/gemini-api/docs/image-understanding?lang=go#supported-formats
 			`image/png`,
 			`image/jpeg`,
 			`image/webp`,
@@ -582,17 +582,24 @@ func checkMimeTypeForFile(
 
 			// document formats
 			//
-			// https://ai.google.dev/gemini-api/docs/document-processing?lang=go#technical-details
-			`application/pdf`,
-			`application/x-javascript`, `text/javascript`,
-			`application/x-python`, `text/x-python`,
-			`text/plain`,
+			// https://ai.google.dev/gemini-api/docs/document-processing?lang=go#document-types
+			//
+			// https://ai.google.dev/gemini-api/docs/file-input-methods#text
 			`text/html`,
 			`text/css`,
+			`text/plain`,
+			`text/xml`,
 			`text/md`,
 			`text/csv`,
-			`text/xml`,
 			`text/rtf`,
+			// https://ai.google.dev/gemini-api/docs/file-input-methods#application
+			`application/json`, `text/javascript`, `application/x-javascript`,
+			`application/pdf`,
+			// https://ai.google.dev/gemini-api/docs/file-input-methods#image
+			`image/bmp`,
+			//`image/jpeg`,
+			//`image/png`,
+			//`image/webp`,
 		}, func(element string) bool {
 			if mimeType.Is(element) { // supported,
 				matchedMimeType = element
