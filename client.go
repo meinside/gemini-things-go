@@ -58,10 +58,10 @@ type Client struct {
 	bucketName              string          // Google Cloud Storage bucket name
 	numDaysUploadedFilesTTL int64           // Google Cloud Storage objects' TTL (in days)
 
-	model                 string                    // model to be used for generation.
-	systemInstructionFunc FnSystemInstruction       // Function that returns the system instruction string.
-	fileConvertFuncs      map[string]FnConvertBytes // Map of MIME types to custom file conversion functions.
-	maxRetryCount         uint                      // maximum retry count for retriable API errors (e.g., 5xx).
+	model                 string                   // model to be used for generation.
+	systemInstructionFunc FnSystemInstruction      // Function that returns the system instruction string.
+	fileConvertFuncs      map[string]FnConvertFile // Map of MIME types to custom file conversion functions.
+	maxRetryCount         uint                     // maximum retry count for retriable API errors (e.g., 5xx).
 
 	DeleteFilesOnClose  bool // If true, automatically deletes all uploaded files when Close is called.
 	DeleteCachesOnClose bool // If true, automatically deletes all cached contexts when Close is called.
@@ -122,7 +122,7 @@ func NewClient(apiKey string, opts ...ClientOption) (*Client, error) {
 		systemInstructionFunc: func() string {
 			return defaultSystemInstruction
 		},
-		fileConvertFuncs:    make(map[string]FnConvertBytes),
+		fileConvertFuncs:    make(map[string]FnConvertFile),
 		maxRetryCount:       defaultMaxRetryCount,
 		DeleteFilesOnClose:  false,
 		DeleteCachesOnClose: false,
@@ -197,7 +197,7 @@ func NewVertexClient(
 			systemInstructionFunc: func() string {
 				return defaultSystemInstruction
 			},
-			fileConvertFuncs:    make(map[string]FnConvertBytes),
+			fileConvertFuncs:    make(map[string]FnConvertFile),
 			maxRetryCount:       defaultMaxRetryCount,
 			DeleteFilesOnClose:  false,
 			DeleteCachesOnClose: false,
@@ -330,7 +330,7 @@ func (c *Client) SetSystemInstructionFunc(fn FnSystemInstruction) {
 // before they are uploaded. This is useful for unsupported MIME types or for pre-processing.
 // The provided function `fn` will be called if the MIME type matches `mimeType` and
 // is not natively supported (see `SupportedMimeType`).
-func (c *Client) SetFileConverter(mimeType string, fn FnConvertBytes) {
+func (c *Client) SetFileConverter(mimeType string, fn FnConvertFile) {
 	c.fileConvertFuncs[mimeType] = fn
 }
 

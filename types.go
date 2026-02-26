@@ -239,10 +239,10 @@ type (
 	// This allows for dynamic generation of system instructions if needed.
 	FnSystemInstruction func() string
 
-	// FnConvertBytes is a function type for converting file bytes into potentially multiple files.
+	// FnConvertFile is a function type for converting a file with bytes into potentially multiple files.
 	// It's used when a single unsupported file needs to be converted into one or more supported files
 	// (e.g., a multi-page PDF into multiple images).
-	FnConvertBytes func(filename string, bytes []byte) ([]ConvertedFile, error)
+	FnConvertFile func(filename string, bytes []byte) ([]ConvertedFile, error)
 
 	// ConvertedFile represents a single converted file from FnConvertBytes.
 	ConvertedFile struct {
