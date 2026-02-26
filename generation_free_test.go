@@ -593,7 +593,7 @@ func TestGenerationWithFileConverterFree(t *testing.T) {
 	// set custom file converters
 	gtc.SetFileConverter(
 		"application/x-ndjson", // for: 'application/jsonl' (application/x-ndjson)
-		func(bs []byte) ([]byte, string, error) {
+		func(filename string, bs []byte) ([]ConvertedFile, error) {
 			// NOTE: a simple JSONL -> CSV converter
 			type record struct {
 				Name   string `json:"name"`
@@ -608,7 +608,12 @@ func TestGenerationWithFileConverterFree(t *testing.T) {
 					converted.Write(fmt.Appendf(nil, `"%s",%d,"%s"\n`, decoded.Name, decoded.Age, decoded.Gender))
 				}
 			}
-			return []byte(converted.String()), "text/csv", nil
+			return []ConvertedFile{
+				{
+					Bytes:    []byte(converted.String()),
+					MimeType: "text/csv",
+				},
+			}, nil
 		},
 	)
 	gtc.DeleteFilesOnClose = true

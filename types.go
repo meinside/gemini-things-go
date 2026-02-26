@@ -239,9 +239,15 @@ type (
 	// This allows for dynamic generation of system instructions if needed.
 	FnSystemInstruction func() string
 
-	// FnConvertBytes is a function type for converting file bytes.
-	// It takes a byte slice (original file content) and should return
-	// the converted byte slice, the new MIME type string, and an error if conversion fails.
-	// This is used by the Client's SetFileConverter method to handle custom file type conversions.
-	FnConvertBytes func(bytes []byte) ([]byte, string, error)
+	// FnConvertBytes is a function type for converting file bytes into potentially multiple files.
+	// It's used when a single unsupported file needs to be converted into one or more supported files
+	// (e.g., a multi-page PDF into multiple images).
+	FnConvertBytes func(filename string, bytes []byte) ([]ConvertedFile, error)
+
+	// ConvertedFile represents a single converted file from FnConvertBytes.
+	ConvertedFile struct {
+		Bytes    []byte // The converted file bytes.
+		MimeType string // The MIME type of the converted file.
+		Filename string // (Optional) The new name of the converted file.
+	}
 )
