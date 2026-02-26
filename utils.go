@@ -107,26 +107,26 @@ func (c *Client) waitForFilesForSearch(
 //   - For TextPrompt and URIPrompt: it converts them to their genai.Part representation directly.
 //
 // It returns:
-//   - *genai.Part: The genai.Part representation of the processed prompt.
-//   - Prompt: The updated prompt (e.g., FilePrompt with populated .data, or BytesPrompt converted to FilePrompt).
-//   - *string: The server-assigned filename if an upload occurred, used for waiting for the file to become active. nil otherwise.
+//   - []*genai.Part: The genai.Part representations of the processed prompt (multiple if a single prompt results in multiple files).
+//   - []Prompt: The updated prompts (e.g., FilePrompt with populated .data, or BytesPrompt converted to FilePrompt).
+//   - []string: The server-assigned filenames if an upload occurred, used for waiting for the files to become active.
 //   - error: Any error encountered during processing.
 func (c *Client) processPromptToPartAndInfo(
 	ctx context.Context,
 	p Prompt, // The prompt to process.
 	promptIndex int,
 	ignoreMimeType ...bool,
-) (part *genai.Part, updatedPrompt Prompt, filenameForWaiting *string, err error) {
+) (parts []*genai.Part, updatedPrompts []Prompt, filenamesForWaiting []string, err error) {
 	ignoreMime := len(ignoreMimeType) > 0 && ignoreMimeType[0]
 
 	switch prompt := p.(type) {
 	case TextPrompt, URIPrompt:
-		return new(prompt.ToPart()), prompt, nil, nil
+		return []*genai.Part{new(prompt.ToPart())}, []Prompt{prompt}, nil, nil
 
 	case FilePrompt:
 		currentReader := prompt.Reader
 		if currentReader == nil {
-			return nil, prompt, nil, fmt.Errorf(
+			return nil, nil, nil, fmt.Errorf(
 				"prompts[%d] has a nil reader (%s)",
 				promptIndex,
 				prompt.Filename,
@@ -141,7 +141,7 @@ func (c *Client) processPromptToPartAndInfo(
 			var err error
 			mimeType, currentReader, err = readMimeAndRecycle(currentReader) // Reuse the recycled reader
 			if err != nil {
-				return nil, prompt, nil, fmt.Errorf(
+				return nil, nil, nil, fmt.Errorf(
 					"failed to detect MIME type of prompts[%d] (%s): %w",
 					promptIndex,
 					prompt.Filename,
@@ -154,10 +154,14 @@ func (c *Client) processPromptToPartAndInfo(
 			supported = true
 		}
 
+		var readersToUpload []io.Reader
+		var mimeTypesToUpload []string
+		var filenamesToUpload []string
+
 		if !ignoreMime && !supported {
 			fn, exists := c.fileConvertFuncs[matchedMimeType]
 			if !exists {
-				return nil, prompt, nil, fmt.Errorf(
+				return nil, nil, nil, fmt.Errorf(
 					"MIME type of prompts[%d] (%s) not supported: %s",
 					promptIndex,
 					prompt.Filename,
@@ -166,7 +170,7 @@ func (c *Client) processPromptToPartAndInfo(
 			}
 			bs, readErr := io.ReadAll(currentReader)
 			if readErr != nil {
-				return nil, prompt, nil, fmt.Errorf(
+				return nil, nil, nil, fmt.Errorf(
 					"read failed while converting %s for prompts[%d] (%s): %w",
 					matchedMimeType,
 					promptIndex,
@@ -182,9 +186,9 @@ func (c *Client) processPromptToPartAndInfo(
 					prompt.Filename,
 				)
 			}
-			converted, convertedMimeType, convErr := fn(bs)
+			convertedFiles, convErr := fn(prompt.Filename, bs)
 			if convErr != nil {
-				return nil, prompt, nil, fmt.Errorf(
+				return nil, nil, nil, fmt.Errorf(
 					"converting %s for prompts[%d] (%s) failed: %w",
 					matchedMimeType,
 					promptIndex,
@@ -192,47 +196,75 @@ func (c *Client) processPromptToPartAndInfo(
 					convErr,
 				)
 			}
-			currentReader = bytes.NewBuffer(converted)
-			matchedMimeType = convertedMimeType
+
+			for i, convFile := range convertedFiles {
+				readersToUpload = append(readersToUpload, bytes.NewBuffer(convFile.Bytes))
+				mimeTypesToUpload = append(mimeTypesToUpload, convFile.MimeType)
+
+				var newFilename string
+				if len(convFile.Filename) > 0 {
+					newFilename = convFile.Filename
+				} else {
+					newFilename = fmt.Sprintf("%s-%d", prompt.Filename, i+1)
+				}
+				filenamesToUpload = append(filenamesToUpload, newFilename)
+			}
+		} else {
+			readersToUpload = append(readersToUpload, currentReader)
+			mimeTypesToUpload = append(mimeTypesToUpload, matchedMimeType)
+			filenamesToUpload = append(filenamesToUpload, prompt.Filename)
 		}
 
-		uploadedFile, uploadErr := c.UploadFile(
-			ctx,
-			currentReader,
-			prompt.Filename, // Use original filename for display
-			matchedMimeType,
-		)
-		if uploadErr != nil {
-			return nil, prompt, nil, fmt.Errorf(
-				"failed to upload prompts[%d] (%s): %w",
-				promptIndex,
-				prompt.Filename,
-				uploadErr,
+		for i, reader := range readersToUpload {
+			currentMatchedMimeType := mimeTypesToUpload[i]
+			currentFilename := filenamesToUpload[i]
+
+			uploadedFile, uploadErr := c.UploadFile(
+				ctx,
+				reader,
+				currentFilename, // Use original/suffixed filename for display
+				currentMatchedMimeType,
 			)
+			if uploadErr != nil {
+				return nil, nil, nil, fmt.Errorf(
+					"failed to upload prompts[%d] (%s): %w",
+					promptIndex,
+					currentFilename,
+					uploadErr,
+				)
+			}
+
+			var updatedFilePrompt FilePrompt
+			switch c.Type {
+			case genai.BackendGeminiAPI:
+				updatedFilePrompt = FilePrompt{
+					Filename: uploadedFile.Name, // Store the server-generated unique name
+					Data: &genai.FileData{
+						// DisplayName: uploadedFile.Name, // FIXME: uncomment this line when Gemini API supports it
+						FileURI:  uploadedFile.URI,
+						MIMEType: uploadedFile.MIMEType,
+					},
+				}
+			case genai.BackendVertexAI:
+				updatedFilePrompt = FilePrompt{
+					Filename: uploadedFile.DisplayName,
+					Data: &genai.FileData{
+						DisplayName: uploadedFile.DisplayName,
+						FileURI:     uploadedFile.URI,
+						MIMEType:    uploadedFile.MIMEType,
+					},
+				}
+			}
+
+			part := updatedFilePrompt.ToPart()
+			parts = append(parts, &part)
+			updatedPrompts = append(updatedPrompts, updatedFilePrompt)
+			if uploadedFile.Name != "" {
+				filenamesForWaiting = append(filenamesForWaiting, uploadedFile.Name)
+			}
 		}
 
-		var updatedFilePrompt FilePrompt
-		switch c.Type {
-		case genai.BackendGeminiAPI:
-			updatedFilePrompt = FilePrompt{
-				Filename: uploadedFile.Name, // Store the server-generated unique name
-				Data: &genai.FileData{
-					// DisplayName: uploadedFile.Name, // FIXME: uncomment this line when Gemini API supports it
-					FileURI:  uploadedFile.URI,
-					MIMEType: uploadedFile.MIMEType,
-				},
-			}
-		case genai.BackendVertexAI:
-			updatedFilePrompt = FilePrompt{
-				Filename: uploadedFile.DisplayName,
-				Data: &genai.FileData{
-					DisplayName: uploadedFile.DisplayName,
-					FileURI:     uploadedFile.URI,
-					MIMEType:    uploadedFile.MIMEType,
-				},
-			}
-		}
-		return new(updatedFilePrompt.ToPart()), updatedFilePrompt, new(uploadedFile.Name), nil
+		return parts, updatedPrompts, filenamesForWaiting, nil
 
 	case BytesPrompt:
 		currentBytes := prompt.Bytes
@@ -247,10 +279,14 @@ func (c *Client) processPromptToPartAndInfo(
 			supported = true
 		}
 
+		var bytesToUpload [][]byte
+		var mimeTypesToUpload []string
+		var filenamesToUpload []string
+
 		if !ignoreMime && !supported {
 			fn, exists := c.fileConvertFuncs[matchedMimeType]
 			if !exists {
-				return nil, prompt, nil, fmt.Errorf(
+				return nil, nil, nil, fmt.Errorf(
 					"MIME type of prompts[%d] (%d bytes) not supported: %s",
 					promptIndex,
 					len(currentBytes),
@@ -265,9 +301,12 @@ func (c *Client) processPromptToPartAndInfo(
 					matchedMimeType,
 				)
 			}
-			converted, convertedMimeType, convErr := fn(currentBytes)
+			convertedFiles, convErr := fn(
+				fmt.Sprintf("prompts[%d]", promptIndex),
+				currentBytes,
+			)
 			if convErr != nil {
-				return nil, prompt, nil, fmt.Errorf(
+				return nil, nil, nil, fmt.Errorf(
 					"converting prompts[%d] (%d bytes) with MIME type %s failed: %w",
 					promptIndex,
 					len(currentBytes),
@@ -275,55 +314,88 @@ func (c *Client) processPromptToPartAndInfo(
 					convErr,
 				)
 			}
-			currentBytes = converted
-			matchedMimeType = convertedMimeType
+
+			for i, convFile := range convertedFiles {
+				bytesToUpload = append(bytesToUpload, convFile.Bytes)
+				mimeTypesToUpload = append(mimeTypesToUpload, convFile.MimeType)
+
+				displayName := prompt.Filename
+				if displayName == "" {
+					displayName = fmt.Sprintf("prompts[%d]", promptIndex)
+				}
+
+				var newFilename string
+				if len(convFile.Filename) > 0 {
+					newFilename = convFile.Filename
+				} else {
+					newFilename = fmt.Sprintf("%s-%d", displayName, i+1)
+				}
+				filenamesToUpload = append(filenamesToUpload, newFilename)
+			}
+		} else {
+			bytesToUpload = append(bytesToUpload, currentBytes)
+			mimeTypesToUpload = append(mimeTypesToUpload, matchedMimeType)
+
+			displayName := prompt.Filename
+			if displayName == "" {
+				displayName = fmt.Sprintf("prompts[%d] (%d bytes)", promptIndex, len(currentBytes))
+			}
+			filenamesToUpload = append(filenamesToUpload, displayName)
 		}
 
-		displayName := prompt.Filename
-		if displayName == "" {
-			displayName = fmt.Sprintf("prompts[%d] (%d bytes)", promptIndex, len(currentBytes))
-		}
+		for i, currentBytes := range bytesToUpload {
+			currentMatchedMimeType := mimeTypesToUpload[i]
+			currentDisplayName := filenamesToUpload[i]
 
-		uploadedFile, uploadErr := c.UploadFile(
-			ctx,
-			bytes.NewReader(currentBytes),
-			displayName,
-			matchedMimeType,
-		)
-		if uploadErr != nil {
-			return nil, prompt, nil, fmt.Errorf(
-				"failed to upload prompts[%d] (%d bytes) as file: %w",
-				promptIndex,
-				len(prompt.Bytes),
-				uploadErr,
+			uploadedFile, uploadErr := c.UploadFile(
+				ctx,
+				bytes.NewReader(currentBytes),
+				currentDisplayName,
+				currentMatchedMimeType,
 			)
+			if uploadErr != nil {
+				return nil, nil, nil, fmt.Errorf(
+					"failed to upload prompts[%d] (%d bytes) as file: %w",
+					promptIndex,
+					len(prompt.Bytes),
+					uploadErr,
+				)
+			}
+
+			// Convert BytesPrompt to FilePrompt after upload
+			var fileDataPrompt FilePrompt
+			switch c.Type {
+			case genai.BackendGeminiAPI:
+				fileDataPrompt = FilePrompt{
+					Filename: uploadedFile.Name, // Store the server-generated unique name
+					Data: &genai.FileData{
+						FileURI:  uploadedFile.URI,
+						MIMEType: uploadedFile.MIMEType,
+					},
+				}
+			case genai.BackendVertexAI:
+				fileDataPrompt = FilePrompt{
+					Filename: uploadedFile.DisplayName,
+					Data: &genai.FileData{
+						DisplayName: uploadedFile.DisplayName,
+						FileURI:     uploadedFile.URI,
+						MIMEType:    uploadedFile.MIMEType,
+					},
+				}
+			}
+
+			part := fileDataPrompt.ToPart()
+			parts = append(parts, &part)
+			updatedPrompts = append(updatedPrompts, fileDataPrompt)
+			if uploadedFile.Name != "" {
+				filenamesForWaiting = append(filenamesForWaiting, uploadedFile.Name)
+			}
 		}
 
-		// Convert BytesPrompt to FilePrompt after upload
-		var fileDataPrompt FilePrompt
-		switch c.Type {
-		case genai.BackendGeminiAPI:
-			fileDataPrompt = FilePrompt{
-				Filename: uploadedFile.Name, // Store the server-generated unique name
-				Data: &genai.FileData{
-					FileURI:  uploadedFile.URI,
-					MIMEType: uploadedFile.MIMEType,
-				},
-			}
-		case genai.BackendVertexAI:
-			fileDataPrompt = FilePrompt{
-				Filename: uploadedFile.DisplayName,
-				Data: &genai.FileData{
-					DisplayName: uploadedFile.DisplayName,
-					FileURI:     uploadedFile.URI,
-					MIMEType:    uploadedFile.MIMEType,
-				},
-			}
-		}
-		return new(fileDataPrompt.ToPart()), fileDataPrompt, new(uploadedFile.Name), nil
+		return parts, updatedPrompts, filenamesForWaiting, nil
 
 	default:
-		return nil, p, nil, fmt.Errorf(
+		return nil, nil, nil, fmt.Errorf(
 			"unknown or unsupported type of prompts[%d]: %T",
 			promptIndex,
 			p,
@@ -377,7 +449,7 @@ func (c *Client) UploadFilesAndWait(
 	fileNamesToWaitFor := []string{}
 
 	for i, p := range prompts {
-		_, updatedPrompt, filenameForWaiting, processErr := c.processPromptToPartAndInfo(
+		_, updatedPrompts, filenamesForWaiting, processErr := c.processPromptToPartAndInfo(
 			ctx,
 			p,
 			i,
@@ -391,9 +463,9 @@ func (c *Client) UploadFilesAndWait(
 				processErr,
 			)
 		}
-		processedPrompts = append(processedPrompts, updatedPrompt)
-		if filenameForWaiting != nil {
-			fileNamesToWaitFor = append(fileNamesToWaitFor, *filenameForWaiting)
+		processedPrompts = append(processedPrompts, updatedPrompts...)
+		if len(filenamesForWaiting) > 0 {
+			fileNamesToWaitFor = append(fileNamesToWaitFor, filenamesForWaiting...)
 		}
 	}
 
