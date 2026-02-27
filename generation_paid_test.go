@@ -27,7 +27,7 @@ const (
 	modelForContextCachingPaid                       = `gemini-3-flash-preview`
 	modelForTextGenerationPaid                       = `gemini-3-flash-preview`
 	modelForTextGenerationWithRecursiveToolCallsPaid = `gemini-3-flash-preview`
-	modelForImageGenerationPaid                      = `gemini-3-pro-image-preview`
+	modelForImageGenerationPaid                      = `gemini-3.1-flash-image-preview`
 	modelForImagenPaid                               = `imagen-4.0-fast-generate-001`
 	modelForVideoGenerationPaid                      = `veo-3.1-fast-generate-preview`
 	modelForTextGenerationWithGroundingPaid          = `gemini-3-flash-preview`
