@@ -9,7 +9,7 @@ require (
 	github.com/google/jsonschema-go v0.4.2
 	github.com/google/uuid v1.6.0
 	github.com/googleapis/gax-go/v2 v2.17.0
-	github.com/modelcontextprotocol/go-sdk v1.3.1
+	github.com/modelcontextprotocol/go-sdk v1.4.0
 	google.golang.org/api v0.269.0
 	google.golang.org/genai v1.48.0
 	google.golang.org/grpc v1.79.1
