@@ -23,7 +23,7 @@ const (
 	keyProjectID                 = `PROJECT_ID`
 	keyLocation                  = `LOCATION`
 	keyBucketName                = `BUCKET_NAME`
-	KeyVertexCredentialsFilepath = `CREDENTIALS_FILEPATH`
+	keyVertexCredentialsFilepath = `CREDENTIALS_FILEPATH`
 
 	defaultLocation = `global`
 )
@@ -45,7 +45,7 @@ func TestMain(m *testing.M) {
 	_isVerbose = os.Getenv(keyVerbose) == "true"
 
 	_geminiAPIKey = os.Getenv(keyGeminiAPIKey)
-	_vertexCredentialsFilepath = os.Getenv(KeyVertexCredentialsFilepath)
+	_vertexCredentialsFilepath = os.Getenv(keyVertexCredentialsFilepath)
 	_projectID = os.Getenv(keyProjectID)
 	_location = os.Getenv(keyLocation)
 	if _location == "" {
@@ -107,7 +107,7 @@ func newClient(opts ...ClientOption) (*Client, error) {
 		return nil, fmt.Errorf("failed to create client with credentials: %w", err)
 	}
 
-	return nil, fmt.Errorf("no API key(%s) or credentials file(%s) provided for test", keyGeminiAPIKey, KeyVertexCredentialsFilepath)
+	return nil, fmt.Errorf("no API key(%s) or credentials file(%s) provided for test", keyGeminiAPIKey, keyVertexCredentialsFilepath)
 }
 
 // TestListingModels tests models listing.
