@@ -365,7 +365,7 @@ func (c *Client) generateStream(
 		ctx,
 		c.model,
 		contents,
-		c.alterGenerateContentConfig(opts),
+		c.alteredGenerateContentConfig(opts),
 	)
 }
 
@@ -438,17 +438,51 @@ func (c *Client) Generate(
 // FunctionCallHandler is a function type for handling function calls
 type FunctionCallHandler func(args map[string]any) (string, error)
 
+const (
+	// defaultMaxRecursiveToolCallDepth is the default maximum depth for recursive tool calls.
+	defaultMaxRecursiveToolCallDepth uint = 32
+)
+
 // GenerateWithRecursiveToolCalls generates recursively with resulting tool calls.
+//
+// The maximum recursion depth defaults to 32.
+// Use GenerateWithRecursiveToolCallsN to specify a custom depth limit.
 func (c *Client) GenerateWithRecursiveToolCalls(
 	ctx context.Context,
 	fnCallHandlers map[string]FunctionCallHandler,
 	contents []*genai.Content,
 	options ...*genai.GenerateContentConfig, // Optional genai.GenerateContentConfig to customize the request.
 ) (res *genai.GenerateContentResponse, err error) {
+	return c.generateWithRecursiveToolCalls(ctx, fnCallHandlers, contents, defaultMaxRecursiveToolCallDepth, options...)
+}
+
+// GenerateWithRecursiveToolCallsN generates recursively with resulting tool calls,
+// with an explicit maximum recursion depth limit.
+func (c *Client) GenerateWithRecursiveToolCallsN(
+	ctx context.Context,
+	fnCallHandlers map[string]FunctionCallHandler,
+	contents []*genai.Content,
+	maxDepth uint,
+	options ...*genai.GenerateContentConfig,
+) (res *genai.GenerateContentResponse, err error) {
+	return c.generateWithRecursiveToolCalls(ctx, fnCallHandlers, contents, maxDepth, options...)
+}
+
+func (c *Client) generateWithRecursiveToolCalls(
+	ctx context.Context,
+	fnCallHandlers map[string]FunctionCallHandler,
+	contents []*genai.Content,
+	remainingDepth uint,
+	options ...*genai.GenerateContentConfig,
+) (res *genai.GenerateContentResponse, err error) {
 	res, err = c.Generate(ctx, contents, options...)
 	if err == nil {
 		// check if `res` has a function call,
 		if fnCall, exists := hasFunctionCall(res.Candidates); exists {
+			if remainingDepth == 0 {
+				return nil, fmt.Errorf("maximum recursive tool call depth exceeded")
+			}
+
 			// if so, call the corresponding function,
 			if handler, exists := fnCallHandlers[fnCall.Name]; exists {
 				if handled, err := handler(fnCall.Args); err == nil {
@@ -468,10 +502,11 @@ func (c *Client) GenerateWithRecursiveToolCalls(
 					})
 
 					// and recurse
-					return c.GenerateWithRecursiveToolCalls(
+					return c.generateWithRecursiveToolCalls(
 						ctx,
 						fnCallHandlers,
 						contents,
+						remainingDepth-1,
 						options...,
 					)
 				} else {
@@ -634,14 +669,14 @@ func (c *Client) generate(
 		ctx,
 		c.model,
 		parts,
-		c.alterGenerateContentConfig(opts),
+		c.alteredGenerateContentConfig(opts),
 	)
 	if err != nil {
 		retriable := false
 
 		// retry on server errors (5xx)
 		var se genai.APIError
-		if errors.As(err, &se) && se.Code >= 500 ||
+		if (errors.As(err, &se) && se.Code >= 500) ||
 			regexpHTTP5xx.MatchString(err.Error()) {
 			retriable = true
 		}
@@ -649,7 +684,7 @@ func (c *Client) generate(
 		if retriable {
 			if retryBudget > 0 { // retriable,
 				// then retry with decremented budget
-				return c.generate(ctx, parts, retryBudget-1)
+				return c.generate(ctx, parts, retryBudget-1, options...)
 			} else { // not retriable (all retries have failed),
 				return nil, fmt.Errorf(
 					"all %d retries of generation failed with the latest error: %w",
@@ -666,16 +701,20 @@ func (c *Client) generate(
 	return res, nil
 }
 
-// alter generate content config for content generation
-func (c *Client) alterGenerateContentConfig(opts *genai.GenerateContentConfig) (generated *genai.GenerateContentConfig) {
+// return an altered generate content config for generation
+func (c *Client) alteredGenerateContentConfig(
+	opts *genai.GenerateContentConfig,
+) (altered *genai.GenerateContentConfig) {
 	if opts == nil {
-		generated = &genai.GenerateContentConfig{}
+		altered = &genai.GenerateContentConfig{}
 	} else {
-		generated = opts
+		// shallow copy to avoid mutating the caller's config
+		copied := *opts
+		altered = &copied
 	}
 
 	if c.systemInstructionFunc != nil {
-		generated.SystemInstruction = &genai.Content{
+		altered.SystemInstruction = &genai.Content{
 			Role: string(RoleModel),
 			Parts: []*genai.Part{
 				{
@@ -685,7 +724,7 @@ func (c *Client) alterGenerateContentConfig(opts *genai.GenerateContentConfig) (
 		}
 	}
 
-	return generated
+	return altered
 }
 
 // CacheContext creates a cached content entry on the server.
@@ -1263,7 +1302,7 @@ func (c *Client) UploadFileForSearch(
 		config.MIMEType = overridden
 	} else {
 		var mime *mimetype.MIME
-		if mime, err = mimetype.DetectReader(file); err == nil {
+		if mime, file, err = readMimeAndRecycle(file); err == nil {
 			if matched, supported := checkMimeTypeForFileSearch(mime); supported {
 				config.MIMEType = matched
 			} else {

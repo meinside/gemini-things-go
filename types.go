@@ -77,6 +77,9 @@ type FilePrompt struct {
 // (e.g., within `client.processPromptToPartAndInfo`). If `p.data` is nil,
 // it will result in a `genai.Part` with empty FileData, which may be invalid for API requests.
 func (p FilePrompt) ToPart() genai.Part {
+	if p.Data == nil {
+		return genai.Part{}
+	}
 	return genai.Part{
 		FileData: &genai.FileData{
 			// DisplayName: p.data.DisplayName, // TODO: uncomment this line when Gemini API supports it

@@ -41,11 +41,22 @@ const (
 func (c *Client) waitForFiles(
 	ctx context.Context,
 	fileNames []string,
-) {
+) error {
 	var wg sync.WaitGroup
+	var firstErr error
+	var errOnce sync.Once
 	for _, fileName := range fileNames {
 		wg.Go(func() {
 			for {
+				select {
+				case <-ctx.Done():
+					errOnce.Do(func() {
+						firstErr = fmt.Errorf("context cancelled while waiting for file %s: %w", fileName, ctx.Err())
+					})
+					return
+				default:
+				}
+
 				if file, err := c.client.Files.Get(
 					ctx,
 					fileName,
@@ -63,6 +74,7 @@ func (c *Client) waitForFiles(
 		})
 	}
 	wg.Wait()
+	return firstErr
 }
 
 // waitForFilesForSearch waits for all specified uploaded documents for search
@@ -74,11 +86,22 @@ func (c *Client) waitForFiles(
 func (c *Client) waitForFilesForSearch(
 	ctx context.Context,
 	fileNames []string,
-) {
+) error {
 	var wg sync.WaitGroup
+	var firstErr error
+	var errOnce sync.Once
 	for _, fileName := range fileNames {
 		wg.Go(func() {
 			for {
+				select {
+				case <-ctx.Done():
+					errOnce.Do(func() {
+						firstErr = fmt.Errorf("context cancelled while waiting for search file %s: %w", fileName, ctx.Err())
+					})
+					return
+				default:
+				}
+
 				if document, err := c.client.FileSearchStores.Documents.Get(
 					ctx,
 					fileName,
@@ -96,6 +119,7 @@ func (c *Client) waitForFilesForSearch(
 		})
 	}
 	wg.Wait()
+	return firstErr
 }
 
 // processPromptToPartAndInfo is an internal helper function that processes a single Prompt.
@@ -477,7 +501,9 @@ func (c *Client) UploadFilesAndWait(
 				fileNamesToWaitFor,
 			)
 		}
-		c.waitForFiles(ctx, fileNamesToWaitFor)
+		if err := c.waitForFiles(ctx, fileNamesToWaitFor); err != nil {
+			return nil, fmt.Errorf("failed while waiting for files to become active: %w", err)
+		}
 		if c.Verbose {
 			log.Printf(
 				"> all %d file(s) are active.",

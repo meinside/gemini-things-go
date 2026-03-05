@@ -30,37 +30,51 @@ func MCPToGeminiTools(
 		if inputSchema, ok := f.InputSchema.(map[string]any); ok {
 			to[i].ParametersJsonSchema = inputSchema
 			continue
-		} else {
-			if inputSchema, ok := f.InputSchema.(jsonschema.Schema); ok {
-				if marshalled, err := inputSchema.MarshalJSON(); err == nil {
-					var schema map[string]any
-					if err := json.Unmarshal(marshalled, &schema); err == nil {
-						to[i].ParametersJsonSchema = schema
-						continue
-					} else {
-						return nil, fmt.Errorf("could not convert json to map: %w", err)
-					}
-				} else {
-					return nil, fmt.Errorf("could not convert input schema to json: %w", err)
-				}
-			} else if inputSchema, ok := f.InputSchema.(*jsonschema.Schema); ok {
-				if marshalled, err := inputSchema.MarshalJSON(); err == nil {
-					var schema map[string]any
-					if err := json.Unmarshal(marshalled, &schema); err == nil {
-						to[i].ParametersJsonSchema = schema
-						continue
-					} else {
-						return nil, fmt.Errorf("could not convert json to map: %w", err)
-					}
-				} else {
-					return nil, fmt.Errorf("could not convert input schema to json: %w", err)
-				}
-			}
-			return nil, fmt.Errorf("tools[%d].InputSchema is not in type `jsonschema.Schema` or `map[string]any`: %T", i, f.InputSchema)
 		}
+
+		schema, err := marshalJsonSchema(f.InputSchema)
+		if err != nil {
+			return nil, fmt.Errorf("tools[%d].InputSchema: %w", i, err)
+		}
+		if schema != nil {
+			to[i].ParametersJsonSchema = schema
+			continue
+		}
+
+		return nil, fmt.Errorf("tools[%d].InputSchema is not in type `jsonschema.Schema` or `map[string]any`: %T", i, f.InputSchema)
 	}
 
 	return to, nil
+}
+
+// marshalJsonSchema tries to marshal a jsonschema.Schema or *jsonschema.Schema
+// into a map[string]any. Returns (nil, nil) if the input is neither type.
+func marshalJsonSchema(input any) (map[string]any, error) {
+	type jsonMarshaler interface {
+		MarshalJSON() ([]byte, error)
+	}
+
+	var m jsonMarshaler
+	switch v := input.(type) {
+	case jsonschema.Schema:
+		m = &v
+	case *jsonschema.Schema:
+		m = v
+	default:
+		return nil, nil
+	}
+
+	marshalled, err := m.MarshalJSON()
+	if err != nil {
+		return nil, fmt.Errorf("could not convert input schema to json: %w", err)
+	}
+
+	var schema map[string]any
+	if err := json.Unmarshal(marshalled, &schema); err != nil {
+		return nil, fmt.Errorf("could not convert json to map: %w", err)
+	}
+
+	return schema, nil
 }
 
 // MCPCallToolResultToGeminiPrompts converts given *mcp.CallToolResult to []Prompt.
