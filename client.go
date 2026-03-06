@@ -253,17 +253,14 @@ func (c *Client) CreateBucketForFileUploads(ctx context.Context) error {
 		},
 	}); err != nil {
 		var ae *apierror.APIError
-		if ok := errors.As(err, &ae); ok {
-			if ae.GRPCStatus().Code() != codes.AlreadyExists {
-				return fmt.Errorf("failed to create bucket: %w", err)
-			}
+		if errors.As(err, &ae) && ae.GRPCStatus().Code() == codes.AlreadyExists {
+			return nil // bucket already exists, not an error
 		}
 		var e *googleapi.Error
-		if ok := errors.As(err, &e); ok {
-			if e.Code != 409 {
-				return fmt.Errorf("failed to create bucket: %w", err)
-			}
+		if errors.As(err, &e) && e.Code == 409 {
+			return nil // bucket already exists (HTTP), not an error
 		}
+		return fmt.Errorf("failed to create bucket: %w", err)
 	}
 
 	return nil
@@ -280,18 +277,19 @@ func (c *Client) DeleteBucketForFileUploads(ctx context.Context) error {
 
 // Close releases resources associated with the client.
 // It handles the deletion of uploaded files and cached contexts if configured to do so
-// via `deleteFilesOnClose` and `deleteCachesOnClose` respectively.
-// Any errors encountered during cleanup are collected and returned as a single joined error.
-// An optional context can be provided for the cleanup operations.
-func (c *Client) Close(ctx ...context.Context) error {
-	errs := []error{}
+// via `DeleteFilesOnClose` and `DeleteCachesOnClose` respectively.
+// Uses context.Background() for cleanup operations.
+// Use CloseWithContext to provide a custom context.
+func (c *Client) Close() error {
+	return c.CloseWithContext(context.Background())
+}
 
-	var ctxx context.Context
-	if len(ctx) > 0 {
-		ctxx = ctx[0]
-	} else {
-		ctxx = context.TODO()
-	}
+// CloseWithContext releases resources associated with the client using the provided context.
+// It handles the deletion of uploaded files and cached contexts if configured to do so
+// via `DeleteFilesOnClose` and `DeleteCachesOnClose` respectively.
+// Any errors encountered during cleanup are collected and returned as a single joined error.
+func (c *Client) CloseWithContext(ctx context.Context) error {
+	errs := []error{}
 
 	// delete all files before close
 	if c.DeleteFilesOnClose {
@@ -299,7 +297,7 @@ func (c *Client) Close(ctx ...context.Context) error {
 			log.Printf("> deleting all files before close...")
 		}
 
-		if err := c.DeleteAllFiles(ctxx); err != nil {
+		if err := c.DeleteAllFiles(ctx); err != nil {
 			errs = append(errs, err)
 		}
 	}
@@ -310,7 +308,7 @@ func (c *Client) Close(ctx ...context.Context) error {
 			log.Printf("> deleting all caches before close...")
 		}
 
-		if err := c.DeleteAllCachedContexts(ctxx); err != nil {
+		if err := c.DeleteAllCachedContexts(ctx); err != nil {
 			errs = append(errs, err)
 		}
 	}
@@ -621,6 +619,12 @@ func (c *Client) GenerateVideos(
 
 	var status *genai.GenerateVideosOperation
 	for {
+		select {
+		case <-ctx.Done():
+			return nil, fmt.Errorf("context cancelled while waiting for video generation: %w", ctx.Err())
+		default:
+		}
+
 		if status, err = c.client.Operations.GetVideosOperation(ctx, operation, &genai.GetOperationConfig{}); err == nil {
 			if c.Verbose {
 				log.Printf("> videos operation status: %s", prettify(status))
@@ -683,6 +687,14 @@ func (c *Client) generate(
 
 		if retriable {
 			if retryBudget > 0 { // retriable,
+				// exponential backoff: 1s, 2s, 4s, ...
+				retryIndex := c.maxRetryCount - retryBudget
+				backoff := time.Duration(1<<retryIndex) * time.Second
+				select {
+				case <-ctx.Done():
+					return nil, fmt.Errorf("context cancelled while waiting to retry generation: %w", ctx.Err())
+				case <-time.After(backoff):
+				}
 				// then retry with decremented budget
 				return c.generate(ctx, parts, retryBudget-1, options...)
 			} else { // not retriable (all retries have failed),
@@ -713,7 +725,7 @@ func (c *Client) alteredGenerateContentConfig(
 		altered = &copied
 	}
 
-	if c.systemInstructionFunc != nil {
+	if c.systemInstructionFunc != nil && altered.SystemInstruction == nil {
 		altered.SystemInstruction = &genai.Content{
 			Role: string(RoleModel),
 			Parts: []*genai.Part{
@@ -1200,9 +1212,12 @@ func (c *Client) UploadFile(
 			// upload,
 			obj := bucket.Object(filename)
 			w := obj.NewWriter(ctx)
-			defer func() { _ = w.Close() }()
 			if _, err := io.Copy(w, file); err != nil {
+				_ = w.Close()
 				return nil, fmt.Errorf("failed to upload file: %w", err)
+			}
+			if err := w.Close(); err != nil {
+				return nil, fmt.Errorf("failed to finalize file upload: %w", err)
 			}
 
 			return &genai.File{
@@ -1321,7 +1336,7 @@ func (c *Client) UploadFileForSearch(
 	)
 }
 
-// ImportFileForSearch imports an alread-uploaded file into a file search store.
+// ImportFileForSearch imports an already-uploaded file into a file search store.
 //
 // Supported file formats are: https://ai.google.dev/gemini-api/docs/file-search#supported-files
 func (c *Client) ImportFileForSearch(
