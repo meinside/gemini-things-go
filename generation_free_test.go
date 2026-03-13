@@ -30,7 +30,7 @@ const (
 	modelForTextGenerationWithGroundingFree          = `gemini-2.5-flash`
 	modelForFileSearchFree                           = `gemini-2.5-flash`
 	modelForSpeechGenerationFree                     = `gemini-2.5-flash-preview-tts`
-	modelForEmbeddingsFree                           = `gemini-embedding-001`
+	modelForEmbeddingsFree                           = `gemini-embedding-2-preview`
 	modelForBatchesFree                              = `gemini-3-flash-preview`
 )
 
@@ -1268,12 +1268,12 @@ func TestEmbeddingsFree(t *testing.T) {
 	gtc.Verbose = _isVerbose
 	defer func() { _ = gtc.Close() }()
 
-	ctxGenerate, cancelGenerate := ctxWithTimeout()
-	defer cancelGenerate()
+	ctxGenerate1, cancelGenerate1 := ctxWithTimeout()
+	defer cancelGenerate1()
 
 	// without title (task type: RETRIEVAL_QUERY)
 	if v, err := gtc.GenerateEmbeddings(
-		ctxGenerate,
+		ctxGenerate1,
 		"",
 		[]*genai.Content{
 			genai.NewContentFromText(`The quick brown fox jumps over the lazy dog.`, RoleUser),
@@ -1285,9 +1285,12 @@ func TestEmbeddingsFree(t *testing.T) {
 		verbose(">>> embeddings from text: %+v", v)
 	}
 
+	ctxGenerate2, cancelGenerate2 := ctxWithTimeout()
+	defer cancelGenerate2()
+
 	// with title (task type: RETRIEVAL_DOCUMENT)
 	if v, err := gtc.GenerateEmbeddings(
-		ctxGenerate,
+		ctxGenerate2,
 		"A short story",
 		[]*genai.Content{
 			genai.NewContentFromText(`The quick brown fox jumps over the lazy dog.`, RoleUser),
@@ -1297,6 +1300,27 @@ func TestEmbeddingsFree(t *testing.T) {
 		t.Errorf("generation of embeddings from title and text failed: %s", ErrToStr(err))
 	} else {
 		verbose(">>> embeddings from title and text: %+v", v)
+	}
+
+	ctxGenerate3, cancelGenerate3 := ctxWithTimeout()
+	defer cancelGenerate3()
+
+	// with an image file
+	if v, err := gtc.GenerateEmbeddings(
+		ctxGenerate3,
+		"",
+		[]*genai.Content{
+			genai.NewContentFromBytes(
+				gopherImageBytes,
+				"image/jpeg",
+				RoleUser,
+			),
+		},
+		nil,
+	); err != nil {
+		t.Errorf("generation of embeddings from image file failed: %s", ErrToStr(err))
+	} else {
+		verbose(">>> embeddings from image file: %+v", v)
 	}
 }
 

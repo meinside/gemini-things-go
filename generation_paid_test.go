@@ -8,6 +8,7 @@ package gt
 
 import (
 	"context"
+	_ "embed"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -33,7 +34,7 @@ const (
 	modelForTextGenerationWithGroundingPaid          = `gemini-3-flash-preview`
 	modelForFileSearchPaid                           = `gemini-3-flash-preview`
 	modelForSpeechGenerationPaid                     = `gemini-2.5-pro-preview-tts`
-	modelForEmbeddingsPaid                           = `gemini-embedding-001`
+	modelForEmbeddingsPaid                           = `gemini-embedding-2-preview`
 	modelForBatchesPaid                              = `gemini-3-flash-preview`
 )
 
@@ -1286,6 +1287,9 @@ func TestGenerationWithHistoryPaid(t *testing.T) {
 	}
 }
 
+//go:embed samples/gopher.jpg
+var gopherImageBytes []byte
+
 // TestEmbeddingsPaid tests embeddings. (paid)
 func TestEmbeddingsPaid(t *testing.T) {
 	sleepForNotBeingRateLimited()
@@ -1331,6 +1335,27 @@ func TestEmbeddingsPaid(t *testing.T) {
 		t.Errorf("generation of embeddings from title and text failed: %s", ErrToStr(err))
 	} else {
 		verbose(">>> embeddings from title and text: %+v", v)
+	}
+
+	ctxGenerate3, cancelGenerate3 := ctxWithTimeout()
+	defer cancelGenerate3()
+
+	// with an image file
+	if v, err := gtc.GenerateEmbeddings(
+		ctxGenerate3,
+		"",
+		[]*genai.Content{
+			genai.NewContentFromBytes(
+				gopherImageBytes,
+				"image/jpeg",
+				RoleUser,
+			),
+		},
+		nil,
+	); err != nil {
+		t.Errorf("generation of embeddings from image file failed: %s", ErrToStr(err))
+	} else {
+		verbose(">>> embeddings from image file: %+v", v)
 	}
 }
 
