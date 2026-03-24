@@ -3,7 +3,7 @@ module github.com/meinside/gemini-things-go
 go 1.26.0
 
 require (
-	cloud.google.com/go/auth v0.18.2
+	cloud.google.com/go/auth v0.19.0
 	cloud.google.com/go/storage v1.61.3
 	github.com/gabriel-vasile/mimetype v1.4.13
 	github.com/google/jsonschema-go v0.4.2
@@ -58,8 +58,8 @@ require (
 	golang.org/x/sys v0.42.0 // indirect
 	golang.org/x/text v0.35.0 // indirect
 	golang.org/x/time v0.15.0 // indirect
-	google.golang.org/genproto v0.0.0-20260316180232-0b37fe3546d5 // indirect
-	google.golang.org/genproto/googleapis/api v0.0.0-20260316180232-0b37fe3546d5 // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20260316180232-0b37fe3546d5 // indirect
+	google.golang.org/genproto v0.0.0-20260319201613-d00831a3d3e7 // indirect
+	google.golang.org/genproto/googleapis/api v0.0.0-20260319201613-d00831a3d3e7 // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20260319201613-d00831a3d3e7 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
 )
