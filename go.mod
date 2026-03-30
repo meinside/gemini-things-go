@@ -8,10 +8,10 @@ require (
 	github.com/gabriel-vasile/mimetype v1.4.13
 	github.com/google/jsonschema-go v0.4.2
 	github.com/google/uuid v1.6.0
-	github.com/googleapis/gax-go/v2 v2.19.0
+	github.com/googleapis/gax-go/v2 v2.20.0
 	github.com/modelcontextprotocol/go-sdk v1.4.1
-	google.golang.org/api v0.272.0
-	google.golang.org/genai v1.51.0
+	google.golang.org/api v0.273.0
+	google.golang.org/genai v1.52.0
 	google.golang.org/grpc v1.79.3
 )
 
@@ -20,7 +20,7 @@ require (
 	cloud.google.com/go v0.123.0 // indirect
 	cloud.google.com/go/auth/oauth2adapt v0.2.8 // indirect
 	cloud.google.com/go/compute/metadata v0.9.0 // indirect
-	cloud.google.com/go/iam v1.5.3 // indirect
+	cloud.google.com/go/iam v1.6.0 // indirect
 	cloud.google.com/go/monitoring v1.24.3 // indirect
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/detectors/gcp v1.31.0 // indirect
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/exporter/metric v0.55.0 // indirect
