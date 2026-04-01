@@ -46,6 +46,7 @@ func TestContextCachingFree(t *testing.T) {
 	sleepForNotBeingRateLimited()
 
 	gtc, err := newClient(
+		_location,
 		WithModel(modelForContextCachingFree),
 	)
 	if err != nil {
@@ -200,6 +201,7 @@ func TestGenerationFree(t *testing.T) {
 	sleepForNotBeingRateLimited()
 
 	gtc, err := newClient(
+		_location,
 		WithModel(modelForTextGenerationFree),
 	)
 	if err != nil {
@@ -343,6 +345,7 @@ func TestGenerationIteratedFree(t *testing.T) {
 	sleepForNotBeingRateLimited()
 
 	gtc, err := newClient(
+		_location,
 		WithModel(modelForTextGenerationFree),
 	)
 	if err != nil {
@@ -495,6 +498,7 @@ func TestGenerationWithCustomRetriesFree(t *testing.T) {
 	// Initialize client with maxRetryCount = 1
 	// This test primarily ensures the client initializes correctly and a call can be made.
 	gtc, err := newClient(
+		_location,
 		WithModel(modelForTextGenerationFree),
 		WithMaxRetryCount(1),
 	)
@@ -537,6 +541,7 @@ func TestGenerationWithCustomTimeoutFree(t *testing.T) {
 
 	// Initialize client with a client-side timeout of 1 second.
 	gtc, err := newClient(
+		_location,
 		WithModel(modelForTextGenerationFree),
 	)
 	if err != nil {
@@ -585,6 +590,7 @@ func TestGenerationWithFileConverterFree(t *testing.T) {
 	sleepForNotBeingRateLimited()
 
 	gtc, err := newClient(
+		_location,
 		WithModel(modelForTextGenerationFree),
 	)
 	if err != nil {
@@ -763,6 +769,7 @@ func TestGenerationWithFunctionCallFree(t *testing.T) {
 	}
 
 	gtc, err := newClient(
+		_location,
 		WithModel(modelForTextGenerationFree),
 	)
 	if err != nil {
@@ -932,6 +939,7 @@ func TestGenerationWithStructuredOutputFree(t *testing.T) {
 	const prompt = `Extract and optimize positive and/or negative prompts from the following text for generating beautiful images: "Please generate an image which shows a man standing in front of a vast dessert. The man is watching an old pyramid completely destroyed by a giant sandstorm. The mood is sad and gloomy".`
 
 	gtc, err := newClient(
+		_location,
 		WithModel(modelForTextGenerationFree),
 	)
 	if err != nil {
@@ -1014,6 +1022,7 @@ func TestGenerationWithCodeExecutionFree(t *testing.T) {
 	sleepForNotBeingRateLimited()
 
 	gtc, err := newClient(
+		_location,
 		WithModel(modelForTextGenerationFree),
 	)
 	if err != nil {
@@ -1126,6 +1135,7 @@ func TestGenerationWithHistoryFree(t *testing.T) {
 	sleepForNotBeingRateLimited()
 
 	gtc, err := newClient(
+		_location,
 		WithModel(modelForTextGenerationFree),
 	)
 	if err != nil {
@@ -1260,6 +1270,8 @@ func TestEmbeddingsFree(t *testing.T) {
 	sleepForNotBeingRateLimited()
 
 	gtc, err := newClient(
+		//_location, // FIXME
+		defaultLocationForEmbeddings,
 		WithModel(modelForEmbeddingsFree),
 	)
 	if err != nil {
@@ -1329,6 +1341,7 @@ func TestSpeechGenerationsFree(t *testing.T) {
 	sleepForNotBeingRateLimited()
 
 	gtc, err := newClient(
+		_location,
 		WithModel(modelForSpeechGenerationFree),
 	)
 	if err != nil {
@@ -1469,6 +1482,7 @@ func TestGroundingFree(t *testing.T) {
 	sleepForNotBeingRateLimited()
 
 	gtc, err := newClient(
+		_location,
 		WithModel(modelForTextGenerationWithGroundingFree),
 	)
 	if err != nil {
@@ -1555,6 +1569,7 @@ func TestRecursiveToolCallsFree(t *testing.T) {
 	sleepForNotBeingRateLimited()
 
 	gtc, err := newClient(
+		_location,
 		WithModel(modelForTextGenerationWithRecursiveToolCallsFree),
 	)
 	if err != nil {
@@ -1662,6 +1677,7 @@ func TestCountingTokensFree(t *testing.T) {
 	sleepForNotBeingRateLimited()
 
 	gtc, err := newClient(
+		_location,
 		WithModel(modelForTextGenerationFree),
 	)
 	if err != nil {
@@ -1704,6 +1720,7 @@ func TestFileSearchFree(t *testing.T) {
 	sleepForNotBeingRateLimited()
 
 	gtc, err := newClient(
+		_location,
 		WithModel(modelForFileSearchFree),
 	)
 	if err != nil {
@@ -1921,6 +1938,7 @@ func TestBatchRequestsFree(t *testing.T) {
 	sleepForNotBeingRateLimited()
 
 	gtc, err := newClient(
+		_location,
 		WithModel(modelForBatchesFree),
 	)
 	if err != nil {
