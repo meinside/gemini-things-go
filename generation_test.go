@@ -25,7 +25,8 @@ const (
 	keyBucketName                = `BUCKET_NAME`
 	keyVertexCredentialsFilepath = `CREDENTIALS_FILEPATH`
 
-	defaultLocation = `global`
+	defaultLocation              = `global`
+	defaultLocationForEmbeddings = `us-central1` // FIXME: currently working location for multimodal embeddings
 )
 
 // flag for verbose log
@@ -94,14 +95,14 @@ func mustHaveEnvVar(t *testing.T, key string) string {
 }
 
 // create a new client with possible credentials
-func newClient(opts ...ClientOption) (*Client, error) {
+func newClient(location string, opts ...ClientOption) (*Client, error) {
 	if _geminiAPIKey != "" {
 		return NewClient(_geminiAPIKey, opts...)
 	} else if _vertexCredentialsFilepath != "" {
 		var err error
 		var bytes []byte
 		if bytes, err = os.ReadFile(_vertexCredentialsFilepath); err == nil {
-			return NewVertexClient(context.TODO(), bytes, _location, _bucketName, opts...)
+			return NewVertexClient(context.TODO(), bytes, location, _bucketName, opts...)
 		}
 
 		return nil, fmt.Errorf("failed to create client with credentials: %w", err)
@@ -115,6 +116,7 @@ func TestListingModelsFree(t *testing.T) {
 	sleepForNotBeingRateLimited()
 
 	gtc, err := newClient(
+		_location,
 	// WithModel(modelForTextGeneration), // NOTE: `model` is not needed for some tasks (eg. listing models)
 	)
 	if err != nil {
