@@ -33,7 +33,7 @@ const (
 	modelForVideoGenerationPaid                      = `veo-3.1-fast-generate-preview`
 	modelForTextGenerationWithGroundingPaid          = `gemini-3-flash-preview`
 	modelForFileSearchPaid                           = `gemini-3-flash-preview`
-	modelForSpeechGenerationPaid                     = `gemini-2.5-pro-preview-tts`
+	modelForSpeechGenerationPaid                     = `gemini-3.1-flash-tts-preview`
 	modelForEmbeddingsPaid                           = `gemini-embedding-2-preview`
 	modelForBatchesPaid                              = `gemini-3-flash-preview`
 )
