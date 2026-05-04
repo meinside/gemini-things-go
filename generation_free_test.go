@@ -136,7 +136,7 @@ func TestContextCachingFree(t *testing.T) {
 				if err != nil {
 					t.Errorf("generation with cached context (iterated) failed: %s", ErrToStr(err))
 				} else {
-					verbose(">>> iterating response (cached): %s", prettify(it.Candidates[0]))
+					verbose(">>> iterating response (cached): %s", prettify(it.Candidates))
 				}
 			}
 		}
@@ -180,7 +180,7 @@ func TestContextCachingFree(t *testing.T) {
 					cachedContentTokenCount,
 				)
 
-				verbose(">>> generated: %s", prettify(generated.Candidates[0]))
+				verbose(">>> generated: %s", prettify(generated.Candidates))
 			}
 		}
 	}
@@ -230,7 +230,7 @@ func TestGenerationFree(t *testing.T) {
 		); err != nil {
 			t.Errorf("generation with text prompt failed: %s", ErrToStr(err))
 		} else {
-			verbose(">>> generated: %s", prettify(generated.Candidates[0]))
+			verbose(">>> generated: %s", prettify(generated.Candidates))
 		}
 	}
 
@@ -281,7 +281,7 @@ func TestGenerationFree(t *testing.T) {
 					cachedContentTokenCount,
 				)
 
-				verbose(">>> generated: %s", prettify(generated.Candidates[0]))
+				verbose(">>> generated: %s", prettify(generated.Candidates))
 			}
 		}
 	} else {
@@ -311,7 +311,7 @@ func TestGenerationFree(t *testing.T) {
 		); err != nil {
 			t.Errorf("generation with text & file prompt failed: %s", ErrToStr(err))
 		} else {
-			verbose(">>> generated (BytesPrompt): %s", prettify(generated.Candidates[0]))
+			verbose(">>> generated (BytesPrompt): %s", prettify(generated.Candidates))
 			var promptTokenCount int32 = 0
 			var candidatesTokenCount int32 = 0
 			var cachedContentTokenCount int32 = 0
@@ -333,7 +333,7 @@ func TestGenerationFree(t *testing.T) {
 				cachedContentTokenCount,
 			)
 
-			verbose(">>> generated: %s", prettify(generated.Candidates[0]))
+			verbose(">>> generated: %s", prettify(generated.Candidates))
 		}
 	}
 
@@ -378,7 +378,7 @@ func TestGenerationIteratedFree(t *testing.T) {
 			if err != nil {
 				t.Errorf("generation with text prompt failed: %s", ErrToStr(err))
 			} else {
-				verbose(">>> iterating response: %s", prettify(it.Candidates[0]))
+				verbose(">>> iterating response: %s", prettify(it.Candidates))
 			}
 		}
 	}
@@ -415,7 +415,7 @@ func TestGenerationIteratedFree(t *testing.T) {
 				if err != nil {
 					t.Errorf("generation with text & file prompt failed: %s", ErrToStr(err))
 				} else {
-					verbose(">>> iterating response: %s", prettify(it.Candidates[0]))
+					verbose(">>> iterating response: %s", prettify(it.Candidates))
 				}
 			}
 		}
@@ -447,7 +447,7 @@ func TestGenerationIteratedFree(t *testing.T) {
 			if err != nil {
 				t.Errorf("generation with text & file prompt (iterated) failed: %s", ErrToStr(err))
 			} else {
-				verbose(">>> iterating response: %s", prettify(it.Candidates[0]))
+				verbose(">>> iterating response: %s", prettify(it.Candidates))
 			}
 		}
 	}
@@ -483,7 +483,7 @@ func TestGenerationIteratedFree(t *testing.T) {
 			if err != nil {
 				t.Errorf("generation with uri prompt (youtube) failed: %s", ErrToStr(err))
 			} else {
-				verbose(">>> iterating response: %s", prettify(it.Candidates[0]))
+				verbose(">>> iterating response: %s", prettify(it.Candidates))
 			}
 		}
 	}
@@ -530,7 +530,7 @@ func TestGenerationWithCustomRetriesFree(t *testing.T) {
 		); err != nil {
 			t.Errorf("generation with custom retry count failed: %s", ErrToStr(err))
 		} else {
-			verbose(">>> generated with custom retry count: %s", prettify(generated.Candidates[0]))
+			verbose(">>> generated with custom retry count: %s", prettify(generated.Candidates))
 		}
 	}
 }
@@ -674,7 +674,7 @@ func TestGenerationWithFileConverterFree(t *testing.T) {
 				cachedContentTokenCount,
 			)
 
-			verbose(">>> generated with file converter: %s", prettify(generated.Candidates[0]))
+			verbose(">>> generated with file converter: %s", prettify(generated.Candidates))
 		}
 	}
 }
@@ -1260,7 +1260,7 @@ func TestGenerationWithHistoryFree(t *testing.T) {
 				cachedContentTokenCount,
 			)
 
-			verbose(">>> generated: %s", prettify(generated.Candidates[0]))
+			verbose(">>> generated: %s", prettify(generated.Candidates))
 		}
 	}
 }
