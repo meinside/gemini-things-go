@@ -2004,7 +2004,9 @@ func TestBatchRequestsFree(t *testing.T) {
 				},
 			},
 		},
-		"test-batch-request-with-inlined",
+		&genai.CreateBatchJobConfig{
+			DisplayName: "test-batch-request-with-inlined",
+		},
 	); err != nil {
 		t.Errorf("batch request failed: %s", ErrToStr(err))
 	} else {
@@ -2031,6 +2033,8 @@ func TestBatchRequestsFree(t *testing.T) {
 				t.Errorf("failed to cancel batch: %s", ErrToStr(err))
 			} else {
 				verbose(">>> batch canceled")
+
+				waitForBatchCancellation(t, gtc, got.Name)
 
 				ctxDelete, cancelDelete := ctxWithTimeout()
 				defer cancelDelete()
@@ -2100,10 +2104,20 @@ func TestBatchRequestsFree(t *testing.T) {
 			ctxRequest, cancelRequest := ctxWithTimeout()
 			defer cancelRequest()
 
+			batchConfig := &genai.CreateBatchJobConfig{
+				DisplayName: "test-batch-request-with-file",
+			}
+			if gtc.Type == genai.BackendVertexAI {
+				batchConfig.Dest = &genai.BatchJobDestination{
+					Format: "jsonl",
+					GCSURI: fmt.Sprintf("gs://%s/batch-output/", _bucketName),
+				}
+			}
+
 			if batch, err := gtc.RequestBatch(
 				ctxRequest,
 				&batchJobSource,
-				"test-batch-request-with-file",
+				batchConfig,
 			); err != nil {
 				t.Errorf("batch request failed: %s", ErrToStr(err))
 			} else {
@@ -2130,6 +2144,8 @@ func TestBatchRequestsFree(t *testing.T) {
 						t.Errorf("failed to cancel batch: %s", ErrToStr(err))
 					} else {
 						verbose(">>> batch canceled")
+
+						waitForBatchCancellation(t, gtc, got.Name)
 
 						ctxDelete, cancelDelete := ctxWithTimeout()
 						defer cancelDelete()
@@ -2169,7 +2185,9 @@ func TestBatchRequestsFree(t *testing.T) {
 				Config: &genai.EmbedContentConfig{},
 			},
 		},
-		"test-embeddings-batch-request",
+		&genai.CreateEmbeddingsBatchJobConfig{
+			DisplayName: "test-embeddings-batch-request",
+		},
 	); err != nil {
 		t.Errorf("embeddings batch request failed: %s", ErrToStr(err))
 	} else {
@@ -2196,6 +2214,8 @@ func TestBatchRequestsFree(t *testing.T) {
 				t.Errorf("failed to cancel batch: %s", ErrToStr(err))
 			} else {
 				verbose(">>> batch canceled")
+
+				waitForBatchCancellation(t, gtc, got.Name)
 
 				ctxDelete, cancelDelete := ctxWithTimeout()
 				defer cancelDelete()

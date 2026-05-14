@@ -11,6 +11,8 @@ import (
 	"os"
 	"testing"
 	"time"
+
+	"google.golang.org/genai"
 )
 
 const (
@@ -68,6 +70,30 @@ func ctxWithTimeout(seconds ...int) (context.Context, context.CancelFunc) {
 	}
 
 	return context.WithTimeout(context.Background(), secondsToWait*time.Second)
+}
+
+// waitForBatchCancellation polls the batch job state until it leaves a non-terminal state
+// (e.g. PENDING, RUNNING, CANCELLING) so that a subsequent DeleteBatch call won't be rejected.
+func waitForBatchCancellation(t *testing.T, gtc *Client, name string) {
+	const (
+		pollInterval = 5 * time.Second
+		maxAttempts  = 12 // up to ~60s
+	)
+	for i := 0; i < maxAttempts; i++ {
+		ctx, cancel := ctxWithTimeout(10)
+		got, err := gtc.Batch(ctx, name)
+		cancel()
+		if err == nil {
+			switch got.State {
+			case genai.JobStateCancelled, genai.JobStateSucceeded,
+				genai.JobStateFailed, genai.JobStateExpired,
+				genai.JobStatePartiallySucceeded:
+				return
+			}
+		}
+		time.Sleep(pollInterval)
+	}
+	t.Logf("warning: batch %s did not reach a terminal state in time", name)
 }
 
 // sleep between each test case to not be rate limited by the API
