@@ -1234,6 +1234,8 @@ func (c *Client) UploadFile(
 }
 
 // CreateFileSearchStore creates a new file search store.
+//
+// Note: Not supported on Vertex AI.
 func (c *Client) CreateFileSearchStore(
 	ctx context.Context,
 	displayName string,
@@ -1248,6 +1250,8 @@ func (c *Client) CreateFileSearchStore(
 }
 
 // DeleteFileSearchStore deletes a file search store.
+//
+// Note: Not supported on Vertex AI.
 func (c *Client) DeleteFileSearchStore(
 	ctx context.Context,
 	fileSearchStoreName string,
@@ -1262,6 +1266,8 @@ func (c *Client) DeleteFileSearchStore(
 }
 
 // ListFileSearchStores lists all file search stores.
+//
+// Note: Not supported on Vertex AI.
 func (c *Client) ListFileSearchStores(
 	ctx context.Context,
 ) (stores iter.Seq2[*genai.FileSearchStore, error]) {
@@ -1273,6 +1279,8 @@ func (c *Client) ListFileSearchStores(
 }
 
 // GetFileSearchStore gets a file search store.
+//
+// Note: Not supported on Vertex AI.
 func (c *Client) GetFileSearchStore(
 	ctx context.Context,
 	fileSearchStoreName string,
@@ -1289,6 +1297,8 @@ func (c *Client) GetFileSearchStore(
 // If `overrideMimeType` is not given, it will be inferred from the file bytes.
 //
 // Supported file formats are: https://ai.google.dev/gemini-api/docs/file-search#supported-files
+//
+// Note: Not supported on Vertex AI.
 func (c *Client) UploadFileForSearch(
 	ctx context.Context,
 	fileSearchStoreName string,
@@ -1339,6 +1349,8 @@ func (c *Client) UploadFileForSearch(
 // ImportFileForSearch imports an already-uploaded file into a file search store.
 //
 // Supported file formats are: https://ai.google.dev/gemini-api/docs/file-search#supported-files
+//
+// Note: Not supported on Vertex AI.
 func (c *Client) ImportFileForSearch(
 	ctx context.Context,
 	fileSearchStoreName string,
@@ -1362,6 +1374,8 @@ func (c *Client) ImportFileForSearch(
 }
 
 // ListFilesInFileSearchStore lists all files in a file search store.
+//
+// Note: Not supported on Vertex AI.
 func (c *Client) ListFilesInFileSearchStore(
 	ctx context.Context,
 	fileSearchStoreName string,
@@ -1374,6 +1388,8 @@ func (c *Client) ListFilesInFileSearchStore(
 }
 
 // DeleteFileInFileSearchStore deletes a file in a file search store.
+//
+// Note: Not supported on Vertex AI.
 func (c *Client) DeleteFileInFileSearchStore(
 	ctx context.Context,
 	fileName string,
@@ -1394,35 +1410,52 @@ func (c *Client) DeleteFileInFileSearchStore(
 // RequestBatch creates a batch job for the given job source.
 //
 // A `model` (specifically a batch model) must be set in the Client.
-// `displayName` is an optional name to give the batch job.
+//
+// Note: InlinedRequests in BatchJobSource is not supported on Vertex AI.
 func (c *Client) RequestBatch(
 	ctx context.Context,
 	job *genai.BatchJobSource,
-	displayName string,
+	options ...*genai.CreateBatchJobConfig,
 ) (batch *genai.BatchJob, err error) {
 	// check if model is set
 	if c.model == "" {
 		return nil, fmt.Errorf("model is not set for batch requests")
 	}
 
-	return c.client.Batches.Create(
-		ctx,
-		c.model,
-		job,
-		&genai.CreateBatchJobConfig{
-			DisplayName: displayName,
-		},
-	)
+	// Vertex AI does not support InlinedRequests
+	if c.Type == genai.BackendVertexAI && len(job.InlinedRequests) > 0 {
+		return nil, fmt.Errorf("`RequestBatch` with InlinedRequests is not supported for Vertex AI")
+	}
+
+	var config *genai.CreateBatchJobConfig = nil
+	if len(options) > 0 {
+		config = options[0]
+	}
+
+	if c.Verbose {
+		log.Printf(
+			"> requesting batch with job: %s (options: %s)",
+			prettify(job),
+			prettify(config),
+		)
+	}
+
+	batch, err = c.client.Batches.Create(ctx, c.model, job, config)
+	if err != nil {
+		return nil, fmt.Errorf("failed to request batch: %w", err)
+	}
+	return batch, nil
 }
 
 // RequestBatchEmbeddings creates a batch job for the given embeddings job source.
 //
 // A `model` (specifically a batch model) must be set in the Client.
-// `displayName` is an optional name to give the batch job.
+//
+// Note: Not supported on Vertex AI.
 func (c *Client) RequestBatchEmbeddings(
 	ctx context.Context,
 	job *genai.EmbeddingsBatchJobSource,
-	displayName string,
+	options ...*genai.CreateEmbeddingsBatchJobConfig,
 ) (batch *genai.BatchJob, err error) {
 	if c.Type == genai.BackendVertexAI {
 		return nil, fmt.Errorf("`RequestBatchEmbeddings` is not implemented yet for Vertex AI")
@@ -1433,14 +1466,24 @@ func (c *Client) RequestBatchEmbeddings(
 		return nil, fmt.Errorf("model is not set for batch embeddings requests")
 	}
 
-	return c.client.Batches.CreateEmbeddings(
-		ctx,
-		&c.model,
-		job,
-		&genai.CreateEmbeddingsBatchJobConfig{
-			DisplayName: displayName,
-		},
-	)
+	var config *genai.CreateEmbeddingsBatchJobConfig = nil
+	if len(options) > 0 {
+		config = options[0]
+	}
+
+	if c.Verbose {
+		log.Printf(
+			"> requesting embeddings batch with job: %s (options: %s)",
+			prettify(job),
+			prettify(config),
+		)
+	}
+
+	batch, err = c.client.Batches.CreateEmbeddings(ctx, &c.model, job, config)
+	if err != nil {
+		return nil, fmt.Errorf("failed to request embeddings batch: %w", err)
+	}
+	return batch, nil
 }
 
 // Batch returns the batch job with the given name.
