@@ -25,17 +25,16 @@ import (
 //
 // https://ai.google.dev/gemini-api/docs/models
 const (
-	modelForContextCachingPaid                       = `gemini-3-flash-preview`
-	modelForTextGenerationPaid                       = `gemini-3-flash-preview`
-	modelForTextGenerationWithRecursiveToolCallsPaid = `gemini-3-flash-preview`
-	modelForImageGenerationPaid                      = `gemini-3.1-flash-image-preview`
-	modelForImagenPaid                               = `imagen-4.0-fast-generate-001`
+	modelForContextCachingPaid                       = `gemini-3.5-flash`
+	modelForTextGenerationPaid                       = `gemini-3.5-flash`
+	modelForTextGenerationWithRecursiveToolCallsPaid = `gemini-3.5-flash`
+	modelForImageGenerationPaid                      = `gemini-3.1-flash-lite-image`
 	modelForVideoGenerationPaid                      = `veo-3.1-fast-generate-001`
-	modelForTextGenerationWithGroundingPaid          = `gemini-3-flash-preview`
-	modelForFileSearchPaid                           = `gemini-3-flash-preview`
+	modelForTextGenerationWithGroundingPaid          = `gemini-3.5-flash`
+	modelForFileSearchPaid                           = `gemini-3.5-flash`
 	modelForSpeechGenerationPaid                     = `gemini-3.1-flash-tts-preview`
 	modelForEmbeddingsPaid                           = `gemini-embedding-2-preview`
-	modelForBatchesPaid                              = `gemini-3-flash-preview`
+	modelForBatchesPaid                              = `gemini-3.5-flash`
 )
 
 // TestContextCachingPaid tests context caching and generation with the cached context. (paid)
@@ -213,7 +212,8 @@ func TestContextCachingPaid(t *testing.T) {
 					}
 				}
 
-				verbose(">>> input tokens: %d, output tokens: %d, cached tokens: %d (usage metadata)",
+				verbose(
+					">>> input tokens: %d, output tokens: %d, cached tokens: %d (usage metadata)",
 					promptTokenCount,
 					generated.UsageMetadata.TotalTokenCount-promptTokenCount,
 					cachedContentTokenCount,
@@ -314,7 +314,8 @@ func TestGenerationPaid(t *testing.T) {
 					}
 				}
 
-				verbose(">>> input tokens: %d, output tokens: %d, cached tokens: %d (usage metadata)",
+				verbose(
+					">>> input tokens: %d, output tokens: %d, cached tokens: %d (usage metadata)",
 					promptTokenCount,
 					candidatesTokenCount,
 					cachedContentTokenCount,
@@ -366,7 +367,8 @@ func TestGenerationPaid(t *testing.T) {
 				}
 			}
 
-			verbose(">>> input tokens: %d, output tokens: %d, cached tokens: %d (usage metadata)",
+			verbose(
+				">>> input tokens: %d, output tokens: %d, cached tokens: %d (usage metadata)",
 				promptTokenCount,
 				candidatesTokenCount,
 				cachedContentTokenCount,
@@ -698,7 +700,8 @@ func TestGenerationWithFileConverterPaid(t *testing.T) {
 				}
 			}
 
-			verbose(">>> input tokens: %d, output tokens: %d, cached tokens: %d (usage metadata)",
+			verbose(
+				">>> input tokens: %d, output tokens: %d, cached tokens: %d (usage metadata)",
 				promptTokenCount,
 				candidatesTokenCount,
 				cachedContentTokenCount,
@@ -1286,7 +1289,8 @@ func TestGenerationWithHistoryPaid(t *testing.T) {
 				}
 			}
 
-			verbose(">>> input tokens: %d, output tokens: %d, cached tokens: %d (usage metadata)",
+			verbose(
+				">>> input tokens: %d, output tokens: %d, cached tokens: %d (usage metadata)",
 				promptTokenCount,
 				candidatesTokenCount,
 				cachedContentTokenCount,
@@ -1489,58 +1493,6 @@ func TestImageGenerationsPaid(t *testing.T) {
 	}
 
 	// TODO: add tests for: prompt with an image file
-}
-
-// TestImagenPaid tests imagen models. (paid)
-func TestImagenPaid(t *testing.T) {
-	sleepForNotBeingRateLimited()
-
-	gtc, err := newClient(
-		_location,
-		WithModel(modelForImagenPaid),
-	)
-	if err != nil {
-		t.Fatalf("failed to create client: %s", err)
-	}
-	// Image generation models typically do not support system instructions.
-	// Setting this to nil prevents the client from attempting to send one for other types of calls,
-	// though GenerateImages itself doesn't use the client's systemInstructionFunc.
-	gtc.SetSystemInstructionFunc(nil)
-	gtc.Verbose = _isVerbose
-	defer func() { _ = gtc.Close() }()
-
-	const prompt = `Generate an image of a golden retriever puppy playing with a colorful ball in a grassy park`
-
-	ctxGenerate, cancelGenerate := ctxWithTimeout()
-	defer cancelGenerate()
-
-	// test `GenerateImages`
-	if res, err := gtc.GenerateImages(
-		ctxGenerate,
-		prompt,
-	); err != nil {
-		t.Errorf("image generation with `GenerateImages` failed: %s", ErrToStr(err))
-	} else {
-		if len(res.GeneratedImages) > 0 {
-			for _, image := range res.GeneratedImages {
-				if image.RAIFilteredReason != "" {
-					t.Errorf("image generation with `GenerateImages` failed with filtered reason: %s", image.RAIFilteredReason)
-				} else {
-					if image.EnhancedPrompt != "" {
-						verbose(">>> iterating response image with enhanced prompt: '%s'", image.EnhancedPrompt)
-					}
-
-					if image.Image == nil {
-						t.Errorf("image generation with `GenerateImages` failed with null image")
-					} else {
-						verbose(">>> iterating response image: %s (%d bytes)", image.Image.MIMEType, len(image.Image.ImageBytes))
-					}
-				}
-			}
-		} else {
-			t.Errorf("image generation with `GenerateImages` failed with no usable result")
-		}
-	}
 }
 
 func TestVideoGenerationsPaid(t *testing.T) {
@@ -2162,7 +2114,8 @@ func TestFileSearchPaid(t *testing.T) {
 					}
 				}
 
-				verbose(">>> input tokens: %d, output tokens: %d, cached tokens: %d (usage metadata)",
+				verbose(
+					">>> input tokens: %d, output tokens: %d, cached tokens: %d (usage metadata)",
 					promptTokenCount,
 					generated.UsageMetadata.TotalTokenCount-promptTokenCount,
 					cachedContentTokenCount,
