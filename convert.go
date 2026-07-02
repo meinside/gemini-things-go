@@ -32,7 +32,7 @@ func MCPToGeminiTools(
 			continue
 		}
 
-		schema, err := marshalJsonSchema(f.InputSchema)
+		schema, err := marshalJSONSchema(f.InputSchema)
 		if err != nil {
 			return nil, fmt.Errorf("tools[%d].InputSchema: %w", i, err)
 		}
@@ -47,9 +47,9 @@ func MCPToGeminiTools(
 	return to, nil
 }
 
-// marshalJsonSchema tries to marshal a jsonschema.Schema or *jsonschema.Schema
+// marshalJSONSchema tries to marshal a jsonschema.Schema or *jsonschema.Schema
 // into a map[string]any. Returns (nil, nil) if the input is neither type.
-func marshalJsonSchema(input any) (map[string]any, error) {
+func marshalJSONSchema(input any) (map[string]any, error) {
 	type jsonMarshaler interface {
 		MarshalJSON() ([]byte, error)
 	}

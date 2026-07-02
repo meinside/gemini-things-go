@@ -24,14 +24,13 @@ import (
 //
 // https://ai.google.dev/gemini-api/docs/models
 const (
-	modelForContextCachingFree                       = `gemini-3-flash-preview`
-	modelForTextGenerationFree                       = `gemini-3-flash-preview`
-	modelForTextGenerationWithRecursiveToolCallsFree = `gemini-3-flash-preview`
+	modelForContextCachingFree                       = `gemini-3.5-flash`
+	modelForTextGenerationFree                       = `gemini-3.5-flash`
+	modelForTextGenerationWithRecursiveToolCallsFree = `gemini-3.5-flash`
 	modelForTextGenerationWithGroundingFree          = `gemini-2.5-flash`
 	modelForFileSearchFree                           = `gemini-2.5-flash`
 	modelForSpeechGenerationFree                     = `gemini-2.5-flash-preview-tts`
 	modelForEmbeddingsFree                           = `gemini-embedding-2-preview`
-	modelForBatchesFree                              = `gemini-3-flash-preview`
 )
 
 // TestContextCachingFree tests context caching and generation with the cached context. (free)
@@ -174,7 +173,8 @@ func TestContextCachingFree(t *testing.T) {
 					}
 				}
 
-				verbose(">>> input tokens: %d, output tokens: %d, cached tokens: %d (usage metadata)",
+				verbose(
+					">>> input tokens: %d, output tokens: %d, cached tokens: %d (usage metadata)",
 					promptTokenCount,
 					generated.UsageMetadata.TotalTokenCount-promptTokenCount,
 					cachedContentTokenCount,
@@ -275,7 +275,8 @@ func TestGenerationFree(t *testing.T) {
 					}
 				}
 
-				verbose(">>> input tokens: %d, output tokens: %d, cached tokens: %d (usage metadata)",
+				verbose(
+					">>> input tokens: %d, output tokens: %d, cached tokens: %d (usage metadata)",
 					promptTokenCount,
 					candidatesTokenCount,
 					cachedContentTokenCount,
@@ -327,7 +328,8 @@ func TestGenerationFree(t *testing.T) {
 				}
 			}
 
-			verbose(">>> input tokens: %d, output tokens: %d, cached tokens: %d (usage metadata)",
+			verbose(
+				">>> input tokens: %d, output tokens: %d, cached tokens: %d (usage metadata)",
 				promptTokenCount,
 				candidatesTokenCount,
 				cachedContentTokenCount,
@@ -668,7 +670,8 @@ func TestGenerationWithFileConverterFree(t *testing.T) {
 				}
 			}
 
-			verbose(">>> input tokens: %d, output tokens: %d, cached tokens: %d (usage metadata)",
+			verbose(
+				">>> input tokens: %d, output tokens: %d, cached tokens: %d (usage metadata)",
 				promptTokenCount,
 				candidatesTokenCount,
 				cachedContentTokenCount,
@@ -1254,7 +1257,8 @@ func TestGenerationWithHistoryFree(t *testing.T) {
 				}
 			}
 
-			verbose(">>> input tokens: %d, output tokens: %d, cached tokens: %d (usage metadata)",
+			verbose(
+				">>> input tokens: %d, output tokens: %d, cached tokens: %d (usage metadata)",
 				promptTokenCount,
 				candidatesTokenCount,
 				cachedContentTokenCount,
@@ -1901,7 +1905,8 @@ func TestFileSearchFree(t *testing.T) {
 					}
 				}
 
-				verbose(">>> input tokens: %d, output tokens: %d, cached tokens: %d (usage metadata)",
+				verbose(
+					">>> input tokens: %d, output tokens: %d, cached tokens: %d (usage metadata)",
 					promptTokenCount,
 					generated.UsageMetadata.TotalTokenCount-promptTokenCount,
 					cachedContentTokenCount,
@@ -1921,313 +1926,6 @@ func TestFileSearchFree(t *testing.T) {
 				store.Name,
 			); err != nil {
 				t.Errorf("failed to delete file search store: %s", ErrToStr(err))
-			}
-		}
-	}
-}
-
-// TestBatchRequestsFree tests batch requests. (free)
-//
-//	NOTE: may fail with error on free tier:
-//	{
-//		"code": 429,
-//		"message": "Resource has been exhausted (e.g. check quota).",
-//		"status": "RESOURCE_EXHAUSTED"
-//	}
-func TestBatchRequestsFree(t *testing.T) {
-	sleepForNotBeingRateLimited()
-
-	gtc, err := newClient(
-		_location,
-		WithModel(modelForBatchesFree),
-	)
-	if err != nil {
-		t.Fatalf("failed to create client: %s", err)
-	}
-	gtc.Verbose = _isVerbose
-	gtc.DeleteFilesOnClose = true
-	defer func() { _ = gtc.Close() }()
-
-	ctxRequest, cancelRequest := ctxWithTimeout()
-	defer cancelRequest()
-
-	// inlined request
-	if batch, err := gtc.RequestBatch(
-		ctxRequest,
-		&genai.BatchJobSource{
-			InlinedRequests: []*genai.InlinedRequest{
-				{
-					Model: modelForTextGenerationFree,
-					Contents: []*genai.Content{
-						{
-							Role: genai.RoleUser,
-							Parts: []*genai.Part{
-								new(
-									PromptFromText(
-										`Give me a detailed explanation of the terminal velocity.`,
-									).ToPart(),
-								),
-							},
-						},
-						{
-							Role: genai.RoleUser,
-							Parts: []*genai.Part{
-								new(
-									PromptFromText(
-										`Show me how to solve the quadratic equation.`,
-									).ToPart(),
-								),
-							},
-						},
-						{
-							Role: genai.RoleUser,
-							Parts: []*genai.Part{
-								new(
-									PromptFromText(
-										`How can I calculate the escape velocity from the Earth?`,
-									).ToPart(),
-								),
-							},
-						},
-					},
-					/*
-						// FIXME: not working (yet?)
-						Config: &genai.GenerateContentConfig{
-							SystemInstruction: &genai.Content{
-								Role: genai.RoleModel,
-								Parts: []*genai.Part{
-									ptr(PromptFromText(`You are a helpful assistant.`).ToPart()),
-								},
-							},
-						},
-					*/
-				},
-			},
-		},
-		&genai.CreateBatchJobConfig{
-			DisplayName: "test-batch-request-with-inlined",
-		},
-	); err != nil {
-		t.Errorf("batch request failed: %s", ErrToStr(err))
-	} else {
-		verbose(">>> batch request: %s", prettify(batch))
-
-		ctxBatch, cancelBatch := ctxWithTimeout()
-		defer cancelBatch()
-
-		if got, err := gtc.Batch(
-			ctxBatch,
-			batch.Name,
-		); err != nil {
-			t.Errorf("failed to get batch: %s", ErrToStr(err))
-		} else {
-			verbose(">>> batch status: %s", prettify(got.State))
-
-			ctxCancel, cancelCancel := ctxWithTimeout()
-			defer cancelCancel()
-
-			if err := gtc.CancelBatch(
-				ctxCancel,
-				got.Name,
-			); err != nil {
-				t.Errorf("failed to cancel batch: %s", ErrToStr(err))
-			} else {
-				verbose(">>> batch canceled")
-
-				waitForBatchCancellation(t, gtc, got.Name)
-
-				ctxDelete, cancelDelete := ctxWithTimeout()
-				defer cancelDelete()
-
-				if err := gtc.DeleteBatch(
-					ctxDelete,
-					got.Name,
-				); err != nil {
-					t.Errorf("failed to delete batch: %s", ErrToStr(err))
-				} else {
-					verbose(">>> batch deleted")
-				}
-			}
-		}
-	}
-
-	// file request (JSONL)
-	if bytes, err := json.Marshal(struct {
-		Contents []*genai.Content `json:"contents"`
-	}{
-		Contents: []*genai.Content{
-			{
-				Role: genai.RoleUser,
-				Parts: []*genai.Part{
-					new(
-						PromptFromText(
-							`What are the three laws of thermodynamics?`,
-						).ToPart(),
-					),
-				},
-			},
-		},
-	}); err != nil {
-		t.Fatalf("failed to marshal jsonl: %s", err)
-	} else {
-		ctxUpload, cancelUpload := ctxWithTimeout()
-		defer cancelUpload()
-
-		if uploaded, err := gtc.UploadFilesAndWait(
-			ctxUpload,
-			[]Prompt{
-				PromptFromBytes(bytes),
-			},
-			true, // NOTE: for not checking mime types of uploaded files
-		); err != nil {
-			t.Errorf("failed to upload json file: %s", ErrToStr(err))
-		} else {
-			first := uploaded[0]
-
-			batchJobSource := genai.BatchJobSource{}
-			var filename, fileURI string
-			switch typ := first.(type) {
-			case FilePrompt:
-				filename = typ.Filename
-				if typ.Data != nil {
-					fileURI = typ.Data.FileURI
-				}
-			}
-			switch gtc.Type {
-			case genai.BackendGeminiAPI:
-				batchJobSource.FileName = filename
-			case genai.BackendVertexAI:
-				batchJobSource.Format = "jsonl"
-				batchJobSource.GCSURI = []string{fileURI}
-			}
-
-			ctxRequest, cancelRequest := ctxWithTimeout()
-			defer cancelRequest()
-
-			batchConfig := &genai.CreateBatchJobConfig{
-				DisplayName: "test-batch-request-with-file",
-			}
-			if gtc.Type == genai.BackendVertexAI {
-				batchConfig.Dest = &genai.BatchJobDestination{
-					Format: "jsonl",
-					GCSURI: fmt.Sprintf("gs://%s/batch-output/", _bucketName),
-				}
-			}
-
-			if batch, err := gtc.RequestBatch(
-				ctxRequest,
-				&batchJobSource,
-				batchConfig,
-			); err != nil {
-				t.Errorf("batch request failed: %s", ErrToStr(err))
-			} else {
-				verbose(">>> batch request: %s", prettify(batch))
-
-				ctxBatch, cancelBatch := ctxWithTimeout()
-				defer cancelBatch()
-
-				if got, err := gtc.Batch(
-					ctxBatch,
-					batch.Name,
-				); err != nil {
-					t.Errorf("failed to get batch: %s", ErrToStr(err))
-				} else {
-					verbose(">>> batch status: %s", prettify(got.State))
-
-					ctxCancel, cancelCancel := ctxWithTimeout()
-					defer cancelCancel()
-
-					if err := gtc.CancelBatch(
-						ctxCancel,
-						got.Name,
-					); err != nil {
-						t.Errorf("failed to cancel batch: %s", ErrToStr(err))
-					} else {
-						verbose(">>> batch canceled")
-
-						waitForBatchCancellation(t, gtc, got.Name)
-
-						ctxDelete, cancelDelete := ctxWithTimeout()
-						defer cancelDelete()
-
-						if err := gtc.DeleteBatch(
-							ctxDelete,
-							got.Name,
-						); err != nil {
-							t.Errorf("failed to delete batch: %s", ErrToStr(err))
-						} else {
-							verbose(">>> batch deleted")
-						}
-					}
-				}
-			}
-		}
-	}
-
-	ctxRequest2, cancelRequest2 := ctxWithTimeout()
-	defer cancelRequest2()
-
-	// embeddings batch request
-	gtc.model = modelForEmbeddingsFree
-	if batch, err := gtc.RequestBatchEmbeddings(
-		ctxRequest2,
-		&genai.EmbeddingsBatchJobSource{
-			InlinedRequests: &genai.EmbedContentBatch{
-				Contents: []*genai.Content{
-					{
-						Parts: []*genai.Part{
-							{
-								Text: `Life is like riding a bicycle. To keep your balance, you must keep moving.\n- Albert Einstein`,
-							},
-						},
-					},
-				},
-				Config: &genai.EmbedContentConfig{},
-			},
-		},
-		&genai.CreateEmbeddingsBatchJobConfig{
-			DisplayName: "test-embeddings-batch-request",
-		},
-	); err != nil {
-		t.Errorf("embeddings batch request failed: %s", ErrToStr(err))
-	} else {
-		verbose(">>> embeddings batch request: %s", prettify(batch))
-
-		ctxBatch, cancelBatch := ctxWithTimeout()
-		defer cancelBatch()
-
-		if got, err := gtc.Batch(
-			ctxBatch,
-			batch.Name,
-		); err != nil {
-			t.Errorf("failed to get batch: %s", ErrToStr(err))
-		} else {
-			verbose(">>> batch status: %s", prettify(got.State))
-
-			ctxCancel, cancelCancel := ctxWithTimeout()
-			defer cancelCancel()
-
-			if err := gtc.CancelBatch(
-				ctxCancel,
-				got.Name,
-			); err != nil {
-				t.Errorf("failed to cancel batch: %s", ErrToStr(err))
-			} else {
-				verbose(">>> batch canceled")
-
-				waitForBatchCancellation(t, gtc, got.Name)
-
-				ctxDelete, cancelDelete := ctxWithTimeout()
-				defer cancelDelete()
-
-				if err := gtc.DeleteBatch(
-					ctxDelete,
-					got.Name,
-				); err != nil {
-					t.Errorf("failed to delete batch: %s", ErrToStr(err))
-				} else {
-					verbose(">>> batch deleted")
-				}
 			}
 		}
 	}
