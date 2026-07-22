@@ -24,9 +24,9 @@ import (
 //
 // https://ai.google.dev/gemini-api/docs/models
 const (
-	modelForContextCachingFree                       = `gemini-3.5-flash`
-	modelForTextGenerationFree                       = `gemini-3.5-flash`
-	modelForTextGenerationWithRecursiveToolCallsFree = `gemini-3.5-flash`
+	modelForContextCachingFree                       = `gemini-3.6-flash`
+	modelForTextGenerationFree                       = `gemini-3.6-flash`
+	modelForTextGenerationWithRecursiveToolCallsFree = `gemini-3.6-flash`
 	modelForTextGenerationWithGroundingFree          = `gemini-2.5-flash`
 	modelForFileSearchFree                           = `gemini-2.5-flash`
 	modelForSpeechGenerationFree                     = `gemini-2.5-flash-preview-tts`
