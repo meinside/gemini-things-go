@@ -5,13 +5,13 @@ go 1.26.0
 require (
 	cloud.google.com/go/auth v0.22.0
 	cloud.google.com/go/storage v1.64.0
-	github.com/gabriel-vasile/mimetype v1.4.13
+	github.com/gabriel-vasile/mimetype v1.4.14
 	github.com/google/jsonschema-go v0.4.3
 	github.com/google/uuid v1.6.0
 	github.com/googleapis/gax-go/v2 v2.23.0
 	github.com/modelcontextprotocol/go-sdk v1.6.1
-	google.golang.org/api v0.289.0
-	google.golang.org/genai v1.64.0
+	google.golang.org/api v0.290.0
+	google.golang.org/genai v1.65.0
 	google.golang.org/grpc v1.82.1
 )
 
