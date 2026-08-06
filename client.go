@@ -61,7 +61,11 @@ type Client struct {
 	model                 string                   // model to be used for generation.
 	systemInstructionFunc FnSystemInstruction      // Function that returns the system instruction string.
 	fileConvertFuncs      map[string]FnConvertFile // Map of MIME types to custom file conversion functions.
-	maxRetryCount         uint                     // maximum retry count for retriable API errors (e.g., 429, 5xx).
+
+	// `Attempts` of the retry options handed to the genai client, shared with it
+	// by pointer so that `SetMaxRetryCount` keeps working after construction.
+	// It includes the initial request, so it is always `maxRetryCount + 1`.
+	retryAttempts *int32
 
 	DeleteFilesOnClose  bool // If true, automatically deletes all uploaded files when Close is called.
 	DeleteCachesOnClose bool // If true, automatically deletes all cached contexts when Close is called.
@@ -87,13 +91,20 @@ func WithModel(model string) ClientOption {
 // `429`, and `5xx` responses as well as transport-level failures, with
 // exponential backoff and jitter. A count of 0 disables retries.
 //
-// This applies to `GenerateContent`-family calls only. It is overridden for an
-// individual call by setting `HTTPOptions.RetryOptions` on that call's
-// `*genai.GenerateContentConfig`.
+// This applies to every API call made through the client. It is overridden for
+// an individual call by setting `HTTPOptions.RetryOptions` on that call's
+// config.
 func WithMaxRetryCount(count uint) ClientOption {
 	return func(c *Client) {
-		c.maxRetryCount = count
+		c.SetMaxRetryCount(count)
 	}
+}
+
+// retryOptions returns the HTTP retry options to hand to the genai client,
+// along with the `Attempts` pointer to retain for later mutation.
+func retryOptions(count uint) (*genai.HTTPRetryOptions, *int32) {
+	attempts := new(int32(count) + 1) // `Attempts` includes the initial request
+	return &genai.HTTPRetryOptions{Attempts: attempts}, attempts
 }
 
 // NewClient creates and returns a new Client instance which uses Gemini API.
@@ -114,11 +125,17 @@ func WithMaxRetryCount(count uint) ClientOption {
 func NewClient(apiKey string, opts ...ClientOption) (*Client, error) {
 	var err error
 
+	// retries are handled by the SDK, for every API call made through the client
+	retries, attempts := retryOptions(defaultMaxRetryCount)
+
 	// genai client
 	var client *genai.Client
 	client, err = genai.NewClient(context.TODO(), &genai.ClientConfig{
 		APIKey:  apiKey,
 		Backend: genai.BackendGeminiAPI,
+		HTTPOptions: genai.HTTPOptions{
+			RetryOptions: retries,
+		},
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create genai client: %w", err)
@@ -131,7 +148,7 @@ func NewClient(apiKey string, opts ...ClientOption) (*Client, error) {
 			return defaultSystemInstruction
 		},
 		fileConvertFuncs:    make(map[string]FnConvertFile),
-		maxRetryCount:       defaultMaxRetryCount,
+		retryAttempts:       attempts,
 		DeleteFilesOnClose:  false,
 		DeleteCachesOnClose: false,
 		Verbose:             false,
@@ -171,6 +188,9 @@ func NewVertexClient(
 			return nil, fmt.Errorf("failed to get project ID: %w", err)
 		}
 
+		// retries are handled by the SDK, for every API call made through the client
+		retries, attempts := retryOptions(defaultMaxRetryCount)
+
 		// genai client
 		var client *genai.Client
 		client, err = genai.NewClient(
@@ -180,6 +200,9 @@ func NewVertexClient(
 				Project:     projectID,
 				Location:    location,
 				Credentials: creds,
+				HTTPOptions: genai.HTTPOptions{
+					RetryOptions: retries,
+				},
 			},
 		)
 		if err != nil {
@@ -206,7 +229,7 @@ func NewVertexClient(
 				return defaultSystemInstruction
 			},
 			fileConvertFuncs:    make(map[string]FnConvertFile),
-			maxRetryCount:       defaultMaxRetryCount,
+			retryAttempts:       attempts,
 			DeleteFilesOnClose:  false,
 			DeleteCachesOnClose: false,
 			Verbose:             false,
@@ -341,11 +364,13 @@ func (c *Client) SetFileConverter(mimeType string, fn FnConvertFile) {
 }
 
 // SetMaxRetryCount sets the default maximum number of retries for retriable API
-// errors encountered during operations like Generate.
+// errors. It takes effect on subsequent calls.
 //
 // See WithMaxRetryCount for which errors are retried.
 func (c *Client) SetMaxRetryCount(count uint) {
-	c.maxRetryCount = count
+	// the genai client holds this same pointer, so writing through it
+	// reconfigures retries without rebuilding the client
+	*c.retryAttempts = int32(count) + 1 // `Attempts` includes the initial request
 }
 
 // GenerateStreamIterated returns an iterator (iter.Seq2) for streaming generated content.
@@ -404,8 +429,8 @@ func (c *Client) GenerateStreamIterated(
 //
 // A `model` must be set in the Client before calling.
 //
-// Retriable errors are retried by the underlying genai SDK, up to `c.maxRetryCount`
-// times (configurable via `WithMaxRetryCount` or `SetMaxRetryCount`).
+// Retriable errors are retried by the underlying genai SDK
+// (configurable via `WithMaxRetryCount` or `SetMaxRetryCount`).
 func (c *Client) Generate(
 	ctx context.Context,
 	contents []*genai.Content,
@@ -679,20 +704,6 @@ func (c *Client) alteredGenerateContentConfig(
 			},
 		}
 	}
-
-	httpOpts := genai.HTTPOptions{}
-	if altered.HTTPOptions != nil {
-		// shallow copy to avoid mutating the caller's HTTPOptions
-		httpOpts = *altered.HTTPOptions
-	}
-	// retries are handled by the SDK's HTTP layer;
-	// a caller-supplied `RetryOptions` takes precedence
-	if httpOpts.RetryOptions == nil {
-		httpOpts.RetryOptions = &genai.HTTPRetryOptions{
-			Attempts: new(int32(c.maxRetryCount) + 1), // `Attempts` includes the initial request
-		}
-	}
-	altered.HTTPOptions = &httpOpts
 
 	return altered
 }
