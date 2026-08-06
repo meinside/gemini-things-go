@@ -1039,9 +1039,8 @@ func ErrDetails(err error) []map[string]any {
 
 var (
 	// regular expressions for checking HTTP error strings
-	regexpHTTP429 = regexp.MustCompile(`[Ee]rror\s+429\s+`)    // Error 429
-	regexpHTTP503 = regexp.MustCompile(`[Ee]rror\s+503\s+`)    // Error 503
-	regexpHTTP5xx = regexp.MustCompile(`[Ee]rror\s+5\d{2}\s+`) // Error 5xx
+	regexpHTTP429 = regexp.MustCompile(`[Ee]rror\s+429\s+`) // Error 429
+	regexpHTTP503 = regexp.MustCompile(`[Ee]rror\s+503\s+`) // Error 503
 
 	// messages for checking genai errors
 	msgQuotaExceeded   = `exceeded your current quota`

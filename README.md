@@ -31,7 +31,7 @@ func main() {
 	if client, err := gt.NewClient(
 		apiKey,
 		gt.WithModel(model),     // Specify the model
-		gt.WithMaxRetryCount(5), // Configure a maximum of 5 retries on 5xx server errors
+		gt.WithMaxRetryCount(5), // Configure a maximum of 5 retries on retriable errors
 	); err == nil {
 		ctxContents, cancelContents := context.WithTimeout(context.TODO(), contentsBuildupTimeoutSeconds*time.Second)
 		defer cancelContents()
