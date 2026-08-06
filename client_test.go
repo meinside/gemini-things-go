@@ -5,70 +5,136 @@
 package gt
 
 import (
+	"net/http"
+	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 
 	"google.golang.org/genai"
 )
 
-// TestAlteredGenerateContentConfigRetryOptions tests the injection of
-// the SDK's HTTP retry options into generate-content configs.
-func TestAlteredGenerateContentConfigRetryOptions(t *testing.T) {
-	const maxRetryCount uint = 3
-	const wantAttempts int32 = int32(maxRetryCount) + 1 // `Attempts` includes the initial request
+// TestRetryOptions tests the conversion of a retry count into the SDK's
+// HTTP retry options.
+func TestRetryOptions(t *testing.T) {
+	for _, count := range []uint{0, 1, 3} {
+		opts, attempts := retryOptions(count)
 
-	c := &Client{maxRetryCount: maxRetryCount}
+		// `Attempts` includes the initial request
+		want := int32(count) + 1
+		if opts.Attempts == nil {
+			t.Errorf("expected Attempts to be set for a retry count of %d", count)
+		} else if *opts.Attempts != want {
+			t.Errorf("unexpected Attempts for a retry count of %d (%d != %d)", count, *opts.Attempts, want)
+		}
 
-	// (1) with a nil config, retry options should be injected
-	if altered := c.alteredGenerateContentConfig(nil); altered.HTTPOptions == nil {
-		t.Errorf("expected HTTPOptions to be set for a nil config")
-	} else if altered.HTTPOptions.RetryOptions == nil {
-		t.Errorf("expected RetryOptions to be set for a nil config")
-	} else if altered.HTTPOptions.RetryOptions.Attempts == nil {
-		t.Errorf("expected Attempts to be set for a nil config")
-	} else if got := *altered.HTTPOptions.RetryOptions.Attempts; got != wantAttempts {
-		t.Errorf("unexpected Attempts for a nil config (%d != %d)", got, wantAttempts)
+		// the returned pointer must be the one held by the options,
+		// so that writing through it reconfigures the genai client
+		if attempts != opts.Attempts {
+			t.Errorf("the returned pointer should be the one held by the retry options")
+		}
+	}
+}
+
+// TestSetMaxRetryCount tests that retries are configured for every API call
+// made through the client, and that they stay reconfigurable afterwards.
+func TestSetMaxRetryCount(t *testing.T) {
+	var calls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write([]byte(`{"error":{"code":503,"message":"unavailable"}}`))
+	}))
+	defer func() { srv.Close() }()
+
+	gtc, err := NewClient(`dummy-api-key`, WithMaxRetryCount(1))
+	if err != nil {
+		t.Fatalf("failed to create client: %s", err)
+	}
+	defer func() { _ = gtc.Close() }()
+
+	// the genai client should have been handed the retry options at construction
+	if built := gtc.client.ClientConfig().HTTPOptions.RetryOptions; built == nil {
+		t.Errorf("expected the genai client to be configured with retry options")
+	} else if built.Attempts != gtc.retryAttempts {
+		t.Errorf("expected the genai client to share the client's Attempts pointer")
 	}
 
-	// (2) a caller-supplied RetryOptions should take precedence
-	const callerAttempts int32 = 10
-	callerRetries := &genai.GenerateContentConfig{
-		HTTPOptions: &genai.HTTPOptions{
+	// point the client at the test server, and drop the backoff so the test is fast
+	gtc.client, err = genai.NewClient(t.Context(), &genai.ClientConfig{
+		APIKey:  `dummy-api-key`,
+		Backend: genai.BackendGeminiAPI,
+		HTTPOptions: genai.HTTPOptions{
+			BaseURL: srv.URL,
 			RetryOptions: &genai.HTTPRetryOptions{
-				Attempts: new(callerAttempts),
+				Attempts:     gtc.retryAttempts, // the very pointer SetMaxRetryCount writes through
+				InitialDelay: new(0.0),
+				MaxDelay:     new(0.0),
+				Jitter:       new(0.0),
 			},
 		},
-	}
-	if altered := c.alteredGenerateContentConfig(callerRetries); altered.HTTPOptions.RetryOptions.Attempts == nil {
-		t.Errorf("expected the caller's Attempts to be kept")
-	} else if got := *altered.HTTPOptions.RetryOptions.Attempts; got != callerAttempts {
-		t.Errorf("the caller's Attempts should not be overridden (%d != %d)", got, callerAttempts)
+	})
+	if err != nil {
+		t.Fatalf("failed to create genai client: %s", err)
 	}
 
-	// (3) other HTTPOptions fields should survive the injection
-	const apiVersion = `v1beta`
-	callerHTTPOptions := &genai.GenerateContentConfig{
-		HTTPOptions: &genai.HTTPOptions{
-			APIVersion: apiVersion,
+	// `ListModels` is not a `GenerateContent`-family call, so it exercises
+	// the client-level retry configuration
+	listModels := func() int32 {
+		calls.Store(0)
+		_, _ = gtc.ListModels(t.Context())
+		return calls.Load()
+	}
+
+	// 1 retry => 2 attempts
+	if got := listModels(); got != 2 {
+		t.Errorf("expected 2 attempts for a retry count of 1, but got %d", got)
+	}
+
+	// raising the count must take effect without rebuilding the client
+	gtc.SetMaxRetryCount(3)
+	if got := listModels(); got != 4 {
+		t.Errorf("expected 4 attempts after raising the retry count to 3, but got %d", got)
+	}
+
+	// a zero count disables retries
+	gtc.SetMaxRetryCount(0)
+	if got := listModels(); got != 1 {
+		t.Errorf("expected 1 attempt for a retry count of 0, but got %d", got)
+	}
+}
+
+// TestAlteredGenerateContentConfig tests that the system instruction fallback
+// is applied without mutating the caller's config.
+func TestAlteredGenerateContentConfig(t *testing.T) {
+	const systemInstruction = `You are a test.`
+
+	c := &Client{
+		systemInstructionFunc: func() string {
+			return systemInstruction
 		},
 	}
-	altered := c.alteredGenerateContentConfig(callerHTTPOptions)
-	if altered.HTTPOptions.APIVersion != apiVersion {
-		t.Errorf("expected APIVersion to be kept ('%s' != '%s')", altered.HTTPOptions.APIVersion, apiVersion)
-	}
-	if altered.HTTPOptions.RetryOptions == nil {
-		t.Errorf("expected RetryOptions to be injected into the existing HTTPOptions")
+
+	// with a nil config, the fallback system instruction should be applied
+	if altered := c.alteredGenerateContentConfig(nil); altered.SystemInstruction == nil {
+		t.Errorf("expected a fallback SystemInstruction for a nil config")
+	} else if got := altered.SystemInstruction.Parts[0].Text; got != systemInstruction {
+		t.Errorf("unexpected fallback SystemInstruction ('%s' != '%s')", got, systemInstruction)
 	}
 
-	// (4) the caller's HTTPOptions should not be mutated
-	if callerHTTPOptions.HTTPOptions.RetryOptions != nil {
-		t.Errorf("the caller's HTTPOptions should not be mutated")
+	// a caller-supplied system instruction should take precedence,
+	// and the caller's config should not be mutated
+	const callerInstruction = `You are the caller's.`
+	caller := &genai.GenerateContentConfig{
+		Temperature: new(float32(0.5)),
 	}
-
-	// (5) a zero retry count should mean a single attempt
-	noRetries := &Client{maxRetryCount: 0}
-	if altered := noRetries.alteredGenerateContentConfig(nil); altered.HTTPOptions.RetryOptions.Attempts == nil {
-		t.Errorf("expected Attempts to be set for a zero retry count")
-	} else if got := *altered.HTTPOptions.RetryOptions.Attempts; got != 1 {
-		t.Errorf("expected 1 attempt for a zero retry count, but got %d", got)
+	altered := c.alteredGenerateContentConfig(caller)
+	altered.SystemInstruction = &genai.Content{
+		Parts: []*genai.Part{{Text: callerInstruction}},
+	}
+	if caller.SystemInstruction != nil {
+		t.Errorf("the caller's config should not be mutated")
+	}
+	if altered.Temperature == nil || *altered.Temperature != 0.5 {
+		t.Errorf("expected the caller's other fields to be kept")
 	}
 }
