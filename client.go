@@ -38,7 +38,7 @@ Respond to the user according to the following principles:
 `
 
 	// default maximum retry count
-	defaultMaxRetryCount uint = 3 // NOTE: will retry only on `5xx` errors
+	defaultMaxRetryCount uint = 3 // NOTE: retried by the SDK on `408`, `429`, `5xx`, and transport errors
 )
 
 const (
@@ -61,7 +61,7 @@ type Client struct {
 	model                 string                   // model to be used for generation.
 	systemInstructionFunc FnSystemInstruction      // Function that returns the system instruction string.
 	fileConvertFuncs      map[string]FnConvertFile // Map of MIME types to custom file conversion functions.
-	maxRetryCount         uint                     // maximum retry count for retriable API errors (e.g., 5xx).
+	maxRetryCount         uint                     // maximum retry count for retriable API errors (e.g., 429, 5xx).
 
 	DeleteFilesOnClose  bool // If true, automatically deletes all uploaded files when Close is called.
 	DeleteCachesOnClose bool // If true, automatically deletes all cached contexts when Close is called.
@@ -81,7 +81,15 @@ func WithModel(model string) ClientOption {
 }
 
 // WithMaxRetryCount is a ClientOption that sets the default maximum retry count
-// for retriable API errors (typically 5xx server errors).
+// for retriable API errors.
+//
+// Retries are performed by the underlying genai SDK, which retries on `408`,
+// `429`, and `5xx` responses as well as transport-level failures, with
+// exponential backoff and jitter. A count of 0 disables retries.
+//
+// This applies to `GenerateContent`-family calls only. It is overridden for an
+// individual call by setting `HTTPOptions.RetryOptions` on that call's
+// `*genai.GenerateContentConfig`.
 func WithMaxRetryCount(count uint) ClientOption {
 	return func(c *Client) {
 		c.maxRetryCount = count
@@ -332,39 +340,12 @@ func (c *Client) SetFileConverter(mimeType string, fn FnConvertFile) {
 	c.fileConvertFuncs[mimeType] = fn
 }
 
-// SetMaxRetryCount sets the default maximum number of retries for retriable API errors
-// (typically 5xx server errors) encountered during operations like Generate.
+// SetMaxRetryCount sets the default maximum number of retries for retriable API
+// errors encountered during operations like Generate.
+//
+// See WithMaxRetryCount for which errors are retried.
 func (c *Client) SetMaxRetryCount(count uint) {
 	c.maxRetryCount = count
-}
-
-// generateStream is an internal helper to create a stream iterator for content generation.
-func (c *Client) generateStream(
-	ctx context.Context,
-	contents []*genai.Content,
-	options ...*genai.GenerateContentConfig,
-) iter.Seq2[*genai.GenerateContentResponse, error] {
-	// generation options
-	var opts *genai.GenerateContentConfig = nil
-	if len(options) > 0 {
-		opts = options[0]
-	}
-
-	if c.Verbose {
-		log.Printf(
-			"> generating streamed with contents: %s (options: %s)",
-			prettify(contents, true),
-			prettify(opts, true),
-		)
-	}
-
-	// stream
-	return c.client.Models.GenerateContentStream(
-		ctx,
-		c.model,
-		contents,
-		c.alteredGenerateContentConfig(opts),
-	)
 }
 
 // GenerateStreamIterated returns an iterator (iter.Seq2) for streaming generated content.
@@ -396,7 +377,26 @@ func (c *Client) GenerateStreamIterated(
 		return yieldErrorAndEndIterator[genai.GenerateContentResponse](fmt.Errorf("model is not set for generating iterated stream"))
 	}
 
-	return c.generateStream(ctx, contents, options...)
+	// generation options
+	var opts *genai.GenerateContentConfig = nil
+	if len(options) > 0 {
+		opts = options[0]
+	}
+
+	if c.Verbose {
+		log.Printf(
+			"> generating streamed with contents: %s (options: %s)",
+			prettify(contents, true),
+			prettify(opts, true),
+		)
+	}
+
+	return c.client.Models.GenerateContentStream(
+		ctx,
+		c.model,
+		contents,
+		c.alteredGenerateContentConfig(opts),
+	)
 }
 
 // Generate performs a synchronous content generation request.
@@ -404,8 +404,8 @@ func (c *Client) GenerateStreamIterated(
 //
 // A `model` must be set in the Client before calling.
 //
-// It also implements a retry mechanism for 5xx server errors, configured by `c.maxRetryCount`
-// (configurable via `WithMaxRetryCount` or `SetMaxRetryCount`).
+// Retriable errors are retried by the underlying genai SDK, up to `c.maxRetryCount`
+// times (configurable via `WithMaxRetryCount` or `SetMaxRetryCount`).
 func (c *Client) Generate(
 	ctx context.Context,
 	contents []*genai.Content,
@@ -430,7 +430,16 @@ func (c *Client) Generate(
 		)
 	}
 
-	return c.generate(ctx, contents, c.maxRetryCount, opts)
+	res, err = c.client.Models.GenerateContent(
+		ctx,
+		c.model,
+		contents,
+		c.alteredGenerateContentConfig(opts),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("generation failed: %w", err)
+	}
+	return res, nil
 }
 
 // FunctionCallHandler is a function type for handling function calls
@@ -648,71 +657,6 @@ func (c *Client) GenerateVideos(
 	}
 }
 
-// generate with retry count
-func (c *Client) generate(
-	ctx context.Context,
-	parts []*genai.Content,
-	retryBudget uint,
-	options ...*genai.GenerateContentConfig,
-) (res *genai.GenerateContentResponse, err error) {
-	if c.Verbose && retryBudget < c.maxRetryCount { // Compare with the original maxRetryCount from client config
-		log.Printf(
-			"> retrying generation with remaining retry budget: %d (initial: %d)",
-			retryBudget,
-			c.maxRetryCount,
-		)
-	}
-
-	// generation options
-	var opts *genai.GenerateContentConfig = nil
-	if len(options) > 0 {
-		opts = options[0]
-	}
-
-	res, err = c.client.Models.GenerateContent(
-		ctx,
-		c.model,
-		parts,
-		c.alteredGenerateContentConfig(opts),
-	)
-	if err != nil {
-		retriable := false
-
-		// retry on server errors (5xx)
-		var se genai.APIError
-		if (errors.As(err, &se) && se.Code >= 500) ||
-			regexpHTTP5xx.MatchString(err.Error()) {
-			retriable = true
-		}
-
-		if retriable {
-			if retryBudget > 0 { // retriable,
-				// exponential backoff: 1s, 2s, 4s, ...
-				retryIndex := c.maxRetryCount - retryBudget
-				backoff := time.Duration(1<<retryIndex) * time.Second
-				select {
-				case <-ctx.Done():
-					return nil, fmt.Errorf("context cancelled while waiting to retry generation: %w", ctx.Err())
-				case <-time.After(backoff):
-				}
-				// then retry with decremented budget
-				return c.generate(ctx, parts, retryBudget-1, options...)
-			} else { // not retriable (all retries have failed),
-				return nil, fmt.Errorf(
-					"all %d retries of generation failed with the latest error: %w",
-					c.maxRetryCount,
-					err,
-				)
-			}
-		}
-
-		// Wrap non-retried errors
-		return nil, fmt.Errorf("generation failed: %w", err)
-	}
-
-	return res, nil
-}
-
 // return an altered generate content config for generation
 func (c *Client) alteredGenerateContentConfig(
 	opts *genai.GenerateContentConfig,
@@ -735,6 +679,20 @@ func (c *Client) alteredGenerateContentConfig(
 			},
 		}
 	}
+
+	httpOpts := genai.HTTPOptions{}
+	if altered.HTTPOptions != nil {
+		// shallow copy to avoid mutating the caller's HTTPOptions
+		httpOpts = *altered.HTTPOptions
+	}
+	// retries are handled by the SDK's HTTP layer;
+	// a caller-supplied `RetryOptions` takes precedence
+	if httpOpts.RetryOptions == nil {
+		httpOpts.RetryOptions = &genai.HTTPRetryOptions{
+			Attempts: new(int32(c.maxRetryCount) + 1), // `Attempts` includes the initial request
+		}
+	}
+	altered.HTTPOptions = &httpOpts
 
 	return altered
 }
