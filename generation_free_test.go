@@ -24,13 +24,13 @@ import (
 //
 // https://ai.google.dev/gemini-api/docs/models
 const (
-	modelForContextCachingFree                       = `gemini-3.6-flash`
-	modelForTextGenerationFree                       = `gemini-3.6-flash`
-	modelForTextGenerationWithRecursiveToolCallsFree = `gemini-3.6-flash`
+	modelForContextCachingFree                       = `gemini-3.8-flash`
+	modelForTextGenerationFree                       = `gemini-3.8-flash`
+	modelForTextGenerationWithRecursiveToolCallsFree = `gemini-3.8-flash`
 	modelForTextGenerationWithGroundingFree          = `gemini-2.5-flash`
 	modelForFileSearchFree                           = `gemini-2.5-flash`
 	modelForSpeechGenerationFree                     = `gemini-2.5-flash-preview-tts`
-	modelForEmbeddingsFree                           = `gemini-embedding-2-preview`
+	modelForEmbeddingsFree                           = `gemini-embedding-2`
 )
 
 // TestContextCachingFree tests context caching and generation with the cached context. (free)
