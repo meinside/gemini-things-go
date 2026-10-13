@@ -25,16 +25,16 @@ import (
 //
 // https://ai.google.dev/gemini-api/docs/models
 const (
-	modelForContextCachingPaid                       = `gemini-3.6-flash`
-	modelForTextGenerationPaid                       = `gemini-3.6-flash`
-	modelForTextGenerationWithRecursiveToolCallsPaid = `gemini-3.6-flash`
+	modelForContextCachingPaid                       = `gemini-3.8-flash`
+	modelForTextGenerationPaid                       = `gemini-3.8-flash`
+	modelForTextGenerationWithRecursiveToolCallsPaid = `gemini-3.8-flash`
 	modelForImageGenerationPaid                      = `gemini-3.1-flash-lite-image`
 	modelForVideoGenerationPaid                      = `veo-3.1-fast-generate-001`
-	modelForTextGenerationWithGroundingPaid          = `gemini-3.6-flash`
-	modelForFileSearchPaid                           = `gemini-3.6-flash`
+	modelForTextGenerationWithGroundingPaid          = `gemini-3.8-flash`
+	modelForFileSearchPaid                           = `gemini-3.8-flash`
 	modelForSpeechGenerationPaid                     = `gemini-3.1-flash-tts-preview`
-	modelForEmbeddingsPaid                           = `gemini-embedding-2-preview`
-	modelForBatchesPaid                              = `gemini-3.6-flash`
+	modelForEmbeddingsPaid                           = `gemini-embedding-2`
+	modelForBatchesPaid                              = `gemini-3.8-flash`
 )
 
 // TestContextCachingPaid tests context caching and generation with the cached context. (paid)

@@ -28,7 +28,7 @@ const (
 	keyVertexCredentialsFilepath = `CREDENTIALS_FILEPATH`
 
 	defaultLocation              = `global`
-	defaultLocationForEmbeddings = `us-central1` // FIXME: currently working location for multimodal embeddings
+	defaultLocationForEmbeddings = `global`
 )
 
 // flag for verbose log
