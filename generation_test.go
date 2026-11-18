@@ -17,6 +17,7 @@ import (
 
 const (
 	timeoutSecondsForTesting                = 60
+	timeoutSecondsForTestingSlowGeneration  = 60 * 3 // 3 minutes, for generations with several round trips or tools (eg. grounding)
 	timeoutSecondsForTestingVideoGeneration = 60 * 5 // 5 minutes
 
 	// keys for environment variables
@@ -118,6 +119,44 @@ func mustHaveEnvVar(t *testing.T, key string) string {
 		return value
 	}
 	return ""
+}
+
+// checkCodeExecutionParts checks the parts generated with code execution.
+//
+// A failed execution alone does not fail the test, as the model often fixes
+// and reruns its code (eg. after a missing import): it fails only when no
+// execution succeeded, or no text was generated.
+func checkCodeExecutionParts(t *testing.T, label string, parts []*genai.Part) {
+	t.Helper()
+
+	var succeeded, texts int
+	for _, part := range parts {
+		switch {
+		case len(part.Text) > 0:
+			texts++
+			verbose(">>> generated text (%s): %s", label, part.Text)
+		case part.ExecutableCode != nil:
+			verbose(">>> executable code (%s, %s):\n%s", label, part.ExecutableCode.Language, part.ExecutableCode.Code)
+		case part.CodeExecutionResult != nil:
+			if part.CodeExecutionResult.Outcome == genai.OutcomeOK {
+				succeeded++
+				verbose(">>> code output (%s): %s", label, part.CodeExecutionResult.Output)
+			} else {
+				t.Logf("code execution (%s) failed, possibly retried by the model: %s", label, prettify(part.CodeExecutionResult))
+			}
+		case part.InlineData != nil:
+			verbose(">>> generated inline data (%s): %s (%d bytes)", label, part.InlineData.MIMEType, len(part.InlineData.Data))
+		default:
+			t.Errorf("wrong type of generated part (%s): (%T) %s", label, part, prettify(part))
+		}
+	}
+
+	if succeeded == 0 {
+		t.Errorf("no code execution (%s) succeeded", label)
+	}
+	if texts == 0 {
+		t.Errorf("no text (%s) was generated", label)
+	}
 }
 
 // create a new client with possible credentials

@@ -12,6 +12,7 @@ import (
 	"iter"
 	"log"
 	"path/filepath"
+	"slices"
 	"time"
 
 	"cloud.google.com/go/auth"
@@ -42,6 +43,23 @@ Respond to the user according to the following principles:
 )
 
 const (
+	// API versions of Gemini API
+	//
+	// genai SDK defaults to `v1` for Gemini API (since v1.78.0), but some features
+	// (eg. context caching, speech generation) are served only on `v1beta`,
+	// so requests using them are sent with `v1beta`:
+	//   - per field of generation configs: `needsBetaAPI`
+	//   - per resource (context caching): `cachingHTTPOptions`
+	//
+	// Recheck both when upgrading genai SDK, with:
+	//   - https://github.com/googleapis/go-genai/releases/tag/v1.78.0 (the default change)
+	//   - https://generativelanguage.googleapis.com/$discovery/rest?version=v1
+	//   - https://generativelanguage.googleapis.com/$discovery/rest?version=v1beta
+	apiVersionStable = `v1`
+	apiVersionBeta   = `v1beta`
+)
+
+const (
 	defaultBucketName                    = `gemini-things`
 	defaultNumDaysUploadedFilesTTL int64 = 1
 )
@@ -66,6 +84,11 @@ type Client struct {
 	// by pointer so that `SetMaxRetryCount` keeps working after construction.
 	// It includes the initial request, so it is always `maxRetryCount + 1`.
 	retryAttempts *int32
+
+	// API version handed to the genai client (set with `WithAPIVersion`).
+	// Empty means the SDK's default, which can be overridden with the
+	// `GOOGLE_GENAI_API_VERSION` environment variable.
+	apiVersion string
 
 	DeleteFilesOnClose  bool // If true, automatically deletes all uploaded files when Close is called.
 	DeleteCachesOnClose bool // If true, automatically deletes all cached contexts when Close is called.
@@ -100,6 +123,22 @@ func WithMaxRetryCount(count uint) ClientOption {
 	}
 }
 
+// WithAPIVersion is a ClientOption that sets the API version (eg. `v1`, `v1beta`)
+// used for every API call made through the client.
+//
+// Without it, the genai SDK's default is used: `v1` for Gemini API and `v1beta1`
+// for Vertex AI, or the value of the `GOOGLE_GENAI_API_VERSION` environment variable.
+//
+// On Gemini API with `v1`, requests which use `v1beta`-only features
+// (context caching, speech generation, ...) are still sent with `v1beta`,
+// but models served only on `v1beta` (eg. `-latest` aliases, some `-preview` models)
+// can be used only by setting this option to `v1beta`.
+func WithAPIVersion(version string) ClientOption {
+	return func(c *Client) {
+		c.apiVersion = version
+	}
+}
+
 // retryOptions returns the HTTP retry options to hand to the genai client,
 // along with the `Attempts` pointer to retain for later mutation.
 func retryOptions(count uint) (*genai.HTTPRetryOptions, *int32) {
@@ -128,22 +167,8 @@ func NewClient(apiKey string, opts ...ClientOption) (*Client, error) {
 	// retries are handled by the SDK, for every API call made through the client
 	retries, attempts := retryOptions(defaultMaxRetryCount)
 
-	// genai client
-	var client *genai.Client
-	client, err = genai.NewClient(context.TODO(), &genai.ClientConfig{
-		APIKey:  apiKey,
-		Backend: genai.BackendGeminiAPI,
-		HTTPOptions: genai.HTTPOptions{
-			RetryOptions: retries,
-		},
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to create genai client: %w", err)
-	}
-
 	c := &Client{
-		client: client,
-		Type:   genai.BackendGeminiAPI,
+		Type: genai.BackendGeminiAPI,
 		systemInstructionFunc: func() string {
 			return defaultSystemInstruction
 		},
@@ -154,8 +179,23 @@ func NewClient(apiKey string, opts ...ClientOption) (*Client, error) {
 		Verbose:             false,
 	}
 
+	// options are applied before creating the genai client,
+	// as some of them (eg. `WithAPIVersion`) configure it
 	for _, opt := range opts {
 		opt(c)
+	}
+
+	// genai client
+	c.client, err = genai.NewClient(context.TODO(), &genai.ClientConfig{
+		APIKey:  apiKey,
+		Backend: genai.BackendGeminiAPI,
+		HTTPOptions: genai.HTTPOptions{
+			APIVersion:   c.apiVersion,
+			RetryOptions: retries,
+		},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create genai client: %w", err)
 	}
 
 	return c, nil
@@ -191,38 +231,9 @@ func NewVertexClient(
 		// retries are handled by the SDK, for every API call made through the client
 		retries, attempts := retryOptions(defaultMaxRetryCount)
 
-		// genai client
-		var client *genai.Client
-		client, err = genai.NewClient(
-			ctx,
-			&genai.ClientConfig{
-				Backend:     genai.BackendVertexAI,
-				Project:     projectID,
-				Location:    location,
-				Credentials: creds,
-				HTTPOptions: genai.HTTPOptions{
-					RetryOptions: retries,
-				},
-			},
-		)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create genai client: %w", err)
-		}
-
-		// google cloud storage client
-		var sclient *storage.Client
-		if sclient, err = storage.NewClient(
-			ctx,
-			option.WithAuthCredentials(creds),
-		); err != nil {
-			return nil, fmt.Errorf("failed to create google cloud storage client: %w", err)
-		}
-
 		c := &Client{
-			client:                  client,
 			Type:                    genai.BackendVertexAI,
 			projectID:               projectID,
-			storage:                 sclient,
 			bucketName:              bucketName,
 			numDaysUploadedFilesTTL: defaultNumDaysUploadedFilesTTL,
 			systemInstructionFunc: func() string {
@@ -235,8 +246,36 @@ func NewVertexClient(
 			Verbose:             false,
 		}
 
+		// options are applied before creating the genai client,
+		// as some of them (eg. `WithAPIVersion`) configure it
 		for _, opt := range opts {
 			opt(c)
+		}
+
+		// genai client
+		c.client, err = genai.NewClient(
+			ctx,
+			&genai.ClientConfig{
+				Backend:     genai.BackendVertexAI,
+				Project:     projectID,
+				Location:    location,
+				Credentials: creds,
+				HTTPOptions: genai.HTTPOptions{
+					APIVersion:   c.apiVersion,
+					RetryOptions: retries,
+				},
+			},
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create genai client: %w", err)
+		}
+
+		// google cloud storage client
+		if c.storage, err = storage.NewClient(
+			ctx,
+			option.WithAuthCredentials(creds),
+		); err != nil {
+			return nil, fmt.Errorf("failed to create google cloud storage client: %w", err)
 		}
 
 		return c, nil
@@ -555,6 +594,9 @@ func (c *Client) generateWithRecursiveToolCalls(
 // GenerateImages generates images based on the provided text prompt and options.
 //
 // A `model` (specifically an image generation model) must be set in the Client before calling.
+//
+// Supported only on Vertex AI: genai SDK rejects it on Gemini API.
+// (On Gemini API, generate images with `Generate` and an image generation model instead.)
 func (c *Client) GenerateImages(
 	ctx context.Context,
 	prompt string, // The text prompt describing the images to generate.
@@ -595,6 +637,8 @@ func (c *Client) GenerateImages(
 // It will wait for the operation to complete before returning the result.
 //
 // A `model` (specifically a video generation model) must be set in the Client before calling.
+//
+// Supported only on Vertex AI: genai SDK rejects it on Gemini API (since v1.78.0).
 func (c *Client) GenerateVideos(
 	ctx context.Context,
 	prompt *string, // The optional text prompt describing the videos to generate.
@@ -705,7 +749,95 @@ func (c *Client) alteredGenerateContentConfig(
 		}
 	}
 
+	if needsBetaAPI(altered) {
+		altered.HTTPOptions = c.betaHTTPOptions(altered.HTTPOptions)
+	}
+
 	return altered
+}
+
+// needsBetaAPI reports whether the generation config uses fields which are
+// served only on `v1beta` of Gemini API.
+//
+// NOTE: each condition is a field missing in the `GenerateContentRequest` or
+// `GenerationConfig` schema of the `v1` discovery document (see `apiVersionBeta`);
+// remove a condition once its field is in `v1`, along with its case in `TestNeedsBetaAPI`.
+func needsBetaAPI(config *genai.GenerateContentConfig) bool {
+	if config == nil {
+		return false
+	}
+
+	return config.CachedContent != "" || // `GenerateContentRequest.cachedContent`
+		config.SpeechConfig != nil || // `GenerationConfig.speechConfig`
+		slices.Contains(config.ResponseModalities, string(genai.ModalityAudio)) || // not a missing field: TTS models are served only on `v1beta` (see the release note)
+		config.AudioTranscriptionConfig != nil || // `GenerationConfig.audioTranscriptionConfig`
+		len(config.Labels) > 0 // `GenerateContentRequest.labels`
+}
+
+// betaHTTPOptions returns HTTP options for a request which uses `v1beta`-only features.
+//
+// The API version is switched to `v1beta` only when the client is on Gemini API
+// with `v1`, so that a version set with `WithAPIVersion`, `GOOGLE_GENAI_API_VERSION`,
+// or `opts` itself is kept. Other fields of `opts` are kept as they are,
+// and client-level ones (eg. retries) still apply as the SDK merges them per field.
+func (c *Client) betaHTTPOptions(opts *genai.HTTPOptions) *genai.HTTPOptions {
+	if c.Type != genai.BackendGeminiAPI ||
+		c.client == nil ||
+		c.client.ClientConfig().HTTPOptions.APIVersion != apiVersionStable ||
+		(opts != nil && opts.APIVersion != "") {
+		return opts
+	}
+
+	// copy, as the SDK writes to the given options (eg. `Headers`)
+	// and they may be the caller's
+	var copied genai.HTTPOptions
+	if opts != nil {
+		copied = *opts
+	}
+	copied.APIVersion = apiVersionBeta
+
+	return &copied
+}
+
+// cachingHTTPOptions returns HTTP options for context caching requests,
+// as `cachedContents` is served only on `v1beta` of Gemini API.
+//
+// It is the only place deciding the API version of context caching.
+// Once `cachedContents` is in `v1` (see `apiVersionBeta`):
+//   - make it return nil (or remove it, with its callers' `HTTPOptions`)
+//   - replace `allCachedContexts` with `genai.Caches.All`
+//   - mark the caching calls in `TestAPIVersionsOfRequests` as not `beta`
+func (c *Client) cachingHTTPOptions() *genai.HTTPOptions {
+	return c.betaHTTPOptions(nil)
+}
+
+// allCachedContexts iterates over all cached contexts.
+//
+// It exists only because `genai.Caches.All` does not accept HTTP options,
+// which are needed for `cachingHTTPOptions`; replace it with `genai.Caches.All`
+// once they are not.
+func (c *Client) allCachedContexts(ctx context.Context) iter.Seq2[*genai.CachedContent, error] {
+	return func(yield func(*genai.CachedContent, error) bool) {
+		page, err := c.client.Caches.List(ctx, &genai.ListCachedContentsConfig{
+			HTTPOptions: c.cachingHTTPOptions(),
+		})
+		for {
+			if err != nil {
+				if !errors.Is(err, genai.ErrPageDone) {
+					yield(nil, err)
+				}
+				return
+			}
+
+			for _, item := range page.Items {
+				if !yield(item, nil) {
+					return
+				}
+			}
+
+			page, err = page.Next(ctx)
+		}
+	}
 }
 
 // CacheContext creates a cached content entry on the server.
@@ -769,6 +901,8 @@ func (c *Client) CacheContext(
 		argcc.ToolConfig = toolConfig
 	}
 
+	argcc.HTTPOptions = c.cachingHTTPOptions()
+
 	// create cached context
 	var cc *genai.CachedContent
 	if cc, err = c.client.Caches.Create(ctx, c.model, argcc); err != nil {
@@ -787,7 +921,9 @@ func (c *Client) SetCachedContextExpireTime(
 	expireTime time.Time, // The new expiration time.
 ) (err error) {
 	var cc *genai.CachedContent
-	cc, err = c.client.Caches.Get(ctx, cachedContextName, &genai.GetCachedContentConfig{})
+	cc, err = c.client.Caches.Get(ctx, cachedContextName, &genai.GetCachedContentConfig{
+		HTTPOptions: c.cachingHTTPOptions(),
+	})
 	if err != nil {
 		return fmt.Errorf(
 			"failed to get cached context %s: %w",
@@ -797,7 +933,8 @@ func (c *Client) SetCachedContextExpireTime(
 	}
 
 	_, err = c.client.Caches.Update(ctx, cc.Name, &genai.UpdateCachedContentConfig{
-		ExpireTime: expireTime,
+		HTTPOptions: c.cachingHTTPOptions(),
+		ExpireTime:  expireTime,
 	})
 	if err != nil {
 		return fmt.Errorf(
@@ -820,7 +957,9 @@ func (c *Client) SetCachedContextTTL(
 	ttl time.Duration, // The new TTL duration.
 ) (err error) {
 	var cc *genai.CachedContent
-	cc, err = c.client.Caches.Get(ctx, cachedContextName, &genai.GetCachedContentConfig{})
+	cc, err = c.client.Caches.Get(ctx, cachedContextName, &genai.GetCachedContentConfig{
+		HTTPOptions: c.cachingHTTPOptions(),
+	})
 	if err != nil {
 		return fmt.Errorf(
 			"failed to get cached context %s: %w",
@@ -830,7 +969,8 @@ func (c *Client) SetCachedContextTTL(
 	}
 
 	_, err = c.client.Caches.Update(ctx, cc.Name, &genai.UpdateCachedContentConfig{
-		TTL: ttl,
+		HTTPOptions: c.cachingHTTPOptions(),
+		TTL:         ttl,
 	})
 	if err != nil {
 		return fmt.Errorf(
@@ -853,7 +993,7 @@ func (c *Client) ListAllCachedContexts(ctx context.Context) (listed map[string]*
 		log.Printf("> listing all cached contexts...")
 	}
 
-	for it, err := range c.client.Caches.All(ctx) {
+	for it, err := range c.allCachedContexts(ctx) {
 		if err != nil {
 			return nil, fmt.Errorf("failed to iterate cached contexts while listing: %w", err)
 		}
@@ -877,7 +1017,7 @@ func (c *Client) DeleteAllCachedContexts(ctx context.Context) (err error) {
 		log.Printf("> deleting all cached contexts...")
 	}
 
-	for it, err := range c.client.Caches.All(ctx) {
+	for it, err := range c.allCachedContexts(ctx) {
 		if err != nil {
 			return fmt.Errorf("failed to iterate cached contexts while deleting: %w", err)
 		}
@@ -911,7 +1051,9 @@ func (c *Client) DeleteCachedContext(
 	if _, err = c.client.Caches.Delete(
 		ctx,
 		cachedContextName,
-		&genai.DeleteCachedContentConfig{},
+		&genai.DeleteCachedContentConfig{
+			HTTPOptions: c.cachingHTTPOptions(),
+		},
 	); err != nil {
 		return fmt.Errorf("failed to delete cached context: %w", err)
 	}
@@ -1399,6 +1541,21 @@ func (c *Client) RequestBatch(
 	var config *genai.CreateBatchJobConfig = nil
 	if len(options) > 0 {
 		config = options[0]
+	}
+
+	// inlined requests using `v1beta`-only features need the batch to be created on `v1beta`
+	//
+	// NOTE: requests in a file (`job.FileName`) cannot be inspected here,
+	// so use `WithAPIVersion` or `config.HTTPOptions` for them
+	if slices.ContainsFunc(job.InlinedRequests, func(req *genai.InlinedRequest) bool {
+		return req != nil && needsBetaAPI(req.Config)
+	}) {
+		var copied genai.CreateBatchJobConfig // copy, not to mutate the caller's config
+		if config != nil {
+			copied = *config
+		}
+		copied.HTTPOptions = c.betaHTTPOptions(copied.HTTPOptions)
+		config = &copied
 	}
 
 	if c.Verbose {
