@@ -66,6 +66,10 @@ func main() {
 }
 ```
 
+### API version
+
+Gemini API calls use the genai SDK's default API version (`v1`), and requests using `v1beta`-only features (eg. context caching, speech generation) are sent with `v1beta` automatically. To use models served only on `v1beta`, see `WithAPIVersion` in [client.go](https://github.com/meinside/gemini-things-go/blob/master/client.go).
+
 ## Test
 
 Test with Gemini API key:
@@ -77,15 +81,19 @@ $ GEMINI_API_KEY="AIabcdefghijklmnopqrstuvwxyz_ABCDEFG-00000000-00" go test -tim
 $ GEMINI_API_KEY="AIabcdefghijklmnopqrstuvwxyz_ABCDEFG-00000000-00" VERBOSE=true go test -timeout 0
 
 # for testing free APIs only
-$ GEMINI_API_KEY="AIabcdefghijklmnopqrstuvwxyz_ABCDEFG-00000000-00" go test -run="Free"
+$ GEMINI_API_KEY="AIabcdefghijklmnopqrstuvwxyz_ABCDEFG-00000000-00" go test -timeout 0 -run="Free"
 
 # for testing paid APIs only
-$ GEMINI_API_KEY="AIabcdefghijklmnopqrstuvwxyz_ABCDEFG-00000000-00" go test -run="Paid"
+$ GEMINI_API_KEY="AIabcdefghijklmnopqrstuvwxyz_ABCDEFG-00000000-00" go test -timeout 0 -run="Paid"
 ```
+
+`-timeout 0` is needed, as the tests take longer than `go test`'s default timeout (10 minutes).
 
 or with Google Cloud credential file (for Vertex AI):
 
 ```bash
 $ CREDENTIALS_FILEPATH="/path/to/credentials.json" go test -timeout 0
 ```
+
+With Vertex AI, tests of features not supported on it (file search) are skipped, while batch requests with inlined requests and embeddings fail as not implemented. Tests of features supported only on Vertex AI (video generation) are skipped with Gemini API key.
 

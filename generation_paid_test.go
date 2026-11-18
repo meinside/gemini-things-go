@@ -29,10 +29,10 @@ const (
 	modelForTextGenerationPaid                       = `gemini-3.8-flash`
 	modelForTextGenerationWithRecursiveToolCallsPaid = `gemini-3.8-flash`
 	modelForImageGenerationPaid                      = `gemini-3.1-flash-lite-image`
-	modelForVideoGenerationPaid                      = `veo-3.1-fast-generate-001`
+	modelForVideoGenerationPaid                      = `veo-3.1-fast-generate-001` // `GenerateVideos` is for Vertex AI only, which serves Veo models with it
 	modelForTextGenerationWithGroundingPaid          = `gemini-3.8-flash`
 	modelForFileSearchPaid                           = `gemini-3.8-flash`
-	modelForSpeechGenerationPaid                     = `gemini-3.1-flash-tts-preview`
+	modelForSpeechGenerationPaid                     = `gemini-3.8-flash-lite-tts`
 	modelForEmbeddingsPaid                           = `gemini-embedding-2`
 	modelForBatchesPaid                              = `gemini-3.8-flash`
 )
@@ -1097,21 +1097,7 @@ func TestGenerationWithCodeExecutionPaid(t *testing.T) {
 				},
 			},
 		); err == nil {
-			for _, part := range generated.Candidates[0].Content.Parts {
-				if len(part.Text) > 0 {
-					verbose(">>> generated text: %s", part.Text)
-				} else if part.ExecutableCode != nil {
-					verbose(">>> executable code (%s):\n%s", part.ExecutableCode.Language, part.ExecutableCode.Code)
-				} else if part.CodeExecutionResult != nil {
-					if part.CodeExecutionResult.Outcome != genai.OutcomeOK {
-						t.Errorf("code execution failed: %s", prettify(part.CodeExecutionResult))
-					} else {
-						verbose(">>> code output: %s", part.CodeExecutionResult.Output)
-					}
-				} else {
-					t.Errorf("wrong type of generated part: (%T) %s", part, prettify(part))
-				}
-			}
+			checkCodeExecutionParts(t, "random numbers", generated.Candidates[0].Content.Parts)
 		} else {
 			t.Errorf("generation with code execution failed: %s", ErrToStr(err))
 		}
@@ -1122,7 +1108,7 @@ func TestGenerationWithCodeExecutionPaid(t *testing.T) {
 		ctxContents,
 		[]Prompt{
 			PromptFromText(`Calculate the total and median of all values in the csv file. Also generate a nice graph from the csv file.`),
-			PromptFromFile("test.csv", strings.NewReader(`year,value\n1981,0\n2021,40\n2024,43\n2025,44`)),
+			PromptFromFile("test.csv", strings.NewReader("year,value\n1981,0\n2021,40\n2024,43\n2025,44\n")), // NOTE: not a raw string, for real newlines
 		},
 		nil,
 	); err != nil {
@@ -1142,23 +1128,7 @@ func TestGenerationWithCodeExecutionPaid(t *testing.T) {
 				},
 			},
 		); err == nil {
-			for _, part := range generated.Candidates[0].Content.Parts {
-				if len(part.Text) > 0 {
-					verbose(">>> generated text from csv: %s", part.Text)
-				} else if part.ExecutableCode != nil {
-					verbose(">>> executable code (%s) from csv:\n%s", part.ExecutableCode.Language, part.ExecutableCode.Code)
-				} else if part.CodeExecutionResult != nil {
-					if part.CodeExecutionResult.Outcome != genai.OutcomeOK {
-						t.Errorf("code execution from csv failed: %s", prettify(part.CodeExecutionResult))
-					} else {
-						verbose(">>> code output from csv: %s", part.CodeExecutionResult.Output)
-					}
-				} else if part.InlineData != nil {
-					verbose(">>> generated inline data from csv: %s (%d bytes)", part.InlineData.MIMEType, len(part.InlineData.Data))
-				} else {
-					t.Errorf("wrong type of generated part from csv: (%T) %s", part, prettify(part))
-				}
-			}
+			checkCodeExecutionParts(t, "csv", generated.Candidates[0].Content.Parts)
 		} else {
 			t.Errorf("generation with code execution from csv failed: %s", ErrToStr(err))
 		}
@@ -1512,6 +1482,11 @@ func TestVideoGenerationsPaid(t *testing.T) {
 	gtc.Verbose = _isVerbose
 	defer func() { _ = gtc.Close() }()
 
+	// genai SDK rejects `GenerateVideos` on Gemini API (since v1.78.0)
+	if gtc.Type != genai.BackendVertexAI {
+		t.Skip("`GenerateVideos` is supported only on Vertex AI")
+	}
+
 	const prompt = `Generate a really short video of a golden retriever puppy playing with a colorful ball in a grassy park`
 
 	ctxGenerate, cancelGenerate := ctxWithTimeout(timeoutSecondsForTestingVideoGeneration)
@@ -1714,7 +1689,7 @@ func TestGroundingPaid(t *testing.T) {
 	); err != nil {
 		t.Errorf("failed to convert prompts to contents: %s", err)
 	} else {
-		ctxGenerate, cancelGenerate := ctxWithTimeout()
+		ctxGenerate, cancelGenerate := ctxWithTimeout(timeoutSecondsForTestingSlowGeneration)
 		defer cancelGenerate()
 
 		if res, err := gtc.Generate(
@@ -1754,7 +1729,7 @@ func TestGroundingPaid(t *testing.T) {
 	); err != nil {
 		t.Errorf("failed to convert prompts to contents: %s", err)
 	} else {
-		ctxGenerate, cancelGenerate := ctxWithTimeout()
+		ctxGenerate, cancelGenerate := ctxWithTimeout(timeoutSecondsForTestingSlowGeneration)
 		defer cancelGenerate()
 
 		for it, err := range gtc.GenerateStreamIterated(
@@ -1791,7 +1766,9 @@ func TestRecursiveToolCallsPaid(t *testing.T) {
 	gtc.Verbose = _isVerbose
 	defer func() { _ = gtc.Close() }()
 
-	ctxGenerate, cancelGenerate := context.WithTimeout(context.TODO(), 15*time.Second) // FIXME: not to recurse forever
+	// recursion is bounded by the maximum depth of `GenerateWithRecursiveToolCalls`,
+	// so the timeout only needs to cover several round trips (incl. retries)
+	ctxGenerate, cancelGenerate := ctxWithTimeout(timeoutSecondsForTestingSlowGeneration)
 	defer cancelGenerate()
 
 	if contents, err := gtc.PromptsToContents(
@@ -1941,6 +1918,11 @@ func TestFileSearchPaid(t *testing.T) {
 	}
 	gtc.Verbose = _isVerbose
 	defer func() { _ = gtc.Close() }()
+
+	// file search stores are not supported on Vertex AI (see `CreateFileSearchStore`)
+	if gtc.Type == genai.BackendVertexAI {
+		t.Skip("file search stores are not supported on Vertex AI")
+	}
 
 	ctxStore, cancelStore := ctxWithTimeout()
 	defer cancelStore()

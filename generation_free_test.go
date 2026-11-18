@@ -29,7 +29,7 @@ const (
 	modelForTextGenerationWithRecursiveToolCallsFree = `gemini-3.8-flash`
 	modelForTextGenerationWithGroundingFree          = `gemini-2.5-flash`
 	modelForFileSearchFree                           = `gemini-2.5-flash`
-	modelForSpeechGenerationFree                     = `gemini-2.5-flash-preview-tts`
+	modelForSpeechGenerationFree                     = `gemini-3.8-flash-tts`
 	modelForEmbeddingsFree                           = `gemini-embedding-2`
 )
 
@@ -1062,21 +1062,7 @@ func TestGenerationWithCodeExecutionFree(t *testing.T) {
 				},
 			},
 		); err == nil {
-			for _, part := range generated.Candidates[0].Content.Parts {
-				if len(part.Text) > 0 {
-					verbose(">>> generated text: %s", part.Text)
-				} else if part.ExecutableCode != nil {
-					verbose(">>> executable code (%s):\n%s", part.ExecutableCode.Language, part.ExecutableCode.Code)
-				} else if part.CodeExecutionResult != nil {
-					if part.CodeExecutionResult.Outcome != genai.OutcomeOK {
-						t.Errorf("code execution failed: %s", prettify(part.CodeExecutionResult))
-					} else {
-						verbose(">>> code output: %s", part.CodeExecutionResult.Output)
-					}
-				} else {
-					t.Errorf("wrong type of generated part: (%T) %s", part, prettify(part))
-				}
-			}
+			checkCodeExecutionParts(t, "random numbers", generated.Candidates[0].Content.Parts)
 		} else {
 			t.Errorf("generation with code execution failed: %s", ErrToStr(err))
 		}
@@ -1090,7 +1076,7 @@ func TestGenerationWithCodeExecutionFree(t *testing.T) {
 		ctxContents2,
 		[]Prompt{
 			PromptFromText(`Calculate the total and median of all values in the csv file. Also generate a nice graph from the csv file.`),
-			PromptFromFile("test.csv", strings.NewReader(`year,value\n1981,0\n2021,40\n2024,43\n2025,44`)),
+			PromptFromFile("test.csv", strings.NewReader("year,value\n1981,0\n2021,40\n2024,43\n2025,44\n")), // NOTE: not a raw string, for real newlines
 		},
 		nil,
 	); err != nil {
@@ -1110,23 +1096,7 @@ func TestGenerationWithCodeExecutionFree(t *testing.T) {
 				},
 			},
 		); err == nil {
-			for _, part := range generated.Candidates[0].Content.Parts {
-				if len(part.Text) > 0 {
-					verbose(">>> generated text from csv: %s", part.Text)
-				} else if part.ExecutableCode != nil {
-					verbose(">>> executable code (%s) from csv:\n%s", part.ExecutableCode.Language, part.ExecutableCode.Code)
-				} else if part.CodeExecutionResult != nil {
-					if part.CodeExecutionResult.Outcome != genai.OutcomeOK {
-						t.Errorf("code execution from csv failed: %s", prettify(part.CodeExecutionResult))
-					} else {
-						verbose(">>> code output from csv: %s", part.CodeExecutionResult.Output)
-					}
-				} else if part.InlineData != nil {
-					verbose(">>> generated inline data from csv: %s (%d bytes)", part.InlineData.MIMEType, len(part.InlineData.Data))
-				} else {
-					t.Errorf("wrong type of generated part from csv: (%T) %s", part, prettify(part))
-				}
-			}
+			checkCodeExecutionParts(t, "csv", generated.Candidates[0].Content.Parts)
 		} else {
 			t.Errorf("generation with code execution from csv failed: %s", ErrToStr(err))
 		}
@@ -1505,7 +1475,7 @@ func TestGroundingFree(t *testing.T) {
 	); err != nil {
 		t.Errorf("failed to convert prompts to contents: %s", err)
 	} else {
-		ctxGenerate, cancelGenerate := ctxWithTimeout()
+		ctxGenerate, cancelGenerate := ctxWithTimeout(timeoutSecondsForTestingSlowGeneration)
 		defer cancelGenerate()
 
 		if res, err := gtc.Generate(
@@ -1545,7 +1515,7 @@ func TestGroundingFree(t *testing.T) {
 	); err != nil {
 		t.Errorf("failed to convert prompts to contents: %s", err)
 	} else {
-		ctxGenerate, cancelGenerate := ctxWithTimeout()
+		ctxGenerate, cancelGenerate := ctxWithTimeout(timeoutSecondsForTestingSlowGeneration)
 		defer cancelGenerate()
 
 		for it, err := range gtc.GenerateStreamIterated(
@@ -1591,7 +1561,9 @@ func TestRecursiveToolCallsFree(t *testing.T) {
 	); err != nil {
 		t.Errorf("failed to convert prompts to contents: %s", err)
 	} else {
-		ctxGenerate, cancelGenerate := context.WithTimeout(context.TODO(), 15*time.Second) // FIXME: not to recurse forever
+		// recursion is bounded by the maximum depth of `GenerateWithRecursiveToolCalls`,
+		// so the timeout only needs to cover several round trips (incl. retries)
+		ctxGenerate, cancelGenerate := ctxWithTimeout(timeoutSecondsForTestingSlowGeneration)
 		defer cancelGenerate()
 
 		if res, err := gtc.GenerateWithRecursiveToolCalls(
@@ -1732,6 +1704,11 @@ func TestFileSearchFree(t *testing.T) {
 	}
 	gtc.Verbose = _isVerbose
 	defer func() { _ = gtc.Close() }()
+
+	// file search stores are not supported on Vertex AI (see `CreateFileSearchStore`)
+	if gtc.Type == genai.BackendVertexAI {
+		t.Skip("file search stores are not supported on Vertex AI")
+	}
 
 	ctxStore, cancelStore := ctxWithTimeout()
 	defer cancelStore()
