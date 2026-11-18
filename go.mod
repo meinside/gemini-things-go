@@ -11,7 +11,7 @@ require (
 	github.com/googleapis/gax-go/v2 v2.27.0
 	github.com/modelcontextprotocol/go-sdk v1.8.0
 	google.golang.org/api v0.316.0
-	google.golang.org/genai v1.78.0
+	google.golang.org/genai v1.79.0
 	google.golang.org/grpc v1.85.0
 )
 
